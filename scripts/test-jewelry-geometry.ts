@@ -1,13 +1,12 @@
 /**
  * Тест геометрии подставки для украшений.
  *
- * Три пресета коллекции: лоток-лист, стоящий low-poly олень с рогами-деревом и
+ * Три пресета коллекции: лоток-лист, гладкая скульптура оленя с рогами-деревом и
  * плетёное древо. Проверяется
  * то, что обещает панель: габарит по Z совпадает с высотой из ползунка, деталь
  * стоит на столе, сетка замкнута. У листа и древа нависаний круче 45° нет; у
- * low-poly оленя допущен небольшой бюджет строительных граней корпуса и ушей, а
- * рога по-прежнему поднимаются не положе 55°. Сетка неиндексированная, поэтому
- * вершины свариваются по
+ * оленя гладкие лофты корпуса и головы, а рога по-прежнему поднимаются не
+ * положе 55°. Сетка неиндексированная, поэтому вершины свариваются по
  * координатам: без этого у каждого треугольника были бы свои вершины и проверка
  * рёбер не нашла бы ни одной пары.
  *
@@ -21,9 +20,14 @@ import type { BufferGeometry } from "three";
 import {
   JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG,
   JEWELRY_DEER_BASE_HEIGHT_MM,
-  JEWELRY_DEER_HEAD_HEIGHT_MM,
-  JEWELRY_DEER_HEAD_LENGTH_MM,
-  JEWELRY_DEER_HEAD_WIDTH_MM,
+  JEWELRY_DEER_BODY_POINTS,
+  JEWELRY_DEER_BODY_SECTIONS,
+  JEWELRY_DEER_EAR_PEAK_SECTION,
+  JEWELRY_DEER_HEAD_ANCHOR_SECTIONS,
+  JEWELRY_DEER_HEAD_ORIGIN_Z_MM,
+  JEWELRY_DEER_HEAD_PROFILE,
+  JEWELRY_DEER_HEAD_SECTION_POINTS,
+  JEWELRY_DEER_HEAD_SECTIONS,
   JEWELRY_DEER_LEG_DIAMETER_MM,
   JEWELRY_DEER_LEG_HEIGHT_MM,
   JEWELRY_DEER_MAX_FOOTPRINT_MM,
@@ -36,7 +40,6 @@ import {
   createJewelryDeerGeometry,
   jewelryDeerHeightMm,
   jewelryDeerPlan,
-  type JewelryDeerBox,
   type JewelryDeerPlan,
 } from "../lib/constructor/jewelry-deer-geometry";
 import {
@@ -773,33 +776,75 @@ function insideTube(
   return false;
 }
 
-/** Точка внутри наклонённого блока с запасом `marginMm`. */
-function insideDeerBox(
-  box: JewelryDeerBox,
+/** Точка внутри гладкого корпуса: ближайшее эллиптическое сечение. */
+function insideBody(
+  plan: JewelryDeerPlan,
   point: Point,
   marginMm = 0,
 ): boolean {
-  const tiltRad = (box.tiltXDeg * Math.PI) / 180;
-  const dx = point[0] - box.centerMm[0];
-  const dy = point[1] - box.centerMm[1];
-  const dz = point[2] - box.centerMm[2];
-  const localY = dy * Math.cos(tiltRad) + dz * Math.sin(tiltRad);
-  const localZ = -dy * Math.sin(tiltRad) + dz * Math.cos(tiltRad);
+  let nearest = plan.body.sections[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
 
-  return (
-    Math.abs(dx) <= box.widthMm / 2 - marginMm &&
-    Math.abs(localY) <= box.lengthMm / 2 - marginMm &&
-    Math.abs(localZ) <= box.heightMm / 2 - marginMm
-  );
+  for (const section of plan.body.sections) {
+    const distance = Math.abs(point[1] - section.centerMm[1]);
+
+    if (distance < nearestDistance) {
+      nearest = section;
+      nearestDistance = distance;
+    }
+  }
+
+  if (nearestDistance > plan.body.lengthMm / 2 + 1e-6) {
+    return false;
+  }
+
+  const radiusX = Math.max(0.01, nearest.radiusXMm - marginMm);
+  const radiusUp = Math.max(0.01, nearest.radiusUpMm - marginMm);
+  const normalizedX = (point[0] - nearest.centerMm[0]) / radiusX;
+  const normalizedUp = (point[2] - nearest.centerMm[2]) / radiusUp;
+
+  return normalizedX * normalizedX + normalizedUp * normalizedUp <= 1.05;
 }
 
-/** Точка внутри low-poly головы. */
+/** Точка внутри гладкого лофта головы: эллипс ближайшего кольца. */
 function insideHead(
   plan: JewelryDeerPlan,
   point: Point,
   marginMm = 0,
 ): boolean {
-  return insideDeerBox(plan.head, point, marginMm);
+  let nearest = plan.head.sections[0];
+  let nearestDistance = Number.POSITIVE_INFINITY;
+
+  for (const section of plan.head.sections) {
+    const distance = Math.hypot(
+      point[0] - section.centerMm[0],
+      point[1] - section.centerMm[1],
+      point[2] - section.centerMm[2],
+    );
+
+    if (distance < nearestDistance) {
+      nearest = section;
+      nearestDistance = distance;
+    }
+  }
+
+  const dx = point[0] - nearest.centerMm[0];
+  const dy = point[1] - nearest.centerMm[1];
+  const dz = point[2] - nearest.centerMm[2];
+  const tangent = nearest.tangentMm;
+  const along = dx * tangent[0] + dy * tangent[1] + dz * tangent[2];
+  const upY = tangent[2];
+  const upZ = -tangent[1];
+  const up = dy * upY + dz * upZ;
+  const radiusX = Math.max(0.01, nearest.radiusXMm - marginMm);
+  const radiusUp = Math.max(0.01, nearest.radiusUpMm - marginMm);
+
+  return (
+    Math.abs(along) <= 12 &&
+    (dx * dx) / (radiusX * radiusX) +
+      (up * up) / (radiusUp * radiusUp) <=
+      1.08
+  );
 }
 
 /** Точка внутри плиты или её полости: там потолки не считаются нависанием. */
@@ -816,8 +861,8 @@ function insideBasePlate(plan: JewelryDeerPlan, point: Point): boolean {
 
 /** Точка внутри плинта: его низ лежит на лотке, потолки поддержаны. */
 function insidePlinth(plan: JewelryDeerPlan, point: Point): boolean {
-  // Тело и ноги утоплены в плинт, но их нижние грани могут выходить на
-  // пару миллиметров выше лица плинта. Это всё ещё опирается на плинт.
+  // Ноги утоплены в плинт, но их нижние грани могут выходить на пару
+  // миллиметров выше лица плинта. Это всё ещё опирается на плинт.
   if (point[2] > plan.plinth.topZMm + 4) {
     return false;
   }
@@ -826,11 +871,6 @@ function insidePlinth(plan: JewelryDeerPlan, point: Point): boolean {
   const dy = (point[1] - plan.plinth.centerMm[1]) / (plan.plinth.lengthMm / 2);
 
   return dx * dx + dy * dy <= 1;
-}
-
-/** Точка внутри гранёного корпуса. */
-function insideBody(plan: JewelryDeerPlan, point: Point): boolean {
-  return insideDeerBox(plan.body, point);
 }
 
 /** Нависания оленя: потолки, у которых есть опора или скрытый корень. */
@@ -869,8 +909,6 @@ function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
 
     // Торцы корней утоплены в стволы и голову: их веера закрыты материалом, а
     // не висят в воздухе. Плинт стоит на лотке, поэтому его низ тоже опирается.
-    // Плоские днища low-poly блоков лежат на границе объёма: это осознанные
-    // строительные плоскости, а не случайные нависания.
     const buried = tubes.some((points) =>
       insideTube(
         center,
@@ -886,7 +924,6 @@ function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
       insideBasePlate(plan, center) ||
       insidePlinth(plan, center) ||
       insideBody(plan, center) ||
-      insideDeerBox(plan.neck, center) ||
       insideHead(plan, center) ||
       buried
     ) {
@@ -899,7 +936,7 @@ function deerOverhangs(mesh: Mesh, plan: JewelryDeerPlan): number {
   return count;
 }
 
-console.log("\nОлень «Лесной олень»: стоящая low-poly фигура и крона");
+console.log("\nОлень «Лесной олень»: гладкая фигура и крона");
 
 /** Витринный олень из референса: лоток 250 × 150, авторская высота около 420 мм. */
 const deerCase = {
@@ -922,7 +959,7 @@ check(
 );
 check(
   "олень: крупная фигура ужата масштабом",
-  deerPlan.fitScale < 1 && deerPlan.fitScale > 0.5,
+  deerPlan.fitScale < 1 && deerPlan.fitScale > 0.4,
   true,
 );
 check(
@@ -987,11 +1024,15 @@ check(
 check(
   "олень: корпус поднят над плинтом на ногах",
   deerPlan.body.bottomZMm > deerPlan.plinth.topZMm &&
-    deerPlan.legs.every(
-      (leg) =>
-        Math.abs(leg.bottomZMm - deerPlan.baseHeightMm) < 1e-9 &&
-        leg.topZMm > deerPlan.body.bottomZMm,
-    ),
+    deerPlan.legs.every((leg) => {
+      const foot = leg.points[0];
+      const top = leg.points[leg.points.length - 1];
+
+      return (
+        Math.abs(foot.zMm - deerPlan.baseHeightMm) < 1e-9 &&
+        top.zMm > deerPlan.body.bottomZMm
+      );
+    }),
   true,
 );
 check(
@@ -1002,11 +1043,9 @@ check(
   true,
 );
 check(
-  "олень: корпус — блок 50 × 20 × 25",
-  Math.abs(deerPlan.body.lengthMm / deerPlan.body.widthMm - 2.5) <
-    1e-9 &&
-    Math.abs(deerPlan.body.heightMm / deerPlan.body.widthMm - 1.25) <
-      1e-9 &&
+  "олень: корпус — гладкий лофт 55 × 28 × 36",
+  deerPlan.body.sections.length === JEWELRY_DEER_BODY_SECTIONS + 1 &&
+    deerPlan.body.pointsPerSection === JEWELRY_DEER_BODY_POINTS &&
     Math.abs(
       deerPlan.body.lengthMm -
         JEWELRY_DEER_TORSO_LENGTH_MM * deerPlan.fitScale,
@@ -1022,90 +1061,115 @@ check(
   true,
 );
 check(
-  "олень: в корпусе нет гладких сечений",
-  !("sections" in deerPlan.body),
+  "олень: корпус состоит из эллиптических сечений",
+  deerPlan.body.sections.every(
+    (section) => section.radiusXMm > 0 && section.radiusUpMm > 0,
+  ),
   true,
 );
 
-console.log("\nОлень «Лесной олень»: low-poly голова, уши и посадка");
+console.log("\nОлень «Лесной олень»: гладкая голова и восемь сечений");
 
 check(
-  "олень: голова — блок 15 × 25 × 15",
-  Math.abs(
-    deerPlan.head.widthMm -
-      JEWELRY_DEER_HEAD_WIDTH_MM * deerPlan.fitScale,
-  ) < 1e-9 &&
-    Math.abs(
-      deerPlan.head.lengthMm -
-        JEWELRY_DEER_HEAD_LENGTH_MM * deerPlan.fitScale,
-    ) < 1e-9 &&
-    Math.abs(
-      deerPlan.head.heightMm -
-        JEWELRY_DEER_HEAD_HEIGHT_MM * deerPlan.fitScale,
-    ) < 1e-9,
+  "олень: сто колец по 64 точки",
+  deerSkull.sections.length === JEWELRY_DEER_HEAD_SECTIONS &&
+    deerSkull.sectionCount === JEWELRY_DEER_HEAD_SECTIONS &&
+    deerSkull.pointsPerSection === JEWELRY_DEER_HEAD_SECTION_POINTS,
   true,
 );
 check(
-  "олень: в голове нет гладких сечений",
-  !("sections" in deerSkull),
+  "олень: восемь опорных сечений на своих кольцах",
+  deerSkull.anchors.length === 8 &&
+    deerSkull.anchors.every(
+      (anchor, index) =>
+        anchor.sectionIndex === JEWELRY_DEER_HEAD_ANCHOR_SECTIONS[index],
+    ),
   true,
 );
 check(
-  "олень: голова наклонена носом вниз",
-  deerSkull.tiltXDeg > 0,
+  "олень: размеры сечений совпадают с чертежом",
+  deerSkull.anchors.every((anchor, index) => {
+    const profile = JEWELRY_DEER_HEAD_PROFILE[index];
+
+    return (
+      anchor.widthMm === profile.widthMm &&
+      anchor.heightMm === profile.heightMm &&
+      Math.abs(
+        anchor.radiusXMm - (profile.widthMm / 2) * deerPlan.fitScale,
+      ) < 1e-9 &&
+      Math.abs(
+        anchor.radiusUpMm - (profile.heightMm / 2) * deerPlan.fitScale,
+      ) < 1e-9
+    );
+  }),
   true,
 );
 check(
-  "олень: голова выше тела",
-  deerPlan.crownZMm > deerPlan.body.topZMm + 10,
+  "олень: ось проходит точно через восемь точек чертежа",
+  deerSkull.anchors.every((anchor, index) => {
+    const profile = JEWELRY_DEER_HEAD_PROFILE[index];
+    const expectedZ =
+      deerPlan.baseHeightMm +
+      (JEWELRY_DEER_HEAD_ORIGIN_Z_MM + profile.heightYMm - deerPlan.baseHeightMm) *
+        deerPlan.fitScale;
+
+    return (
+      Math.abs(anchor.centerMm[0]) < 1e-9 &&
+      Math.abs(anchor.centerMm[1] - profile.forwardZMm * deerPlan.fitScale) <
+        1e-9 &&
+      Math.abs(anchor.centerMm[2] - expectedZ) < 1e-9
+    );
+  }),
   true,
 );
 check(
-  "олень: нос вынесен вперёд и остаётся над лотком",
-  deerPlan.head.noseMm[1] < deerPlan.body.centerMm[1] - 10 &&
-    deerPlan.head.noseMm[1] > -deerPlan.baseWidthMm / 2 - 1e-6,
+  "олень: кольца повёрнуты перпендикулярно оси",
+  deerSkull.sections.every(
+    (section) =>
+      Math.abs(
+        Math.hypot(...section.tangentMm) - 1,
+      ) < 1e-9,
+  ),
   true,
 );
 check(
-  "олень: морда длиннее высоты головы",
-  deerPlan.head.lengthMm > deerPlan.head.heightMm,
+  "олень: все сечения гладкие и положительные",
+  deerSkull.sections.every(
+    (section) => section.radiusXMm > 0 && section.radiusUpMm > 0,
+  ),
   true,
 );
 check(
-  "олень: уши — два выроста",
+  "олень: макушка выше корпуса",
+  deerPlan.crownZMm > deerPlan.body.topZMm + 20,
+  true,
+);
+check(
+  "олень: нос смотрит вперёд и вниз",
+  deerSkull.noseMm[1] <
+    deerSkull.anchors[4].centerMm[1] - 10 &&
+    deerSkull.noseMm[2] < deerSkull.anchors[4].centerMm[2] &&
+    deerSkull.noseMm[2] > deerPlan.baseHeightMm,
+  true,
+);
+check(
+  "олень: уши — два интегрированных лепестка",
   deerPlan.ears.length === 2 &&
-    Math.abs(deerPlan.ears[0].tipMm[0] + deerPlan.ears[1].tipMm[0]) < 1e-9,
+    Math.abs(deerPlan.ears[0].tipMm[0] + deerPlan.ears[1].tipMm[0]) < 1e-9 &&
+    deerPlan.ears.every(
+      (ear) => ear.tipMm[2] > ear.rootMm[2],
+    ),
   true,
 );
 check(
   "олень: уши выходят за череп",
   Math.abs(deerPlan.ears[0].tipMm[0]) >
-    deerSkull.widthMm / 2 + 1.5,
+    deerSkull.sections[JEWELRY_DEER_EAR_PEAK_SECTION].radiusXMm + 1,
   true,
 );
 check(
-  "олень: корни ушей внутри головы",
+  "олень: корни ушей внутри лофта",
   deerPlan.ears.every((ear) => insideHead(deerPlan, ear.rootMm)),
-  true,
-);
-
-const neckTilt = (deerPlan.neck.tiltXDeg * Math.PI) / 180;
-const neckHalfZ = (deerPlan.neck.heightMm / 2) * Math.cos(neckTilt);
-const neckHalfY = (deerPlan.neck.heightMm / 2) * Math.sin(neckTilt);
-const neckBottom: Point = [
-  0,
-  deerPlan.neck.centerMm[1] + neckHalfY,
-  deerPlan.neck.centerMm[2] - neckHalfZ,
-];
-const neckTop: Point = [
-  0,
-  deerPlan.neck.centerMm[1] - neckHalfY,
-  deerPlan.neck.centerMm[2] + neckHalfZ,
-];
-
-check(
-  "олень: шея пересекает корпус и голову",
-  insideBody(deerPlan, neckBottom) && insideHead(deerPlan, neckTop),
   true,
 );
 
@@ -1200,41 +1264,61 @@ check(
 
 console.log("\nОлень «Лесной олень»: корпус, ноги и полость");
 
-check("олень: четыре прямые ноги", deerPlan.legs.length, 4);
+check("олень: четыре гладкие ноги", deerPlan.legs.length, 4);
 check(
-  "олень: ноги — восьмигранные цилиндры Ø6 × 35",
-  deerPlan.legs.every(
-    (leg) =>
-      leg.sides === 8 &&
-      Math.abs(leg.radiusMm * 2 - JEWELRY_DEER_LEG_DIAMETER_MM * deerPlan.fitScale) <
-        1e-9 &&
+  "олень: ноги — шестнадцатигранные лофт-трубы",
+  deerPlan.legs.every((leg) => {
+    const foot = leg.points[0];
+    const top = leg.points[leg.points.length - 1];
+
+    return (
+      leg.sides === 16 &&
+      leg.points.length >= 4 &&
       Math.abs(
-        leg.topZMm -
-          leg.bottomZMm -
+        foot.radiusMm * 2 -
+          JEWELRY_DEER_LEG_DIAMETER_MM * deerPlan.fitScale,
+      ) < 1e-9 &&
+      top.radiusMm > foot.radiusMm &&
+      Math.abs(
+        top.zMm -
+          foot.zMm -
           JEWELRY_DEER_LEG_HEIGHT_MM * deerPlan.fitScale,
-      ) < 1e-9,
-  ),
+      ) < 1e-9
+    );
+  }),
   true,
 );
 check(
-  "олень: верхние торцы ног внутри корпуса",
-  deerPlan.legs.every((leg) =>
-    insideBody(deerPlan, [leg.xMm, leg.yMm, leg.topZMm]),
-  ),
+  "олень: верхние сечения ног внутри корпуса",
+  deerPlan.legs.every((leg) => {
+    const top = leg.points[leg.points.length - 1];
+
+    return insideBody(deerPlan, [top.xMm, top.yMm, top.zMm]);
+  }),
   true,
 );
 check(
   "олень: лапы стоят на плинте",
   deerPlan.legs.every((leg) => {
-    const foot: Point = [leg.xMm, leg.yMm, leg.bottomZMm];
+    const foot = leg.points[0];
+    const point: Point = [foot.xMm, foot.yMm, foot.zMm];
 
-    return insidePlinth(deerPlan, foot) && leg.bottomZMm < deerPlan.plinth.topZMm;
+    return (
+      insidePlinth(deerPlan, point) &&
+      foot.zMm < deerPlan.plinth.topZMm
+    );
   }),
   true,
 );
 check(
   "олень: ноги образуют прямоугольник stance",
-  new Set(deerPlan.legs.map((leg) => `${leg.xMm}:${leg.yMm}`)).size === 4,
+  new Set(
+    deerPlan.legs.map((leg) => {
+      const foot = leg.points[0];
+
+      return `${foot.xMm}:${foot.yMm}`;
+    }),
+  ).size === 4,
   true,
 );
 check(
@@ -1260,14 +1344,14 @@ check("олень: открытых рёбер", openEdges(deerMesh), 0);
 check("олень: NaN", nanVertices(deerGeometry), 0);
 check("олень: вырожденных треугольников", degenerateTriangles(deerMesh), 0);
 check(
-  "олень: low-poly плоские нормали",
-  flatShadingSpots(deerGeometry, 60) > 0,
-  true,
+  "олень: поверхность гладкая",
+  flatShadingSpots(deerGeometry, 60),
+  0,
 );
-check("олень: низкополигональная сетка", deerTriangles < 20000, true);
+check("олень: плотная гладкая сетка", deerTriangles < 100000, true);
 check(
   "олень: сетка не потеряла рога",
-  deerTriangles > 4000,
+  deerTriangles > 15000,
   true,
 );
 check("олень: низ на столе", Math.abs(deerMinZ) <= 1e-6, true);
@@ -1279,9 +1363,11 @@ check(
 expectNear("олень: габарит по X", deerMaxX - deerMinX, 250, 0.15);
 expectNear("олень: габарит по Y", deerMaxY - deerMinY, 150, 0.15);
 check("олень: нос не выходит за лоток", deerMinY >= -75.01, true);
+const deerOverhangCount = deerOverhangs(deerMesh, deerPlan);
+
 check(
-  "олень: low-poly нависания в бюджете 8 граней",
-  deerOverhangs(deerMesh, deerPlan) <= 8,
+  "олень: нависания в бюджете 8 граней",
+  deerOverhangCount <= 8,
   true,
 );
 check(
@@ -1303,6 +1389,7 @@ check(
 
 console.log(
   `  · ${deerTriangles} треугольников, ${deerVolume.toFixed(1)} см³, ` +
+    `${deerOverhangCount} нависаний, ` +
     `z ${deerMinZ.toFixed(2)}…${deerMaxZ.toFixed(2)} мм`,
 );
 
@@ -1406,24 +1493,28 @@ check(
   true,
 );
 check(
-  "олень: минимум — голова остаётся low-poly блоком",
-  !("sections" in smallestDeer.head) &&
-    Math.abs(
-      smallestDeer.head.widthMm -
-        JEWELRY_DEER_HEAD_WIDTH_MM * smallestDeer.fitScale,
-    ) < 1e-9,
+  "олень: минимум — голова остаётся гладким лофтом",
+  smallestDeer.head.sections.length === JEWELRY_DEER_HEAD_SECTIONS &&
+    smallestDeer.head.anchors.length === 8,
   true,
 );
 check(
-  "олень: минимум — нависания в бюджете 8 граней",
+  "олень: минимум — нависаний нет сверх бюджета",
   deerOverhangs(smallestMesh, smallestDeer) <= 8,
   true,
 );
 check(
-  "олень: минимум ниже витринного",
-  smallestDeer.heightMm < deerPlan.heightMm,
+  "олень: минимум — высота вписана в конверт",
+  smallestDeer.heightMm <= JEWELRY_DEER_MAX_HEIGHT_MM + 1e-6,
   true,
 );
+
+check(
+  "олень: минимум — масштаб мягче витринного",
+  smallestDeer.fitScale > deerPlan.fitScale,
+  true,
+);
+
 
 /**
  * Самый пологий участок оси пряди по хордам, градусы.

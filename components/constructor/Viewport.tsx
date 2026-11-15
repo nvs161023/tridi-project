@@ -439,25 +439,21 @@ type ZUpModelProps = {
   geometry: BufferGeometry;
   /** Цвет пластика: у каждой модели свой, чтобы сцены не путались. */
   color: string;
-  /** Плоское затенение: low-poly олень читается гранями, без сглаживания. */
-  faceted?: boolean;
 };
 
 /**
  * Кашпо, подставка под кружку и подставка для украшений.
  *
  * Геометрия этих моделей построена Z-вверх, как у коробки, поэтому поворот на
- * -90° вокруг X ставит детали на виртуальный стол. У low-poly оленя включён
- * `flatShading`: материал не сглаживает нормали между треугольниками, и каждая
- * грань получает свой свет.
+ * -90° вокруг X ставит детали на виртуальный стол. Сглаженные нормали сетки
+ * дают оленю цельную поверхность без видимых граней.
  */
-function ZUpModel({ geometry, color, faceted = false }: ZUpModelProps) {
+function ZUpModel({ geometry, color }: ZUpModelProps) {
   return (
     <group rotation={[-Math.PI / 2, 0, 0]}>
       <mesh castShadow geometry={geometry} receiveShadow>
         <meshStandardMaterial
           color={color}
-          flatShading={faceted}
           metalness={STUDIO_PLASTIC.metalness}
           roughness={STUDIO_PLASTIC.roughness}
         />
@@ -1263,7 +1259,6 @@ function Scene({
       ) : params.model === "jewelry_stand" ? (
         <ZUpModel
           color={STUDIO_MODEL_TINTS.jewelry_stand}
-          faceted={params.jewelryPreset === "deer_bust"}
           geometry={geometry}
         />
       ) : params.model === "pen_holder" ? (
@@ -1911,7 +1906,7 @@ export function Viewport({
                     ? params.jewelryPreset === "leaf_tray"
                       ? `3D-предпросмотр лотка для украшений «${JEWELRY_LEAF_TYPE_LABELS[params.jewelryLeafType]}» ${params.jewelryLeafLength} на ${params.jewelryLeafWidth} миллиметров, глубина прожилок ${params.jewelryLeafVeinDepth} миллиметра, горизонтальная плита с плоским дном и крючком для цепочек`
                       : params.jewelryPreset === "deer_bust"
-                        ? `3D-предпросмотр подставки «Лесной олень»: стоящая low-poly фигура на овальном лотке ${params.deerBaseLength} на ${params.deerBaseWidth} миллиметров, гранёные корпус и голова, рога-дерево, высота ${jewelryDeerHeightMm(params)} миллиметров, полость под утяжелитель Ø 25 миллиметров`
+                        ? `3D-предпросмотр подставки «Лесной олень»: гладкая скульптура на овальном лотке ${params.deerBaseLength} на ${params.deerBaseWidth} миллиметров, плавные корпус и голова, рога-дерево, высота ${jewelryDeerHeightMm(params)} миллиметров, полость под утяжелитель Ø 25 миллиметров`
                         : `3D-предпросмотр подставки «Плетёное древо» высотой ${jewelryTreeHeightMm(params)} миллиметров: чаша-лоток диаметром ${params.treeBaseDiameter} миллиметров, изогнутый ствол с ${params.treeBranchCount} ярусами ветвей, изгиб ветвей ${Math.round(params.treeTwist * 100)} процентов, крючки с бусинами и штыри под кольца`
                     : params.model === "pen_holder"
                       ? `3D-предпросмотр органайзера для ручек «${PEN_SHAPE_LABELS[params.penShape]}» ${params.penSize} миллиметров по ключу и высотой ${params.penHeight} миллиметров, стенка ${params.penWall} миллиметров, ${params.penSections} отделений${params.penRimSlope > 0 ? `, срез кромки ${params.penRimSlope} миллиметров` : ""}`
