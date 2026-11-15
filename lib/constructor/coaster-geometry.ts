@@ -163,6 +163,29 @@ function sectionOuterRadius(shape: CoasterShape, acrossFlats: number): number {
 }
 
 /**
+ * Фактический габаритный ящик сечения подставки в плане, мм.
+ *
+ * `acrossFlats` — номинал «под ключ», но у гекса углы выступают за него по X:
+ * при 90 мм между гранями ширина по вершинам равна 103.92 мм. Держатель и его
+ * перегородки считаются по этому AABB, иначе углы входят в заднюю стенку и
+ * выходят за основание.
+ */
+function sectionFootprintMm(
+  shape: CoasterShape,
+  acrossFlats: number,
+): { width: number; depth: number } {
+  const points = sectionPolygon(shape, acrossFlats);
+  const xs = points.map(([x]) => x);
+  const ys = points.map(([, y]) => y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+
+  return { width: maxX - minX, depth: maxY - minY };
+}
+
+/**
  * Глубина радиальной волны в точке.
  *
  * Фаза растёт от центра к краям, а `(1 - cos) / 2` даёт ровно 0 на гребне и
@@ -566,13 +589,14 @@ export const COASTER_HOLDER_BASE_MARGIN_MM = 3;
 /**
  * Отступ переднего торца перегородки от переднего края основания, мм.
  *
- * Перегородки доходят только до этой границы: передняя часть круглой подставки
- * выступает вперёд и не касается рёбер. Задняя стенка и основание остаются
- * целыми, поэтому жёсткость держателя не меняется.
+ * Перегородки доходят только до этой границы: передняя часть подставки
+ * выступает вперёд и не касается рёбер. У гекса эта граница дополнительно
+ * сдвигается назад на выступ углов, чтобы диагональ не входила в зубцы. Задняя
+ * стенка и основание остаются целыми, поэтому жёсткость держателя не меняется.
  */
 export const COASTER_HOLDER_DIVIDER_FRONT_CLEARANCE_MM = 15;
 
-/** Запас глубины основания к диаметру подставки, мм. */
+/** Запас глубины основания к фактическому AABB подставки, мм. */
 export const COASTER_HOLDER_DEPTH_MARGIN_MM = 10;
 
 /** Толщина круглого основания накопителя, мм. */
@@ -654,6 +678,10 @@ export type CoasterHolderDimensions = {
   wallHeight: number;
   /** Координата Y переднего торца перегородок, мм. */
   dividerFrontY: number;
+  /** Фактическая ширина AABB подставки в плане, мм: у гекса больше номинала. */
+  coasterFootprintWidth: number;
+  /** Фактическая глубина AABB подставки в плане, мм. */
+  coasterFootprintDepth: number;
   /** Координаты центров гнёзд по X, мм: по ним ставятся подставки в превью. */
   slotCenters: readonly number[];
   /** Центры стоек накопителя в XY, мм; у горизонтальной стойки пусто. */
@@ -681,6 +709,10 @@ export function coasterHolderDimensionsMm(
   const coasterStackThickness =
     normalized.coasterThickness +
     (normalized.coasterRim ? COASTER_RIM_RISE_MM : 0);
+  const footprint = sectionFootprintMm(
+    normalized.coasterShape,
+    normalized.coasterSize,
+  );
 
   if (normalized.coasterHolderStyle === "vertical") {
     const outerRadius = sectionOuterRadius(
@@ -732,6 +764,8 @@ export function coasterHolderDimensionsMm(
       wallThickness: 0,
       wallHeight: 0,
       dividerFrontY: 0,
+      coasterFootprintWidth: footprint.width,
+      coasterFootprintDepth: footprint.depth,
       slotCenters: [],
       postCenters,
       coasterOuterRadius: outerRadius,
@@ -754,14 +788,23 @@ export function coasterHolderDimensionsMm(
     COASTER_HOLDER_BASE_MARGIN_MM * 2 +
     (count + 1) * COASTER_HOLDER_DIVIDER_THICKNESS_MM +
     count * slotWidth;
-  const depth = normalized.coasterSize + COASTER_HOLDER_DEPTH_MARGIN_MM;
+  // Глубину задаёт фактический AABB, а не номинал «под ключ»: у гекса углы
+  // выступают за него на `(footprint - coasterSize) / 2` с каждой стороны.
+  // На дефолте 90 мм это 6.96 мм, поэтому держатель получает 113.92 мм.
+  const depth = footprint.width + COASTER_HOLDER_DEPTH_MARGIN_MM;
+  const cornerOverhang = Math.max(
+    0,
+    (footprint.width - normalized.coasterSize) / 2,
+  );
   const height = Math.max(
     COASTER_HOLDER_WALL_HEIGHT_MM,
     COASTER_HOLDER_BASE_THICKNESS_MM + COASTER_HOLDER_DIVIDER_HEIGHT_MM,
   );
   const firstDivider = -width / 2 + COASTER_HOLDER_BASE_MARGIN_MM;
+  // Перегородки не идут дальше номинального переднего габарита: выступ углов
+  // уходит в увеличенную глубину, а передняя часть подставки остаётся открытой.
   const dividerFrontY =
-    depth / 2 - COASTER_HOLDER_DIVIDER_FRONT_CLEARANCE_MM;
+    depth / 2 - COASTER_HOLDER_DIVIDER_FRONT_CLEARANCE_MM - cornerOverhang;
   const slotCenters = Array.from(
     { length: count },
     (_, index) =>
@@ -789,6 +832,8 @@ export function coasterHolderDimensionsMm(
     wallThickness: COASTER_HOLDER_WALL_THICKNESS_MM,
     wallHeight: COASTER_HOLDER_WALL_HEIGHT_MM,
     dividerFrontY,
+    coasterFootprintWidth: footprint.width,
+    coasterFootprintDepth: footprint.depth,
     slotCenters,
     postCenters: [],
     coasterOuterRadius: 0,
@@ -869,16 +914,23 @@ function accumulatorVolumeMm3(dims: CoasterHolderDimensions): number {
  * Положение центра плиты в гнезде держателя, мм.
  *
  * X отсчитывается от центра гнезда: на него сдвигается толщина подставки с
- * бортиком, чтобы зазоры до перегородок были одинаковыми. Z — высота центра
- * плиты над столом; низ стоит ровно на основании.
+ * бортиком, чтобы зазоры до перегородок были одинаковыми. Y центрирует
+ * фактический AABB в увеличенной глубине держателя: у гекса диагональ шире
+ * номинала, но задняя грань остаётся в 2 мм от стенки, а передняя — открытой.
+ * Z — высота центра плиты над столом; низ стоит ровно на основании.
  */
 export function coasterPlacementInHolderMm(
   dimensions: CoasterHolderDimensions,
-  coasterSize: number,
-): { centerOffsetX: number; centerZ: number } {
+): { centerOffsetX: number; centerOffsetY: number; centerZ: number } {
   return {
     centerOffsetX: dimensions.coasterStackThickness / 2,
-    centerZ: dimensions.baseThickness + coasterSize / 2,
+    centerOffsetY:
+      dimensions.depth / 2 -
+      dimensions.wallThickness -
+      2 -
+      dimensions.coasterFootprintWidth / 2,
+    centerZ:
+      dimensions.baseThickness + dimensions.coasterFootprintDepth / 2,
   };
 }
 

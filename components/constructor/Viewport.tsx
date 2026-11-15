@@ -452,8 +452,6 @@ type CoasterSetModelProps = {
   coasterGeometry: BufferGeometry;
   /** Размеры держателя: из них берутся гнёзда и высоты стопки. */
   dimensions: CoasterHolderDimensions;
-  /** Габарит подставки: по нему плита центрируется над основанием. */
-  coasterSize: number;
 };
 
 /**
@@ -463,15 +461,15 @@ type CoasterSetModelProps = {
  * вложенными поворотами: сначала вокруг Z на 90°, потом вокруг Y на 90°.
  * Вместе они переводят толщину подставки на ось X — вдоль паза, — а лицо
  * ставит вертикально. Центр берётся по полной посадочной толщине: бортик тоже
- * входит в паз, поэтому плита не сдвигается в сторону перегородки.
+ * входит в паз, поэтому плита не сдвигается в сторону перегородки. Смещение по
+ * Y учитывает фактический AABB: углы гекса не заходят в заднюю стенку.
  */
 function CoasterSetModel({
   holderGeometry,
   coasterGeometry,
   dimensions,
-  coasterSize,
 }: CoasterSetModelProps) {
-  const placement = coasterPlacementInHolderMm(dimensions, coasterSize);
+  const placement = coasterPlacementInHolderMm(dimensions);
 
   return (
     <group rotation={[-Math.PI / 2, 0, 0]}>
@@ -503,7 +501,7 @@ function CoasterSetModel({
               key={slotCenter}
               position={[
                 slotCenter - placement.centerOffsetX,
-                0,
+                placement.centerOffsetY,
                 placement.centerZ,
               ]}
             >
@@ -1324,7 +1322,6 @@ function Scene({
         coasterHolder ? (
           <CoasterSetModel
             coasterGeometry={geometry}
-            coasterSize={params.coasterSize}
             dimensions={coasterHolder.dimensions}
             holderGeometry={coasterHolder.geometry}
           />

@@ -8,12 +8,12 @@
  * число треугольников, объём и отсутствие нависаний проверяются уже по файлу.
  *
  * Отдельный блок проверяет вертикальный держатель: размеры гнёзд и зазор,
- * заднюю стенку 60 мм, глубину «диаметр + 10», замкнутость сетки, аналитический
- * объём, все варианты 4/6/8 и толщины 3–10 мм, собственный STL, а также
- * отсутствие пересечения подставки с пластиком держателя.
- * Общий STL набора проверяется отдельно: подставка и держатель должны лежать
- * двумя непересекающимися оболочками, а держатель — отъезжать вбок на ширину
- * набора плюс 15 мм.
+ * заднюю стенку 60 мм, глубину по фактическому AABB, замкнутость сетки,
+ * аналитический объём, все варианты 4/6/8 и толщины 3–10 мм, собственный STL,
+ * а также отсутствие пересечения подставки с пластиком держателя для круга и
+ * гекса. Общий STL набора проверяется отдельно: подставка и держатель должны
+ * лежать двумя непересекающимися оболочками, а для шести гексов ещё и влезать
+ * в поле 220 мм.
  *
  * Запуск:
  *   npm run check:coaster
@@ -829,12 +829,6 @@ const holderGeometry = createCoasterHolderGeometry(holderParams);
 const holderTriangles = trianglesOf(holderGeometry);
 const holderBounds = boundsOf(holderTriangles);
 const holderAnalyticVolume = coasterHolderAnalyticVolumeMm3(holderParams);
-const holderCoasterGeometry = createCoasterGeometry(holderParams);
-const holderCoasterBounds = boundsOf(trianglesOf(holderCoasterGeometry));
-const holderPlacement = coasterPlacementInHolderMm(
-  holderDims,
-  holderParams.coasterSize,
-);
 
 near("держатель: габарит X", holderBounds.width, holderDims.width);
 near("держатель: габарит Y", holderBounds.depth, holderDims.depth);
@@ -875,80 +869,140 @@ console.log(
     `вес ${coasterHolderAnalyticWeightGrams(holderParams).toFixed(2)} г`,
 );
 
+// Гекс шире номинала по диагонали: держатель обязан вырасти по Y, иначе его
+// задняя стенка пересекает углы плиты, а передние углы свисают с основания.
+const hexHolderParams = normalizeCoasterParams({
+  ...holderParams,
+  coasterShape: "hex",
+});
+const hexHolderDims = coasterHolderDimensionsMm(hexHolderParams);
+const hexFootprintWidth = 90 / Math.cos(Math.PI / 6);
+
+near(
+  "гекс: фактическая ширина AABB",
+  hexHolderDims.coasterFootprintWidth,
+  hexFootprintWidth,
+);
+near(
+  "гекс: глубина держателя = AABB + 10",
+  hexHolderDims.depth,
+  hexFootprintWidth + 10,
+);
+near(
+  "гекс: перегородки короче диагонали",
+  hexHolderDims.dividerFrontY,
+  holderParams.coasterSize / 2 - 10,
+);
+
 // Проверка посадки в той же системе координат, что и превью. Пластик держателя
-// разбит на точные боксы основания, задней стенки и перегородок; бокс плиты
-// учитывает бортик и поворот толщины на ось X. Если хотя бы один бокс
-// пересекается, меш подставки входит в пластик держателя.
-const holderSolidBoxes = [
-  box(
-    -holderDims.width / 2,
-    holderDims.width / 2,
-    -holderDims.depth / 2,
-    holderDims.depth / 2,
-    0,
-    holderDims.baseThickness,
-  ),
-  box(
-    -holderDims.width / 2,
-    holderDims.width / 2,
-    -holderDims.depth / 2,
-    -holderDims.depth / 2 + holderDims.wallThickness,
-    0,
-    holderDims.wallHeight,
-  ),
-  ...Array.from({ length: holderDims.count + 1 }, (_, index) => {
-    const start =
-      -holderDims.width / 2 +
-      COASTER_HOLDER_BASE_MARGIN_MM +
-      index * holderDims.dividerPitch;
-
-    return box(
-      start,
-      start + holderDims.dividerThickness,
-      -holderDims.depth / 2,
-      holderDims.dividerFrontY,
+// разбит на точные боксы основания, задней стенки и перегородок; бокс плиты —
+// фактический AABB после поворота: толщина идёт по X, ширина сечения по Y,
+// высота по Z. Круг и гекс проверяются одинаково.
+for (const shape of ["round", "hex"] as const) {
+  const shapeParams = normalizeCoasterParams({
+    ...holderParams,
+    coasterShape: shape,
+  });
+  const shapeDims = coasterHolderDimensionsMm(shapeParams);
+  const shapeCoasterGeometry = createCoasterGeometry(shapeParams);
+  const shapeCoasterBounds = boundsOf(trianglesOf(shapeCoasterGeometry));
+  const shapePlacement = coasterPlacementInHolderMm(shapeDims);
+  const holderSolidBoxes = [
+    box(
+      -shapeDims.width / 2,
+      shapeDims.width / 2,
+      -shapeDims.depth / 2,
+      shapeDims.depth / 2,
       0,
-      holderDims.baseThickness + holderDims.dividerHeight,
+      shapeDims.baseThickness,
+    ),
+    box(
+      -shapeDims.width / 2,
+      shapeDims.width / 2,
+      -shapeDims.depth / 2,
+      -shapeDims.depth / 2 + shapeDims.wallThickness,
+      0,
+      shapeDims.wallHeight,
+    ),
+  ];
+  const dividerBoxes = Array.from(
+    { length: shapeDims.count + 1 },
+    (_, index) => {
+      const start =
+        -shapeDims.width / 2 +
+        COASTER_HOLDER_BASE_MARGIN_MM +
+        index * shapeDims.dividerPitch;
+
+      return box(
+        start,
+        start + shapeDims.dividerThickness,
+        -shapeDims.depth / 2,
+        shapeDims.dividerFrontY,
+        0,
+        shapeDims.baseThickness + shapeDims.dividerHeight,
+      );
+    },
+  );
+  const slotIntersections = shapeDims.slotCenters.reduce((total, center) => {
+    const plateBox = box(
+      center -
+        shapePlacement.centerOffsetX +
+        shapeCoasterBounds.minZ,
+      center -
+        shapePlacement.centerOffsetX +
+        shapeCoasterBounds.maxZ,
+      shapePlacement.centerOffsetY + shapeCoasterBounds.minX,
+      shapePlacement.centerOffsetY + shapeCoasterBounds.maxX,
+      shapePlacement.centerZ + shapeCoasterBounds.minY,
+      shapePlacement.centerZ + shapeCoasterBounds.maxY,
     );
-  }),
-];
-const slotIntersections = holderDims.slotCenters.reduce((total, center) => {
-  const plateBox = box(
-    center - holderCoasterBounds.height / 2,
-    center + holderCoasterBounds.height / 2,
-    -holderCoasterBounds.width / 2,
-    holderCoasterBounds.width / 2,
-    holderPlacement.centerZ - holderCoasterBounds.depth / 2,
-    holderPlacement.centerZ + holderCoasterBounds.depth / 2,
-  );
+    const solidIntersections = [...holderSolidBoxes, ...dividerBoxes].filter(
+      (solid) => boxesIntersect(plateBox, solid),
+    ).length;
+    const dividerIntersections = dividerBoxes.filter((solid) =>
+      boxesIntersect(plateBox, solid),
+    ).length;
 
-  return (
-    total +
-    holderSolidBoxes.filter((solid) => boxesIntersect(plateBox, solid)).length
-  );
-}, 0);
+    return {
+      total: total.total + solidIntersections,
+      dividers: total.dividers + dividerIntersections,
+    };
+  }, { total: 0, dividers: 0 });
 
-near(
-  "подставка в гнезде: толщина по X",
-  holderCoasterBounds.height,
-  holderDims.coasterStackThickness,
-);
-near(
-  "подставка в гнезде: центр толщины",
-  holderPlacement.centerOffsetX,
-  holderDims.coasterStackThickness / 2,
-);
-near(
-  "подставка в гнезде: низ на основании",
-  holderPlacement.centerZ - holderCoasterBounds.depth / 2,
-  holderDims.baseThickness,
-);
-check(
-  "Coaster intersects with holder (подставка в гнезде)",
-  slotIntersections,
-  0,
-);
-holderCoasterGeometry.dispose();
+  near(
+    `${shape}: толщина AABB в гнезде`,
+    shapeCoasterBounds.height,
+    shapeDims.coasterStackThickness,
+  );
+  near(
+    `${shape}: центр AABB по X`,
+    shapePlacement.centerOffsetX,
+    shapeDims.coasterStackThickness / 2,
+  );
+  near(`${shape}: центр AABB по Y`, shapePlacement.centerOffsetY, 0);
+  near(
+    `${shape}: низ AABB на основании`,
+    shapePlacement.centerZ + shapeCoasterBounds.minY,
+    shapeDims.baseThickness,
+  );
+  check(
+    `Coaster intersects with holder (${shape})`,
+    slotIntersections.total,
+    0,
+  );
+  check(
+    `AABB ${shape} не пересекается с перегородками`,
+    slotIntersections.dividers,
+    0,
+  );
+  console.log(
+    `  ${shape} AABB: ${shapeCoasterBounds.width.toFixed(2)} × ` +
+      `${shapeCoasterBounds.depth.toFixed(2)} × ` +
+      `${shapeCoasterBounds.height.toFixed(2)} мм, ` +
+      `глубина держателя ${shapeDims.depth.toFixed(2)} мм`,
+  );
+  shapeCoasterGeometry.dispose();
+}
 
 for (const count of [4, 6, 8]) {
   for (const coasterThickness of [3, 5, 10]) {
@@ -1547,6 +1601,112 @@ for (const [label, extremeParams] of [
 
 setGeometry.dispose();
 rmSync(setDirectory, { recursive: true, force: true });
+
+console.log("\nОбщий STL набора: гекс, шесть подставок:");
+
+const hexSetParams = normalizeCoasterParams({
+  ...hexHolderParams,
+  coasterHolderType: "vertical",
+  coasterCount: 6,
+});
+const hexSetDims = coasterHolderDimensionsMm(hexSetParams);
+const hexSetOffset = coasterSetHolderOffsetMm(hexSetParams);
+const hexSetGeometry = createCoasterSetGeometry(hexSetParams);
+const hexSetTriangles = trianglesOf(hexSetGeometry);
+const hexSetBounds = boundsOf(hexSetTriangles);
+const hexSetHolderLeft = hexSetOffset - hexSetDims.width / 2;
+const hexSetCoasterRight = hexSetDims.coasterFootprintWidth / 2;
+const hexSetCoasterTriangles = hexSetTriangles.filter((triangle) =>
+  triangle.every((point) => point[0] <= hexSetCoasterRight + 1e-6),
+);
+const hexSetHolderTriangles = hexSetTriangles.filter((triangle) =>
+  triangle.every((point) => point[0] >= hexSetHolderLeft - 1e-6),
+);
+
+check(
+  "гекс-набор: все треугольники подставки слева от держателя",
+  hexSetCoasterTriangles.length + hexSetHolderTriangles.length,
+  hexSetTriangles.length,
+);
+check(
+  "гекс-набор: AABB подставки не пересекается с держателем",
+  boxesIntersect(
+    boundsOf(hexSetCoasterTriangles),
+    boundsOf(hexSetHolderTriangles),
+  ),
+  false,
+);
+check(
+  "гекс-набор: габарит X не больше 220 мм",
+  hexSetBounds.width <= COASTER_SET_BED_MM,
+  true,
+);
+check(
+  "гекс-набор: габарит Y не больше 220 мм",
+  hexSetBounds.depth <= COASTER_SET_BED_MM,
+  true,
+);
+near("гекс-набор: габарит X", hexSetBounds.width, 192.4615, 1e-3);
+near("гекс-набор: габарит Y", hexSetBounds.depth, 113.923, 1e-3);
+near("гекс-набор: высота", hexSetBounds.height, 60);
+near(
+  "гекс-набор: зазор между деталями",
+  hexSetHolderLeft - hexSetCoasterRight,
+  17.5385,
+  1e-3,
+);
+
+const hexSetDirectory = mkdtempSync(join(tmpdir(), "tridi-coaster-hex-set-"));
+const hexSetPath = join(hexSetDirectory, coasterSetStlFileName(hexSetParams));
+const hexSetMesh = new Mesh(hexSetGeometry);
+
+hexSetMesh.updateMatrixWorld(true);
+
+const hexSetExported = new STLExporter().parse(hexSetMesh, { binary: true });
+const hexSetBytes = hexSetExported as DataView;
+
+writeFileSync(
+  hexSetPath,
+  Buffer.from(
+    hexSetBytes.buffer,
+    hexSetBytes.byteOffset,
+    hexSetBytes.byteLength,
+  ),
+);
+
+const hexSetStlTriangles = readBinaryStl(readFileSync(hexSetPath));
+const hexSetStlBounds = boundsOf(hexSetStlTriangles);
+
+check(
+  "гекс-набор STL: габарит X не больше 220 мм",
+  hexSetStlBounds.width <= COASTER_SET_BED_MM,
+  true,
+);
+check(
+  "гекс-набор STL: габарит Y не больше 220 мм",
+  hexSetStlBounds.depth <= COASTER_SET_BED_MM,
+  true,
+);
+near("гекс-набор STL: габарит X", hexSetStlBounds.width, hexSetBounds.width);
+near("гекс-набор STL: габарит Y", hexSetStlBounds.depth, hexSetBounds.depth);
+check(
+  "гекс-набор STL: число треугольников",
+  hexSetStlTriangles.length,
+  hexSetTriangles.length,
+);
+check(
+  "гекс-набор STL: нависаний больше 45° нет",
+  overhangTriangles(hexSetStlTriangles).length,
+  0,
+);
+console.log(
+  `  гекс-набор: ${hexSetBounds.width.toFixed(2)} × ` +
+    `${hexSetBounds.depth.toFixed(2)} × ${hexSetBounds.height.toFixed(2)} мм, ` +
+    `зазор ${(hexSetHolderLeft - hexSetCoasterRight).toFixed(2)} мм`,
+);
+
+hexSetGeometry.dispose();
+rmSync(hexSetDirectory, { recursive: true, force: true });
 
 holderGeometry.dispose();
 rmSync(holderDirectory, { recursive: true, force: true });
