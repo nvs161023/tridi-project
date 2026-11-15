@@ -23,10 +23,10 @@ import {
 } from "@/lib/constructor/heat-transfer-import";
 import {
   JEWELRY_DEER_ANTLER_BUD_RADIUS_MM,
+  JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG,
   JEWELRY_DEER_WEIGHT_DEPTH_MM,
   JEWELRY_DEER_WEIGHT_DIAMETER_MM,
   JEWELRY_DEER_WEIGHT_FLOOR_MM,
-  JEWELRY_DEER_WEIGHT_OFFSET_MM,
   jewelryDeerHeightMm,
 } from "@/lib/constructor/jewelry-deer-geometry";
 import {
@@ -1509,7 +1509,7 @@ function modelSummary(
     if (params.jewelryPreset === "deer_bust") {
       return [
         {
-          label: "База",
+          label: "Лоток",
           value: `${params.deerBaseLength} × ${params.deerBaseWidth} мм`,
         },
         { label: "Рога", value: `${params.deerAntlerSpread} мм` },
@@ -3774,7 +3774,7 @@ export function ParameterPanel({
         <>
           <div className="mt-6 border-t border-white/10 pt-5">
             <ParameterSelect
-              hint="Лист — чаша-лоток для часов, колец и серёг: край поднят бортиком, внутри прожилки и ложа. «Лесной олень» — бюст с рогами на овальной базе и полостью под утяжелитель. «Плетёное древо» — живое дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под кольца."
+              hint="Лист — чаша-лоток для часов, колец и серёг: край поднят бортиком, внутри прожилки и ложа. «Лесной олень» — лежащая фигура на овальном лотке: рога ветвятся деревом и держат украшения. «Плетёное древо» — живое дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под кольца."
               label="Форма"
               onChange={onJewelryPresetChange}
               options={JEWELRY_PRESETS.map((jewelryPreset) => ({
@@ -3853,7 +3853,7 @@ export function ParameterPanel({
             <>
               <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
                 <NumberSlider
-                  hint="Размах рогов от кончика до кончика. 80–100 мм — настольный бюст, 120–150 мм — витринный: рога выше и заметнее, но и модель выше."
+                  hint="Размах рогов от кончика до кончика. 100–150 мм — настольная фигура, 200–230 мм — витринная крона высотой около 41 см. Выше 256 мм печатайте по частям или уменьшайте размах: ветви длиннее и заметнее, но модель выше."
                   label="Размах рогов"
                   max={CONSTRUCTOR_LIMITS.deerAntlerSpread.max}
                   min={CONSTRUCTOR_LIMITS.deerAntlerSpread.min}
@@ -3864,7 +3864,7 @@ export function ParameterPanel({
                 />
 
                 <NumberSlider
-                  hint="Овальная база по большой оси. 150–180 мм стоит уверенно с цепочкой на роге; 120–140 мм — компактная версия для полки."
+                  hint="Овальный лоток по большой оси. 250 мм — витринный размер 25 см с полем под часы и браслеты; 150–200 мм — компактная версия для полки."
                   label="Длина базы"
                   max={CONSTRUCTOR_LIMITS.deerBaseLength.max}
                   min={CONSTRUCTOR_LIMITS.deerBaseLength.min}
@@ -3875,7 +3875,7 @@ export function ParameterPanel({
                 />
 
                 <NumberSlider
-                  hint="Малая ось овала. Держите не уже двух третей длины: на узкой базе бюст качается вперёд, к морде."
+                  hint="Малая ось лотка. 150 мм держит лежащую фигуру и плинт с запасом; на 100 мм остаётся только компактная настольная версия."
                   label="Ширина базы"
                   max={CONSTRUCTOR_LIMITS.deerBaseWidth.max}
                   min={CONSTRUCTOR_LIMITS.deerBaseWidth.min}
@@ -3887,18 +3887,17 @@ export function ParameterPanel({
               </div>
 
               <p className="mt-4 text-xs leading-relaxed text-slate-300">
-                Бюст и база — отдельные замкнутые тела, низ шеи утоплен в плиту,
-                поэтому деталь печатается одной штукой. Рога стоят под 52° к
-                столу, а низ головы идёт килем под 49°: поддержки не нужны. Бутоны
-                Ø {(JEWELRY_DEER_ANTLER_BUD_RADIUS_MM * 2).toFixed(1)} мм на
-                концах держат кольца. Полость Ø{" "}
+                Олень, плинт и лоток — отдельные замкнутые тела; низ тела и ног
+                утоплен в плинт, поэтому деталь печатается одной штукой. Каждая
+                хорда рога поднимается не положе{" "}
+                {JEWELRY_DEER_ANTLER_MIN_ELEVATION_DEG}°, а низ морды идёт килем
+                под 49°: поддержки не нужны. Бутоны Ø{" "}
+                {(JEWELRY_DEER_ANTLER_BUD_RADIUS_MM * 2).toFixed(1)} мм на
+                кончиках держат кольца и серьги. Полость Ø{" "}
                 {JEWELRY_DEER_WEIGHT_DIAMETER_MM} × {JEWELRY_DEER_WEIGHT_DEPTH_MM}{" "}
                 мм открыта вверх, дно под ней {JEWELRY_DEER_WEIGHT_FLOOR_MM} мм.
-                Она сдвинута на {JEWELRY_DEER_WEIGHT_OFFSET_MM} мм вперёд, перед
-                оленем: под грудью широкая подошва, и монету там не опустить.
-                Монета утяжеляет базу и держит кольца, а от опрокидывания модель
-                защищена сама — запас больше единицы даже с грузом 200 г на
-                кончике рога.
+                Она стоит сбоку от фигуры, на свободном поле лотка, и не задевает
+                плинт. Монета утяжеляет лоток и держит длинные цепочки.
               </p>
             </>
           ) : (
