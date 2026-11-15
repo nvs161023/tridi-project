@@ -8,6 +8,7 @@ import {
   type CoasterPattern,
   type CoasterShape,
 } from "@/lib/constructor/params";
+import { applyCreasedNormals } from "@/lib/constructor/mesh-normals";
 import {
   addFanCap,
   addPrismSides,
@@ -27,9 +28,10 @@ import {
  * Узор — углубление в лице, а не отдельная деталь. Волны и соты задают высоту
  * верхней поверхности синусоидой от радиуса или расстоянием до центров
  * гексагональной сетки. Дно сот плоское, а к гребню стенка поднимается по
- * квадрату: край получается резким, без размытого перехода. Край узора
- * отступает от фаски, поэтому кромка остаётся ровной. Объём такой сетки равен
- * аналитическому объёму: двойного учёта пересечений больше нет.
+ * smoothstep: наклон нулевой у обеих границ, поэтому гладкие нормали не дают
+ * тёмных рваных полос на стыках ячеек. Край узора отступает от фаски, поэтому
+ * кромка остаётся ровной. Объём такой сетки равен аналитическому объёму:
+ * двойного учёта пересечений больше нет.
  *
  * Деталь построена Z-вверх; предпросмотр поворачивает меш, как корпус коробки.
  */
@@ -154,10 +156,10 @@ function waveReliefMm(radius: number): number {
  *
  * Центры гексов стоят рядами с шагом `√3·R` по X и `1.5·R` по Y; нечётные ряды
  * сдвинуты на полшага. Для ближайшего центра считается гексагональное
- * расстояние `q`: 0 в центре, 1 на стенке. Внутри q ≤ 0.635 дно плоское на всю
- * глубину 1.2 мм. Дальше высота растёт линейно до кромки, без smoothstep. На
- * сетке STL Ø100 самая крутая грань стенки выходит 49.7°, то есть в заданном
- * диапазоне 45–50°, а дно остаётся плоским.
+ * расстояние `q`: 0 в центре, 1 на стенке. Внутри q ≤ 0.6 дно плоское на всю
+ * глубину 1.2 мм. Дальше до q = 0.9 высота поднимается по `smoothstep`: у дна и
+ * у гребня наклон нулевой, поэтому граница ячейки не даёт резкой чёрной полосы
+ * при гладких нормалях.
  */
 function honeycombReliefMm(x: number, y: number): number {
   const radius = COASTER_HONEYCOMB_RADIUS_MM;
@@ -187,11 +189,13 @@ function honeycombReliefMm(x: number, y: number): number {
     }
   }
 
-  // Линейная стенка от плоского дна до гребня: резкая граница дна и грань
-  // около 50° вместо плавного скругления, которое делало вощину похожей на волны.
-  const wall = clamp((nearestQ - 0.635) / 0.365, 0, 1);
+  // Плоское дно до q = 0.6, затем S-образный подъём до гребня на q = 0.9.
+  // smoothstep держит нулевой наклон на обеих границах: стенка не начинается
+  // ступенькой и не встречает гребень острым ребром.
+  const wall = clamp((nearestQ - 0.6) / 0.3, 0, 1);
+  const smoothWall = wall * wall * (3 - 2 * wall);
 
-  return COASTER_PATTERN_DEPTH_MM * (1 - wall);
+  return COASTER_PATTERN_DEPTH_MM * (1 - smoothWall);
 }
 
 /** Высота лица в точке: плоская кромка или углубление выбранного узора. */
@@ -489,7 +493,8 @@ export function coasterAnalyticWeightGrams(
 export function createCoasterGeometry(
   params: Partial<CoasterParams>,
 ): BufferGeometry {
-  const mesh = buildCoasterMesh(normalizeCoasterParams(params));
+  const normalized = normalizeCoasterParams(params);
+  const mesh = buildCoasterMesh(normalized);
   const geometry = new BufferGeometry();
 
   geometry.setAttribute(
@@ -497,6 +502,14 @@ export function createCoasterGeometry(
     new Float32BufferAttribute(mesh.positions, 3),
   );
   geometry.computeVertexNormals();
+
+  // У сот плоское дно переходит в стенку по smoothstep. Порог 60° сглаживает
+  // нормали внутри плавного перехода и оставляет острыми рёбра плиты и фаски,
+  // поэтому в предпросмотре и слайсере нет чёрных рваных полос на границах ячеек.
+  if (normalized.coasterPattern === "honeycomb") {
+    applyCreasedNormals(geometry, 60);
+  }
+
   geometry.computeBoundingBox();
 
   return geometry;
@@ -911,24 +924,59 @@ export function coasterHolderAnalyticWeightGrams(
   );
 }
 
-/**
- * Смещение держателя в общем STL набора, мм.
- *
- * В превью подставки стоят в гнёздах, но печатать такую сборку нельзя: стойка
- * спечётся с плитами. В общем файле держатель уезжает на 150 мм по X, а
- * подставка остаётся в начале координат. Даже у самого широкого держателя
- * (8 гнёзд, толщина 10 мм с бортиком) левый край оказывается на X = 84 мм,
- * поэтому зазор до подставки Ø140 остаётся не меньше 14 мм.
- */
-export const COASTER_SET_HOLDER_OFFSET_MM = 150;
+/** Минимальный зазор между подставкой и держателем в общем STL, мм. */
+export const COASTER_SET_PART_GAP_MM = 15;
+
+/** Стандартное поле печати, под которое рассчитана раскладка набора, мм. */
+export const COASTER_SET_BED_MM = 220;
+
+/** Максимальная высота печати для раскладки набора, мм. */
+export const COASTER_SET_BED_HEIGHT_MM = 250;
 
 /**
- * Общий STL набора: одна подставка и держатель, разнесённые по X.
+ * Смещение центра держателя в общем STL набора, мм.
  *
- * Детали лежат на одном столе, но не касаются друг друга. Функция возвращает
- * одну сетку из двух замкнутых оболочек — так же, как собранный литофан, — и
- * сдвигает только держатель. Подставка остаётся в начале координат, чтобы её
- * габарит и точка опоры совпадали с отдельным файлом.
+ * Это предпочтительная раскладка «подставка и держатель рядом по X»: смещение
+ * считается от габарита подставки и ширины держателя, поэтому между деталями
+ * остаётся не меньше `COASTER_SET_PART_GAP_MM`. На дефолтном наборе 6 × Ø90
+ * получается 105 мм. Если такая раскладка не влезает в поле 220 мм, общий STL
+ * автоматически выбирает резервную: держатель за подставкой или на боку.
+ */
+export function coasterSetHolderOffsetMm(
+  params: Partial<CoasterParams>,
+): number {
+  const normalized = normalizeCoasterParams(params);
+  const holderWidth = coasterHolderDimensionsMm(normalized).width;
+  const coasterWidth = normalized.coasterSize;
+
+  return (
+    Math.max(coasterWidth, (coasterWidth + holderWidth) / 2) +
+    COASTER_SET_PART_GAP_MM
+  );
+}
+
+/** Габарит ограничивающего бокса. */
+function boxSize(box: {
+  min: { x: number; y: number; z: number };
+  max: { x: number; y: number; z: number };
+}): { width: number; depth: number; height: number } {
+  return {
+    width: box.max.x - box.min.x,
+    depth: box.max.y - box.min.y,
+    height: box.max.z - box.min.z,
+  };
+}
+
+/**
+ * Общий STL набора: одна подставка и держатель, разнесённые по столу.
+ *
+ * Детали лежат на одном столе, но не касаются друг друга. Сначала держатель
+ * ставится справа по X на `coasterSetHolderOffsetMm`. Если суммарный габарит
+ * выходит за 220 мм, он переносится за подставку по Y. Для самых широких
+ * наборов, которые не влезают и так, держатель поворачивается на бок, а при
+ * необходимости поворачивается и подставка. Во всех вариантах между деталями
+ * остаётся 15 мм, низ обеих оболочек лежит на Z = 0, а общий бокс не выходит за
+ * 220 × 220 × 250 мм.
  */
 export function createCoasterSetGeometry(
   params: Partial<CoasterParams>,
@@ -936,7 +984,101 @@ export function createCoasterSetGeometry(
   const coasterGeometry = createCoasterGeometry(params);
   const holderGeometry = createCoasterHolderGeometry(params);
 
-  holderGeometry.translate(COASTER_SET_HOLDER_OFFSET_MM, 0, 0);
+  coasterGeometry.computeBoundingBox();
+  holderGeometry.computeBoundingBox();
+
+  const coasterBox = coasterGeometry.boundingBox;
+  const holderBox = holderGeometry.boundingBox;
+
+  if (!coasterBox || !holderBox) {
+    coasterGeometry.dispose();
+    holderGeometry.dispose();
+    throw new Error("Не удалось измерить детали набора подставок.");
+  }
+
+  const coaster = boxSize(coasterBox);
+  const holder = boxSize(holderBox);
+  const bed = COASTER_SET_BED_MM;
+  const bedHeight = COASTER_SET_BED_HEIGHT_MM;
+  const gap = COASTER_SET_PART_GAP_MM;
+  const preferredOffset = coasterSetHolderOffsetMm(params);
+  const sideWidth =
+    Math.max(
+      coasterBox.max.x,
+      preferredOffset + holderBox.max.x,
+    ) - Math.min(coasterBox.min.x, preferredOffset + holderBox.min.x);
+  const sideDepth = Math.max(coaster.depth, holder.depth);
+  const sideHeight = Math.max(coaster.height, holder.height);
+  const sideFits =
+    sideWidth <= bed + 1e-9 &&
+    sideDepth <= bed + 1e-9 &&
+    sideHeight <= bedHeight + 1e-9;
+  const behindFits =
+    Math.max(coaster.width, holder.width) <= bed + 1e-9 &&
+    coaster.depth + gap + holder.depth <= bed + 1e-9 &&
+    sideHeight <= bedHeight + 1e-9;
+  const holderOnSideFits =
+    Math.max(coaster.width, holder.width) <= bed + 1e-9 &&
+    coaster.depth + gap + holder.height <= bed + 1e-9 &&
+    Math.max(coaster.height, holder.depth) <= bedHeight + 1e-9;
+  const bothOnSideFits =
+    Math.max(coaster.depth, holder.width) <= bed + 1e-9 &&
+    coaster.width + gap + holder.height <= bed + 1e-9 &&
+    Math.max(coaster.height, holder.depth) <= bedHeight + 1e-9;
+
+  if (sideFits) {
+    holderGeometry.translate(
+      preferredOffset - (holderBox.min.x + holderBox.max.x) / 2,
+      0,
+      0,
+    );
+  } else if (behindFits) {
+    holderGeometry.translate(
+      -(holderBox.min.x + holderBox.max.x) / 2,
+      coasterBox.max.y + gap - holderBox.min.y,
+      0,
+    );
+  } else {
+    if (!bothOnSideFits && !holderOnSideFits) {
+      coasterGeometry.dispose();
+      holderGeometry.dispose();
+      throw new Error(
+        "Набор подставок не помещается на поле 220 × 220 × 250 мм.",
+      );
+    }
+
+    if (bothOnSideFits && !holderOnSideFits) {
+      coasterGeometry.rotateZ(Math.PI / 2);
+      coasterGeometry.computeBoundingBox();
+    }
+
+    holderGeometry.rotateX(Math.PI / 2);
+    holderGeometry.computeBoundingBox();
+
+    const rotatedHolderBox = holderGeometry.boundingBox;
+
+    if (!rotatedHolderBox) {
+      coasterGeometry.dispose();
+      holderGeometry.dispose();
+      throw new Error("Не удалось измерить повёрнутый держатель набора.");
+    }
+
+    coasterGeometry.computeBoundingBox();
+
+    const finalCoasterBox = coasterGeometry.boundingBox;
+
+    if (!finalCoasterBox) {
+      coasterGeometry.dispose();
+      holderGeometry.dispose();
+      throw new Error("Не удалось измерить повёрнутую подставку набора.");
+    }
+
+    holderGeometry.translate(
+      -(rotatedHolderBox.min.x + rotatedHolderBox.max.x) / 2,
+      finalCoasterBox.max.y + gap - rotatedHolderBox.min.y,
+      -rotatedHolderBox.min.z,
+    );
+  }
 
   const merged = mergeGeometries([coasterGeometry, holderGeometry], false);
 

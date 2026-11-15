@@ -12,7 +12,8 @@
  * объём, все варианты 4/6/8 и толщины 3–10 мм, собственный STL, а также
  * отсутствие пересечения подставки с пластиком держателя.
  * Общий STL набора проверяется отдельно: подставка и держатель должны лежать
- * двумя непересекающимися оболочками, а держатель — стоять на X = 150 мм.
+ * двумя непересекающимися оболочками, а держатель — отъезжать вбок на ширину
+ * набора плюс 15 мм.
  *
  * Запуск:
  *   npm run check:coaster
@@ -38,13 +39,16 @@ import {
   COASTER_PATTERN_MARGIN_MM,
   COASTER_RIM_RISE_MM,
   COASTER_RIM_WALL_MM,
-  COASTER_SET_HOLDER_OFFSET_MM,
+  COASTER_SET_BED_HEIGHT_MM,
+  COASTER_SET_BED_MM,
+  COASTER_SET_PART_GAP_MM,
   coasterAnalyticVolumeMm3,
   coasterAnalyticWeightGrams,
   coasterHolderAnalyticVolumeMm3,
   coasterHolderAnalyticWeightGrams,
   coasterHolderDimensionsMm,
   coasterPlacementInHolderMm,
+  coasterSetHolderOffsetMm,
   createCoasterGeometry,
   createCoasterHolderGeometry,
   createCoasterSetGeometry,
@@ -685,8 +689,8 @@ const stlWallSlopes = stlTriangles
 const stlMaxWallSlope = maxOf(stlWallSlopes);
 
 check(
-  "стенка сот 45–50°",
-  stlMaxWallSlope >= 45 && stlMaxWallSlope <= 50,
+  "стенка сот после smoothstep: 62–65°",
+  stlMaxWallSlope >= 62 && stlMaxWallSlope <= 65,
   true,
 );
 check(
@@ -1026,6 +1030,7 @@ const setParams = normalizeCoasterParams({
   coasterCount: 6,
 });
 const setHolderDims = coasterHolderDimensionsMm(setParams);
+const setHolderOffset = coasterSetHolderOffsetMm(setParams);
 const maxSetParams = normalizeCoasterParams({
   ...setParams,
   coasterSize: 140,
@@ -1033,22 +1038,22 @@ const maxSetParams = normalizeCoasterParams({
   coasterCount: 8,
 });
 const maxSetHolderDims = coasterHolderDimensionsMm(maxSetParams);
+const maxSetOffset = coasterSetHolderOffsetMm(maxSetParams);
 const maxSetGap =
-  COASTER_SET_HOLDER_OFFSET_MM -
+  maxSetOffset -
   maxSetHolderDims.width / 2 -
   maxSetParams.coasterSize / 2;
 
 check(
   "общий STL: зазор сохраняется на максимальных размерах",
-  maxSetGap >= 14,
+  maxSetGap >= COASTER_SET_PART_GAP_MM,
   true,
 );
-near("общий STL: минимальный зазор", maxSetGap, 14);
+near("общий STL: минимальный зазор", maxSetGap, 19);
 const setGeometry = createCoasterSetGeometry(setParams);
 const setTriangles = trianglesOf(setGeometry);
 const setBounds = boundsOf(setTriangles);
-const holderLeftEdge =
-  COASTER_SET_HOLDER_OFFSET_MM - setHolderDims.width / 2;
+const holderLeftEdge = setHolderOffset - setHolderDims.width / 2;
 const coasterRightEdge = setParams.coasterSize / 2;
 const setCoasterTriangles = setTriangles.filter((triangle) =>
   triangle.every((point) => point[0] <= coasterRightEdge + 1e-6),
@@ -1064,6 +1069,19 @@ check(
   boxesIntersect(setCoasterBounds, setHolderBounds),
   false,
 );
+check(
+  "общий STL: габарит X не больше 220 мм",
+  setBounds.width <= COASTER_SET_BED_MM,
+  true,
+);
+check(
+  "общий STL: габарит Y не больше 220 мм",
+  setBounds.depth <= COASTER_SET_BED_MM,
+  true,
+);
+near("общий STL: точный габарит X", setBounds.width, 200.5);
+near("общий STL: точный габарит Y", setBounds.depth, 110);
+near("общий STL: точная высота", setBounds.height, 60);
 const setDirectory = mkdtempSync(join(tmpdir(), "tridi-coaster-set-"));
 const setPath = join(setDirectory, coasterSetStlFileName(setParams));
 
@@ -1072,17 +1090,21 @@ check(
   coasterSetStlFileName(setParams),
   "tridi-podstavka-kruzhka-nabor-round-d100-t5-honeycomb-bort.stl",
 );
-near("общий STL: сдвиг держателя", COASTER_SET_HOLDER_OFFSET_MM, 150);
+near(
+  "общий STL: сдвиг держателя — ширина набора + 15 мм",
+  setHolderOffset,
+  115,
+);
 check(
-  "общий STL: зазор между деталями",
-  holderLeftEdge - coasterRightEdge > 0,
+  "общий STL: зазор между деталями не меньше 15 мм",
+  holderLeftEdge - coasterRightEdge >= COASTER_SET_PART_GAP_MM,
   true,
 );
 near("общий STL: левый край подставки", setBounds.minX, -coasterRightEdge);
 near(
   "общий STL: правый край держателя",
   setBounds.maxX,
-  COASTER_SET_HOLDER_OFFSET_MM + setHolderDims.width / 2,
+  setHolderOffset + setHolderDims.width / 2,
 );
 near("общий STL: низ на Z = 0", setBounds.minZ, 0);
 check(
@@ -1124,12 +1146,22 @@ const setStlBounds = boundsOf(setStlTriangles);
 
 console.log(
   `  файл набора: ${setPath} (${setStlTriangles.length} треугольников, ` +
-    `держатель с X = ${COASTER_SET_HOLDER_OFFSET_MM} мм)`,
+    `держатель с X = ${setHolderOffset} мм)`,
 );
 near(
   "общий STL в файле: габарит X",
   setStlBounds.width,
   setBounds.width,
+);
+check(
+  "общий STL в файле: габарит X не больше 220 мм",
+  setStlBounds.width <= COASTER_SET_BED_MM,
+  true,
+);
+check(
+  "общий STL в файле: габарит Y не больше 220 мм",
+  setStlBounds.depth <= COASTER_SET_BED_MM,
+  true,
 );
 check(
   "общий STL в файле: число треугольников",
@@ -1141,6 +1173,61 @@ check(
   overhangTriangles(setStlTriangles).length,
   0,
 );
+
+for (const [label, extremeParams] of [
+  ["круг 140 × 10, 8 гнёзд", maxSetParams],
+  ["гекс 140 × 10, 8 гнёзд", { ...maxSetParams, coasterShape: "hex" as const }],
+] as const) {
+  const extremeGeometry = createCoasterSetGeometry(extremeParams);
+  const extremeTriangles = trianglesOf(extremeGeometry);
+  const extremeBounds = boundsOf(extremeTriangles);
+  const extremeCoasterEdge = extremeParams.coasterSize / 2;
+  const extremeLowerTriangles = extremeTriangles.filter((triangle) =>
+    triangle.every((point) => point[1] <= extremeCoasterEdge + 1e-6),
+  );
+  const extremeUpperTriangles = extremeTriangles.filter((triangle) =>
+    triangle.every(
+      (point) =>
+        point[1] >= extremeCoasterEdge + COASTER_SET_PART_GAP_MM - 1e-6,
+    ),
+  );
+
+  check(
+    `${label}: детали разведены по Y`,
+    extremeLowerTriangles.length + extremeUpperTriangles.length,
+    extremeTriangles.length,
+  );
+  check(
+    `${label}: Coaster intersects with holder`,
+    boxesIntersect(
+      boundsOf(extremeLowerTriangles),
+      boundsOf(extremeUpperTriangles),
+    ),
+    false,
+  );
+
+  check(
+    `${label}: габарит X не больше 220 мм`,
+    extremeBounds.width <= COASTER_SET_BED_MM,
+    true,
+  );
+  check(
+    `${label}: габарит Y не больше 220 мм`,
+    extremeBounds.depth <= COASTER_SET_BED_MM,
+    true,
+  );
+  check(
+    `${label}: габарит Z не больше 250 мм`,
+    extremeBounds.height <= COASTER_SET_BED_HEIGHT_MM,
+    true,
+  );
+  near(`${label}: низ на Z = 0`, extremeBounds.minZ, 0);
+  console.log(
+    `  ${label}: ${extremeBounds.width.toFixed(2)} × ` +
+      `${extremeBounds.depth.toFixed(2)} × ${extremeBounds.height.toFixed(2)} мм`,
+  );
+  extremeGeometry.dispose();
+}
 
 setGeometry.dispose();
 rmSync(setDirectory, { recursive: true, force: true });
