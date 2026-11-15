@@ -2,7 +2,7 @@
  * Тест геометрии подставки под кружку.
  *
  * Проверяет обещания новой модели: низ плоский и лежит на Z = 0, верхний край
- * срезан фаской 1.5 × 1.5 мм под 45°, узор углублён ровно на 0.8 мм и не
+ * срезан фаской 1.5 × 1.5 мм под 45°, узор углублён ровно на 1.2 мм и не
  * доходит до фаски. Объём меша сравнивается с аналитическим объёмом верхней
  * поверхности, а для сот ещё собирается настоящий бинарный STL: габарит,
  * число треугольников, объём и отсутствие нависаний проверяются уже по файлу.
@@ -327,8 +327,8 @@ check(
 );
 check("узор по умолчанию", DEFAULT_COASTER_PARAMS.coasterPattern, "smooth");
 near("фаска", COASTER_BEVEL_MM, 1.5);
-near("глубина узора", COASTER_PATTERN_DEPTH_MM, 0.8);
-near("отступ узора", COASTER_PATTERN_MARGIN_MM, 2.2);
+near("глубина узора", COASTER_PATTERN_DEPTH_MM, 1.2);
+near("отступ узора", COASTER_PATTERN_MARGIN_MM, 2);
 near("бортик: стенка", COASTER_RIM_WALL_MM, 3);
 near("бортик: подъём", COASTER_RIM_RISE_MM, 2.5);
 
@@ -429,7 +429,7 @@ for (const testCase of cases) {
     params.coasterThickness +
       (params.coasterRim ? COASTER_RIM_RISE_MM : 0),
   );
-  check("нижняя крышка — 96 треугольников", bottom.length, 96);
+  check("нижняя крышка — 288 треугольников", bottom.length, 288);
   check(
     "нижняя плоскость без наклона",
     bottom.every((triangle) =>
@@ -461,7 +461,7 @@ for (const testCase of cases) {
     check("у гладкой нет углублений", relief.length, 0);
   } else {
     near(
-      "глубина узора 0.8 мм",
+      "глубина узора 1.2 мм",
       params.coasterThickness - Math.min(...relief.map((point) => point[2])),
       COASTER_PATTERN_DEPTH_MM,
       1e-5,
@@ -546,6 +546,18 @@ const stlBuffer = readFileSync(stlPath);
 const stlTriangles = readBinaryStl(stlBuffer);
 const stlBounds = boundsOf(stlTriangles);
 const stlAnalyticVolume = coasterAnalyticVolumeMm3(stlParams);
+const stlPatternApothem =
+  stlParams.coasterSize / 2 -
+  COASTER_RIM_WALL_MM -
+  COASTER_PATTERN_MARGIN_MM;
+const stlRelief = stlTriangles
+  .flat()
+  .filter(
+    (point) =>
+      point[2] > BOTTOM_Z + 1e-7 &&
+      point[2] < stlParams.coasterThickness - 1e-7 &&
+      Math.hypot(point[0], point[1]) <= stlPatternApothem + 1e-5,
+  );
 
 console.log(
   `  файл: ${stlPath} (${stlBuffer.byteLength} байт, ` +
@@ -561,9 +573,20 @@ check(
   stlTriangles.length,
   trianglesOf(stlGeometry).length,
 );
+check(
+  "плотность сетки STL: 30 000–40 000 треугольников",
+  stlTriangles.length >= 30_000 && stlTriangles.length <= 40_000,
+  true,
+);
 near("габарит STL по X = 100", stlBounds.width, 100);
 near("габарит STL по Y = 100", stlBounds.depth, 100);
 near("низ STL на Z = 0", stlBounds.minZ, 0);
+near(
+  "глубина узора STL 1.2 мм",
+  stlParams.coasterThickness - Math.min(...stlRelief.map((point) => point[2])),
+  COASTER_PATTERN_DEPTH_MM,
+  1e-5,
+);
 check(
   "нижняя плоскость STL плоская",
   bottomTriangles(stlTriangles).every((triangle) =>
