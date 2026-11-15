@@ -15,13 +15,18 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { BufferGeometry } from "three";
+import { Mesh, Raycaster, Vector3, type BufferGeometry } from "three";
 import { FontLoader } from "three/examples/jsm/loaders/FontLoader.js";
 import type { Font, FontData } from "three/examples/jsm/loaders/FontLoader.js";
 
+import { calculateGeometryWeightGrams } from "../lib/constructor/geometry-volume";
 import {
-  SIGN_COVER_WIRE_HOLE_MM,
+  SIGN_FOOT_HEIGHT_MM,
   SIGN_FONT_URLS,
+  SIGN_RAIL_HEIGHT_MM,
+  SIGN_RAIL_THICKNESS_MM,
+  SIGN_RAIL_WIRE_HOLE_MM,
+  createSignBlockGeometry,
   createSignBlockPackageGeometry,
   createSignGeometry,
   planSignPackage,
@@ -135,6 +140,47 @@ function gapBetween(
   };
 }
 
+/**
+ * Доля передней плоскости, занятая материалом на горизонтальной линии.
+ *
+ * Общая планка под буквами дала бы почти непрерывную полосу, отдельные буквы —
+ * только штрихи. Луч идёт спереди назад, но считаются только попадания в
+ * передний слой: рельс стоит сзади и в проверку не попадает.
+ */
+function frontCoverage(geometry: BufferGeometry, y: number): number {
+  geometry.computeBoundingBox();
+
+  const box = geometry.boundingBox;
+
+  if (!box) {
+    return 1;
+  }
+
+  const mesh = new Mesh(geometry);
+  mesh.updateMatrixWorld(true);
+
+  const raycaster = new Raycaster();
+  const direction = new Vector3(0, 0, -1);
+  const samples = 160;
+  let material = 0;
+
+  for (let index = 0; index < samples; index += 1) {
+    const x = box.min.x + ((box.max.x - box.min.x) * (index + 0.5)) / samples;
+
+    raycaster.set(new Vector3(x, y, box.max.z + 20), direction);
+
+    const hit = raycaster
+      .intersectObject(mesh, true)
+      .find((item) => item.point.z > box.max.z - 3.5);
+
+    if (hit) {
+      material += 1;
+    }
+  }
+
+  return material / samples;
+}
+
 const fontPath = path.join(
   process.cwd(),
   "public",
@@ -151,7 +197,7 @@ const base = normalizeSignParams({
   signChannelWidth: 8,
   signLetterGap: 6,
   signBlockSize: 3,
-  signBaseMount: true,
+  signRailMode: "detachable",
 });
 
 console.log("\nПараметры и отверстия");
@@ -175,6 +221,31 @@ for (const block of baseLayout.blocks) {
     block.wireHoles.every((hole) => hole.through),
     true,
   );
+  check(
+    `блок ${block.blockIndex + 1}: рельс есть`,
+    block.rail !== null,
+    true,
+  );
+  check(
+    `блок ${block.blockIndex + 1}: рельс не выступает вперёд`,
+    (block.rail?.maxZ ?? 1) <= 0,
+    true,
+  );
+  near(
+    `блок ${block.blockIndex + 1}: высота рельса`,
+    (block.rail?.maxY ?? 0) - (block.rail?.minY ?? 0),
+    SIGN_RAIL_HEIGHT_MM,
+  );
+  near(
+    `блок ${block.blockIndex + 1}: толщина рельса`,
+    (block.rail?.maxZ ?? 0) - (block.rail?.minZ ?? 0),
+    SIGN_RAIL_THICKNESS_MM,
+  );
+  check(
+    `блок ${block.blockIndex + 1}: канал рельса сквозной`,
+    block.wireHoles.some((hole) => hole.source === "rail" && hole.through),
+    true,
+  );
   console.log(
     `    блок ${block.blockIndex + 1}: ${block.wireHoles
       .map(
@@ -183,12 +254,124 @@ for (const block of baseLayout.blocks) {
             0,
           )} мм (${hole.x.toFixed(1)}, ${hole.y.toFixed(1)})`,
       )
-      .join(", ")}`,
+      .join(", ")}; ножек ${block.feet}`,
   );
 }
 
+const totalFeet = baseLayout.blocks.reduce((sum, block) => sum + block.feet, 0);
 
-console.log("\nУзкая сплошная буква: запасное отверстие в планке");
+check("крайние буквы получили ножки", totalFeet >= 2, true);
+
+console.log("\nЛицо без общей планки и вес");
+const preview = createSignGeometry(base, font);
+preview.computeBoundingBox();
+
+const previewBox = preview.boundingBox;
+
+if (!previewBox) {
+  failures.push("предпросмотр: нет габаритов");
+} else {
+  const coverage = frontCoverage(
+    preview,
+    previewBox.min.y + SIGN_FOOT_HEIGHT_MM + 6,
+  );
+
+  check("спереди нет планки под буквами", coverage < 0.7, true);
+  console.log(
+    `    передняя линия занята на ${(coverage * 100).toFixed(1)}%; габарит ${(
+      previewBox.max.x - previewBox.min.x
+    ).toFixed(1)} × ${(previewBox.max.y - previewBox.min.y).toFixed(1)} мм`,
+  );
+
+  const weight = calculateGeometryWeightGrams(preview);
+
+  check("вес ниже прежних 1921 г", weight < 1921, true);
+  console.log(`    вес предпросмотра ${weight.toFixed(0)} г`);
+}
+
+const railPart = createSignBlockGeometry(base, font, 0, "rail");
+
+railPart.computeBoundingBox();
+
+if (!railPart.boundingBox) {
+  failures.push("рельс: пустая деталь");
+} else {
+  near(
+    "рельс отдельной детали: высота",
+    railPart.boundingBox.max.y - railPart.boundingBox.min.y,
+    SIGN_RAIL_HEIGHT_MM,
+  );
+  near(
+    "рельс отдельной детали: толщина",
+    railPart.boundingBox.max.z - railPart.boundingBox.min.z,
+    SIGN_RAIL_THICKNESS_MM,
+  );
+
+  const railBox = railPart.boundingBox;
+  const railMesh = new Mesh(railPart);
+
+  railMesh.updateMatrixWorld(true);
+
+  const channelRay = new Raycaster();
+
+  channelRay.set(
+    new Vector3(
+      railBox.min.x - 10,
+      railBox.min.y + SIGN_RAIL_HEIGHT_MM - 3,
+      (railBox.min.z + railBox.max.z) / 2,
+    ),
+    new Vector3(1, 0, 0),
+  );
+  check(
+    "канал Ø4 проходит сквозь рельс",
+    channelRay.intersectObject(railMesh, true).length,
+    0,
+  );
+  railMesh.clear();
+}
+
+const coverPart = createSignBlockGeometry(base, font, 0, "cover");
+
+coverPart.computeBoundingBox();
+
+if (coverPart.boundingBox) {
+  atMost(
+    "крышка остаётся плоской",
+    coverPart.boundingBox.max.z - coverPart.boundingBox.min.z,
+    4,
+  );
+}
+
+coverPart.dispose();
+railPart.dispose();
+preview.dispose();
+
+console.log("\nБез рельса: ножка у каждой буквы, рельса в отчёте нет");
+const feetOnly = layoutOf({ ...base, signRailMode: "none" }, font);
+const feetOnlyCount = feetOnly.blocks.reduce(
+  (sum, block) => sum + block.feet,
+  0,
+);
+
+check("без рельса: ножек по числу букв", feetOnlyCount, 5);
+check(
+  "без рельса: рельс не строится",
+  feetOnly.blocks.every((block) => block.rail === null),
+  true,
+);
+
+const noRailOptions = signExportOptions(
+  normalizeSignParams({ ...base, signRailMode: "none" }),
+  feetOnly,
+);
+
+check(
+  "без рельса: кнопки рельса нет",
+  noRailOptions.some((option) => option.request.signPart === "rail"),
+  false,
+);
+
+console.log("\nУзкая сплошная буква: провод уходит в канал рельса");
 const solid = layoutOf({ ...base, signText: "1", signBlockSize: 1 }, font);
 const solidBlock = solid.blocks[0];
 
@@ -197,14 +380,37 @@ if (!solidBlock) {
 } else {
   check("буква 1: отверстие есть", solidBlock.wireHoles.length > 0, true);
   check(
-    "буква 1: отверстие в планке крышки",
-    solidBlock.wireHoles.some((hole) => hole.source === "block"),
+    "буква 1: отверстие в рельсе",
+    solidBlock.wireHoles.some((hole) => hole.source === "rail"),
     true,
   );
   near(
-    "буква 1: диаметр отверстия",
-    (solidBlock.wireHoles[0]?.radius ?? 0) * 2,
-    SIGN_COVER_WIRE_HOLE_MM,
+    "буква 1: диаметр канала рельса",
+    (solidBlock.wireHoles.find((hole) => hole.source === "rail")?.radius ?? 0) *
+      2,
+    SIGN_RAIL_WIRE_HOLE_MM,
+  );
+  check("буква 1: ножка есть", solidBlock.feet > 0, true);
+  check("буква 1: крышки нет", solidBlock.coverWidth, 0);
+
+  const solidPackage = createSignBlockPackageGeometry(
+    { ...base, signText: "1", signBlockSize: 1 },
+    font,
+    0,
+  );
+
+  check("буква 1: пакет без крышки собирается", solidPackage !== null, true);
+  solidPackage?.dispose();
+
+  const solidOptions = signExportOptions(
+    normalizeSignParams({ ...base, signText: "1", signBlockSize: 1 }),
+    solid,
+  );
+
+  check(
+    "буква 1: пустой кнопки крышки нет",
+    solidOptions.some((option) => option.request.signPart === "cover"),
+    false,
   );
 }
 
@@ -287,6 +493,11 @@ if (!wideBlock) {
     true,
   );
   check(
+    "80/2: кнопка рельса есть",
+    options.some((option) => option.request.signPart === "rail"),
+    true,
+  );
+  check(
     "80/2: предупреждения нет",
     signExportNotice(normalizeSignParams(wideParams), wide),
     null,
@@ -351,7 +562,7 @@ if (!tallBlock) {
   );
 }
 
-console.log("\n80/3: пакет шире стола — только отдельные файлы");
+console.log("\n80/3: после удаления плиты пакет снова влезает");
 const oversizeParams = {
   ...base,
   signFontSize: 80,
@@ -363,18 +574,28 @@ const oversizeBlock = oversize.blocks[0];
 if (!oversizeBlock) {
   failures.push("80/3: нет первого блока");
 } else {
-  check("80/3: пакет не влезает", oversizeBlock.package.fits, false);
+  check("80/3: пакет влезает", oversizeBlock.package.fits, true);
+  atMost("80/3: ширина пакета", oversizeBlock.package.width, SIGN_PRINT_BED_MM);
+  atMost("80/3: глубина пакета", oversizeBlock.package.depth, SIGN_PRINT_BED_MM);
+  const oversizePackage = createSignBlockPackageGeometry(
+    oversizeParams,
+    font,
+    0,
+  );
+
+  check("80/3: общий STL выдаётся", oversizePackage !== null, true);
   check(
-    "80/3: общий STL не выдаётся",
-    createSignBlockPackageGeometry(oversizeParams, font, 0),
+    "80/3: предупреждения нет",
+    signExportNotice(normalizeSignParams(oversizeParams), oversize),
     null,
   );
+  oversizePackage?.dispose();
   console.log(
     `    блок ${oversizeBlock.faceWidth.toFixed(
       1,
     )} × ${oversizeBlock.faceHeight.toFixed(
       1,
-    )} мм; лучший пакет ${oversizeBlock.package.width.toFixed(
+    )} мм; пакет ${oversizeBlock.package.width.toFixed(
       1,
     )} × ${oversizeBlock.package.depth.toFixed(1)} мм`,
   );

@@ -757,13 +757,14 @@ export type SignChannelWidth = (typeof SIGN_CHANNEL_WIDTHS)[number];
 /**
  * Детали блока вывески.
  *
- * Блок печатается двумя деталями: `face` — буквы на общей плите с шипом и
- * пазом, `cover` — задняя крышка с бортиком, который входит в камеру буквы.
- * `package` — обе детали одним файлом: удобно для Free-лимита и печати блока
- * за одно задание. Ключи латинские: они попадают в имя STL-файла, поэтому
- * кириллица в заголовок ответа не просачивается.
+ * Блок печатается тремя деталями: `face` — отдельные полые буквы с ножками,
+ * `cover` — задняя крышка каждой буквы с ключом под рельс, `rail` — задний
+ * соединительный рельс с каналом под провод. `package` — лицо и крышка одним
+ * файлом: удобно для Free-лимита и печати блока за одно задание. Ключи
+ * латинские: они попадают в имя STL-файла, поэтому кириллица в заголовок
+ * ответа не просачивается.
  */
-export const SIGN_PARTS = ["face", "cover", "package"] as const;
+export const SIGN_PARTS = ["face", "cover", "rail", "package"] as const;
 
 export type SignPart = (typeof SIGN_PARTS)[number];
 
@@ -771,8 +772,28 @@ export type SignPart = (typeof SIGN_PARTS)[number];
 export const SIGN_PART_LABELS = {
   face: "Лицо",
   cover: "Крышка",
+  rail: "Рельс",
   package: "Комплект",
 } as const satisfies Record<SignPart, string>;
+
+/**
+ * Как рельс держится на буквах.
+ *
+ * `detachable` — ключи крышек входят в паз рельса с зазором: рельс снимается
+ * для замены буквы. `fixed` — тот же паз, но с натягом: после сборки рельс
+ * проклеивают, и он работает как жёсткая рама. `none` — рельса нет, каждая
+ * буква стоит на собственных ножках.
+ */
+export const SIGN_RAIL_MODES = ["detachable", "fixed", "none"] as const;
+
+export type SignRailMode = (typeof SIGN_RAIL_MODES)[number];
+
+/** Подписи режимов крепления для панели. */
+export const SIGN_RAIL_MODE_LABELS = {
+  detachable: "Съёмный рельс",
+  fixed: "Жёсткий рельс",
+  none: "Без рельса",
+} as const satisfies Record<SignRailMode, string>;
 
 /** Поле печати, под которое раскладывается общий STL вывески, мм. */
 export const SIGN_PRINT_BED_MM = 220;
@@ -1722,9 +1743,8 @@ export type HeatTransferParams = {
  * Настройки вывески: надпись, кегль, глубина, канал под ленту и блоки.
  *
  * Надпись делится на блоки по signBlockSize букв. Каждый блок печатается
- * двумя деталями: лицо (объёмные полые буквы на общей плите) и задняя крышка.
- * Плита несёт шип и паз для стыка с соседними блоками, а на стыке остаётся
- * сквозной канал под ленту.
+ * тремя деталями: отдельные полые буквы с ножками, задние крышки и рельс.
+ * Рельс проходит за крышками, держит буквы и прячет канал под провод.
  */
 export type SignParams = {
   /** Надпись на вывеске, до 15 символов; пустая строка означает «нет букв». */
@@ -1741,8 +1761,8 @@ export type SignParams = {
   signLetterGap: number;
   /** Сколько букв печатается одним блоком: от 1 до 5. */
   signBlockSize: number;
-  /** Общее основание под буквами блока: плита вместо узкой рейки. */
-  signBaseMount: boolean;
+  /** Задний рельс: съёмный, жёсткий или без рельса — буквы на ножках. */
+  signRailMode: SignRailMode;
 };
 
 
@@ -2722,7 +2742,7 @@ export const DEFAULT_SIGN_PARAMS: SignParams = {
   signChannelWidth: 8,
   signLetterGap: CONSTRUCTOR_LIMITS.signLetterGap.defaultValue,
   signBlockSize: CONSTRUCTOR_LIMITS.signBlockSize.defaultValue,
-  signBaseMount: true,
+  signRailMode: "detachable",
 };
 
 /**
@@ -3795,7 +3815,15 @@ export function isSignFont(value: unknown): value is SignFont {
   return typeof value === "string" && (SIGN_FONTS as readonly string[]).includes(value);
 }
 
-/** Проверка детали блока вывески из запроса: «face» или «cover». */
+/** Проверка режима рельса вывески из формы или API. */
+export function isSignRailMode(value: unknown): value is SignRailMode {
+  return (
+    typeof value === "string" &&
+    (SIGN_RAIL_MODES as readonly string[]).includes(value)
+  );
+}
+
+/** Проверка детали блока вывески из запроса: лицо, крышка, рельс или комплект. */
 export function isSignPart(value: unknown): value is SignPart {
   return typeof value === "string" && (SIGN_PARTS as readonly string[]).includes(value);
 }
@@ -5076,7 +5104,7 @@ export function normalizeHeatTransferParams(
  * Текст очищается от символов вне шрифта и обрезается до 15 знаков. Ширина
  * канала — только 8 или 10 мм: канал строится под конкретную ленту, и
  * промежуточное значение дало бы люфт или зажим. Размер блока выравнивается по
- * шагу 1 и зажимается в 1–5, а общее основание принимается только как boolean.
+ * шагу 1 и зажимается в 1–5, а режим рельса принимается только из списка.
  */
 export function normalizeSignParams(params: Partial<SignParams>): SignParams {
   return {
@@ -5103,10 +5131,9 @@ export function normalizeSignParams(params: Partial<SignParams>): SignParams {
       params.signBlockSize ?? DEFAULT_SIGN_PARAMS.signBlockSize,
       CONSTRUCTOR_LIMITS.signBlockSize,
     ),
-    signBaseMount:
-      typeof params.signBaseMount === "boolean"
-        ? params.signBaseMount
-        : DEFAULT_SIGN_PARAMS.signBaseMount,
+    signRailMode: isSignRailMode(params.signRailMode)
+      ? params.signRailMode
+      : DEFAULT_SIGN_PARAMS.signRailMode,
   };
 }
 

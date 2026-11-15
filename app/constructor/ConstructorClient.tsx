@@ -120,6 +120,7 @@ import {
   type QrMode,
   type SignChannelWidth,
   type SignFont,
+  type SignRailMode,
   type VaseShape,
 } from "@/lib/constructor/params";
 
@@ -178,7 +179,7 @@ type SizeParam = Exclude<
   | "signText"
   | "signFont"
   | "signChannelWidth"
-  | "signBaseMount"
+  | "signRailMode"
   | "hasLid"
   | "lithoFrame"
   | "lithoMount"
@@ -1188,9 +1189,9 @@ export function ConstructorClient({
     );
   }
 
-  function updateSignBaseMount(signBaseMount: boolean) {
+  function updateSignRailMode(signRailMode: SignRailMode) {
     setParams((current) =>
-      normalizeConstructorParams({ ...current, signBaseMount }),
+      normalizeConstructorParams({ ...current, signRailMode }),
     );
   }
 
@@ -1725,7 +1726,7 @@ export function ConstructorClient({
             onShapeChange={updateShape}
             onRandomizeVase={randomizeVase}
             onSignChannelWidthChange={updateSignChannelWidth}
-            onSignBaseMountChange={updateSignBaseMount}
+            onSignRailModeChange={updateSignRailMode}
             onSignFontChange={updateSignFont}
             onSignTextChange={updateSignText}
             params={params}

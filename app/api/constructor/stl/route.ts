@@ -74,6 +74,7 @@ import {
   isSignChannelWidth,
   isSignFont,
   isSignPart,
+  isSignRailMode,
   isVasePattern,
   isVaseShape,
   isValidKeychainText,
@@ -899,7 +900,7 @@ function parseKeychainParams(
  * Геометрия сама уменьшит буквы, если строка не влезает в 800 мм.
  *
  * `blockIndex` и `signPart` обязательны: каждая деталь печатается отдельным
- * файлом — лицо блока или его крышка. Номер блока считается по listSignBlocks,
+ * файлом — лицо, крышка или рельс блока. Номер блока считается по listSignBlocks,
  * то есть по тем же правилам, что и в интерфейсе; номер вне списка и незнакомая
  * деталь отклоняются, иначе клиент получил бы пустой STL вместо ошибки.
  */
@@ -914,7 +915,7 @@ function parseSignParams(
     signChannelWidth,
     signLetterGap = DEFAULT_SIGN_PARAMS.signLetterGap,
     signBlockSize = DEFAULT_SIGN_PARAMS.signBlockSize,
-    signBaseMount = DEFAULT_SIGN_PARAMS.signBaseMount,
+    signRailMode = DEFAULT_SIGN_PARAMS.signRailMode,
     blockIndex,
     signPart,
   } = body;
@@ -944,7 +945,7 @@ function parseSignParams(
       CONSTRUCTOR_LIMITS.signBlockSize.max,
     ) ||
     !Number.isInteger(signBlockSize) ||
-    typeof signBaseMount !== "boolean" ||
+    !isSignRailMode(signRailMode) ||
     typeof blockIndex !== "number" ||
     !Number.isInteger(blockIndex) ||
     !isSignPart(signPart)
@@ -960,7 +961,7 @@ function parseSignParams(
     signChannelWidth,
     signLetterGap,
     signBlockSize,
-    signBaseMount,
+    signRailMode,
   });
   const blocks = listSignBlocks(params.signText, params.signBlockSize);
 

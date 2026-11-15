@@ -155,6 +155,8 @@ import {
   SIGN_FONTS,
   SIGN_FONT_LABELS,
   SIGN_PRINT_BED_MM,
+  SIGN_RAIL_MODES,
+  SIGN_RAIL_MODE_LABELS,
   SIGN_TEXT_MAX_LENGTH,
   VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERNS,
@@ -196,6 +198,7 @@ import {
   type QrMode,
   type SignChannelWidth,
   type SignFont,
+  type SignRailMode,
   type VasePattern,
   type VaseShape,
 } from "@/lib/constructor/params";
@@ -229,7 +232,7 @@ type SizeParam = Exclude<
   | "signText"
   | "signFont"
   | "signChannelWidth"
-  | "signBaseMount"
+  | "signRailMode"
   | "hasLid"
   | "boxMagnets"
   | "boxMagnetSize"
@@ -391,7 +394,7 @@ type ParameterPanelProps = {
   onSignTextChange: (text: string) => void;
   onSignFontChange: (font: SignFont) => void;
   onSignChannelWidthChange: (width: SignChannelWidth) => void;
-  onSignBaseMountChange: (mount: boolean) => void;
+  onSignRailModeChange: (mode: SignRailMode) => void;
   onHasLidChange: (hasLid: boolean) => void;
   /** Глухие пазы под магниты в дне корпуса и плите крышки. */
   onBoxMagnetsChange: (enabled: boolean) => void;
@@ -1693,7 +1696,7 @@ export function ParameterPanel({
   onSignTextChange,
   onSignFontChange,
   onSignChannelWidthChange,
-  onSignBaseMountChange,
+  onSignRailModeChange,
   onHasLidChange,
   onBoxMagnetsChange,
   onBoxMagnetSizeChange,
@@ -4929,8 +4932,9 @@ export function ParameterPanel({
                 id={signTextHintId}
               >
                 Кириллица, латиница, цифры и знаки. Надпись делится на блоки: в
-                каждом — объёмные полые буквы на общей плите, лицо 2 мм, стенки
-                1.8 мм и открытая камера под ленту сзади.
+                каждом — отдельные полые буквы без общей плиты, лицо 2 мм, стенки
+                1.8 мм и открытая камера под ленту сзади. Буквы держит рельс, а по
+                краям их продолжают ножки.
               </p>
               <span className="shrink-0 text-xs tabular-nums text-slate-300">
                 {signTextLength}/{SIGN_TEXT_MAX_LENGTH}
@@ -4999,7 +5003,7 @@ export function ParameterPanel({
             />
 
             <NumberSlider
-              hint="Сколько букв печатается одним блоком. Блок — это лицо с плитой и шипом и отдельная задняя крышка: 2–3 буквы удобно вешать, по одной — если буквы крупные."
+              hint="Сколько букв печатается одним блоком. Блок — это отдельные буквы, их крышки и общий задний рельс: 2–3 буквы удобно вешать, по одной — если буквы крупные."
               label="Букв в блоке"
               max={CONSTRUCTOR_LIMITS.signBlockSize.max}
               min={CONSTRUCTOR_LIMITS.signBlockSize.min}
@@ -5010,32 +5014,30 @@ export function ParameterPanel({
             />
           </div>
 
-          <label className="mt-6 flex cursor-pointer items-start gap-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition-colors hover:border-white/25 hover:bg-white/5">
-            <input
-              checked={params.signBaseMount}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-violet-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
-              onChange={(event) => onSignBaseMountChange(event.target.checked)}
-              type="checkbox"
+          <div className="mt-6 border-t border-white/10 pt-5">
+            <ParameterSelect
+              hint="Съёмный рельс держится на ключах крышек с зазором — его можно снять и заменить букву. Жёсткий садится с натягом: после сборки его проклеивают. Без рельса каждая буква получает собственную ножку-продолжение нижнего штриха."
+              label="Крепление букв"
+              onChange={onSignRailModeChange}
+              options={SIGN_RAIL_MODES.map((mode) => ({
+                label: SIGN_RAIL_MODE_LABELS[mode],
+                value: mode,
+              }))}
+              value={params.signRailMode}
             />
-            <span>
-              <span className="block text-sm font-semibold text-slate-200">
-                Общее основание
-              </span>
-              <span className="mt-1 block text-xs leading-relaxed text-slate-300">
-                Плита под буквами блока: буквы стоят на ней, а не на узкой рейке.
-                Без основания блок легче, но плита ниже и шип меньше.
-              </span>
-            </span>
-          </label>
+          </div>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
-            Блок печатается двумя деталями: лицо с буквами на плите и задняя
-            крышка с бортиком. Общий STL кладёт их рядом с зазором 6 мм: если
-            пакет влезает на стол {SIGN_PRINT_BED_MM} × {SIGN_PRINT_BED_MM} мм,
-            скачивайте его одним файлом, иначе — лицо и крышку по отдельности.
-            Плиты соседей стыкуются шипом и пазом; непрерывного канала на стыке
-            нет. Слишком тонкие штрихи — например, у «I» или «1» — собираются
-            сплошными: камера под ленту там не помещается.
+            Блок печатается тремя деталями: отдельные буквы с ножками, задние
+            крышки с ключами и рельс 12 × 6 мм с каналом Ø4 мм. Рельс стоит
+            позади крышек, поэтому с лица его не видно. Общий STL кладёт лицо и
+            крышки с зазором 6 мм: если пакет влезает на стол{" "}
+            {SIGN_PRINT_BED_MM} × {SIGN_PRINT_BED_MM} мм, скачивайте его одним
+            файлом, иначе — детали по отдельности.
+            Сегменты рельса соседних блоков стыкуются встык по одной линии и
+            образуют общую заднюю направляющую. Слишком тонкие штрихи — например,
+            у «I» или «1» — собираются сплошными: камера под ленту там не
+            помещается, провод идёт по каналу рельса.
           </p>
         </>
       )}

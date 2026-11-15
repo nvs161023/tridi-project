@@ -28,12 +28,12 @@ function actualReport(
 }
 
 /**
- * Кнопки вывески: общий STL блока и отдельные лицо с крышкой.
+ * Кнопки вывески: общий STL блока и отдельные лицо, крышка и рельс.
  *
  * Общий файл стоит первым у блока, если пакет влезает на стол 220 × 220 мм.
  * Внутри пакета крышка лежит над лицом, рядом с ним или повёрнута — это решает
- * `planSignPackage`. Если места нет, кнопки нет: остаются только face и cover,
- * а панель показывает `signExportNotice`.
+ * `planSignPackage`. Если места нет, кнопки нет: остаются отдельные face,
+ * cover и rail, а панель показывает `signExportNotice`.
  */
 export function signExportOptions(
   params: SignParams,
@@ -51,10 +51,12 @@ export function signExportOptions(
     const blockOptions: SignExportOption[] = [];
 
     if (layout?.package.fits) {
+      const contents = layout.coverWidth > 0 ? "лицо и крышка" : "лицо";
+
       blockOptions.push({
         id: `sign-block-${block.index}-package`,
         label: `Блок ${block.index + 1}: Общий STL`,
-        description: `Блок ${block.index + 1} «${letters}»: лицо и крышка одним файлом, ${Math.round(
+        description: `Блок ${block.index + 1} «${letters}»: ${contents} одним файлом, ${Math.round(
           layout.package.width,
         )} × ${Math.round(layout.package.depth)} мм, стол ${SIGN_PRINT_BED_MM} мм`,
         request: { blockIndex: block.index, signPart: "package" },
@@ -62,15 +64,27 @@ export function signExportOptions(
       });
     }
 
-    for (const part of ["face", "cover"] as const) {
+    const parts: ("face" | "cover" | "rail")[] = ["face"];
+
+    // У сплошной буквы крышки нет: пустой файл не предлагаем. Рельс скрыт и
+    // тогда, когда выбран режим «без рельса».
+    if (!layout || layout.coverWidth > 0) {
+      parts.push("cover");
+    }
+
+    if (params.signRailMode !== "none") {
+      parts.push("rail");
+    }
+
+    for (const part of parts) {
+      const label =
+        part === "face" ? "Лицо" : part === "cover" ? "Крышка" : "Рельс";
+      const lower = label.toLowerCase();
+
       blockOptions.push({
         id: `sign-block-${block.index}-${part}`,
-        label: `Блок ${block.index + 1}: ${
-          part === "face" ? "Лицо" : "Крышка"
-        }`,
-        description: `Блок ${block.index + 1} «${letters}»: ${
-          part === "face" ? "лицо" : "крышка"
-        } отдельным файлом`,
+        label: `Блок ${block.index + 1}: ${label}`,
+        description: `Блок ${block.index + 1} «${letters}»: ${lower} отдельным файлом`,
         request: { blockIndex: block.index, signPart: part },
         fileName: signStlFileName(params, block.index, part),
       });
