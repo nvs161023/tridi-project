@@ -11,6 +11,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 import { KEYCHAIN_FONT_URL } from "@/lib/constructor/keychain-geometry";
 import {
+  SIGN_PACKAGE_GAP_MM,
+  SIGN_PRINT_BED_MM,
   listSignBlocks,
   normalizeSignParams,
   type SignFont,
@@ -98,7 +100,7 @@ export const SIGN_COVER_TENON_HEIGHT_MM = 1.4;
 export const SIGN_COVER_TENON_CLEARANCE_MM = 0.1;
 
 /** Диаметр отверстия под провод в крышке, мм: хватает на два провода ленты. */
-const SIGN_COVER_WIRE_HOLE_MM = 4;
+export const SIGN_COVER_WIRE_HOLE_MM = 4;
 
 /** Меньший диаметр, если широкое отверстие не помещается в штрих, мм. */
 const SIGN_COVER_WIRE_HOLE_MIN_MM = 3;
@@ -141,6 +143,83 @@ const SIGN_COVER_PLATE_MM = 2;
 
 /** Насколько шип и планка входят в крышку, мм: перекрытие вместо стыка. */
 const SIGN_COVER_WELD_MM = 0.2;
+
+/** Раскладка пакета: крышка над лицом или рядом с ним. */
+export type SignPackageArrangement = "stack" | "side";
+
+/**
+ * Выбранная раскладка пакета блока.
+ *
+ * `fits` — обе стороны огибающей не больше поля печати. `faceRotated` и
+ * `coverRotated` означают поворот детали на 90° вокруг Z: так пакет 120 «ИИ»
+ * из 210.7 × 244.9 мм превращается в 202.8 × 210.7 мм и влезает на стол 220.
+ */
+export type SignPackageLayout = {
+  arrangement: SignPackageArrangement;
+  faceRotated: boolean;
+  coverRotated: boolean;
+  /** Габарит пакета по X, мм. */
+  width: number;
+  /** Габарит пакета по Y, мм. */
+  depth: number;
+  fits: boolean;
+};
+
+/** Отверстие под провод: центр в координатах блока и радиус, мм. */
+export type SignWireHoleReport = {
+  blockIndex: number;
+  x: number;
+  y: number;
+  radius: number;
+  /** Откуда отверстие: из крышки буквы или из планки крышки блока. */
+  source: "letter" | "block";
+  /** Отверстие сквозное по толщине крышки. */
+  through: boolean;
+};
+
+/** Габариты детали в общем STL: для проверки зазора между лицом и крышкой. */
+export type SignPartBounds = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  minZ: number;
+  maxZ: number;
+};
+
+/** Отчёт сборки одного пакета: раскладка, габариты деталей и пересечение. */
+export type SignBlockPackageReport = {
+  layout: SignPackageLayout;
+  face: SignPartBounds;
+  cover: SignPartBounds;
+  /** true — огибающие деталей пересекаются хотя бы по одной оси. */
+  intersects: boolean;
+};
+
+/** Отчёт раскладки одного блока для панели и тестов. */
+export type SignBlockLayoutReport = {
+  blockIndex: number;
+  faceWidth: number;
+  faceHeight: number;
+  coverWidth: number;
+  coverHeight: number;
+  package: SignPackageLayout;
+  wireHoles: SignWireHoleReport[];
+};
+
+/** Отчёт всей надписи: подпись параметров и блоки. */
+export type SignLayoutReport = {
+  /** Подпись нормализованных параметров: старый отчёт не применяется к новым. */
+  signature: string;
+  blocks: SignBlockLayoutReport[];
+};
+
+/** Отверстие в координатах детали до раскладки. */
+type SignWireHole = {
+  center: Vector2;
+  radius: number;
+  source: "letter" | "block";
+};
 
 /** Полость буквы: контур камеры, отверстия и признак готового паза. */
 type SignCavity = {
@@ -799,14 +878,18 @@ function createEmptyGeometry(): BufferGeometry {
   return new BufferGeometry();
 }
 
-/** Ставит сетку на стол и центрирует по X: в таком виде деталь идёт в STL. */
+/** Ставит сетку на стол: X центрирован, Y и Z начинаются с нуля. */
 function placeOnBed(geometry: BufferGeometry): BufferGeometry {
   geometry.computeBoundingBox();
 
   const box = geometry.boundingBox;
 
   if (box) {
-    geometry.translate(-(box.min.x + box.max.x) / 2, -box.min.y, 0);
+    geometry.translate(
+      -(box.min.x + box.max.x) / 2,
+      -box.min.y,
+      -box.min.z,
+    );
   }
 
   geometry.computeBoundingBox();
@@ -955,11 +1038,12 @@ function layoutSignBlocks(
   return { size, ...result };
 }
 
-/** Готовые детали одного блока: лицо и крышка. */
+/** Готовые детали одного блока: лицо, крышка и отверстия под провод. */
 type SignBlockParts = {
   block: SignBlock;
   face: BufferGeometry;
   cover: BufferGeometry;
+  wireHoles: SignWireHole[];
 };
 
 /** Окружность замкнутым контуром: отверстие под провод в крышке. */
@@ -1095,6 +1179,31 @@ function findWireHole(
 }
 
 /**
+ * Запасное отверстие в планке крышки блока.
+ *
+ * Крышка буквы получает отверстие только там, где в камеру помещается
+ * окружность. У сплошной буквы крышки нет вовсе, поэтому блок без отверстия
+ * остался бы без вывода провода. Планка крышки — сплошная полоса под буквами;
+ * в её левом поле всегда есть 6 мм запаса, и окружность Ø4 мм садится туда с
+ * миллиметровым бортом. Отверстие сквозное: провод выходит из-за блока внутрь
+ * его полости.
+ */
+function blockCoverWireHole(block: SignBlock): SignWireHole {
+  const radius = SIGN_COVER_WIRE_HOLE_MM / 2;
+  const bottom = -SIGN_BASE_BOTTOM_MM;
+  const top = block.plateHeight;
+
+  return {
+    center: new Vector2(
+      block.left + SIGN_BLOCK_SIDE_MM / 2,
+      (bottom + top) / 2,
+    ),
+    radius,
+    source: "block",
+  };
+}
+
+/**
  * Шип крышки по контуру: кольцо, которое входит в паз стенки.
  *
  * Шип начинается на lip + зазор от контура и занимает ширину паза минус два
@@ -1150,9 +1259,9 @@ function createCoverTenon(
  *
  * Плита сплошная — она закрывает камеру вместе с перемычками буквы, — а шип
  * повторяет и внешний контур, и контуры отверстий: каждая стенка получает
- * ответную деталь. Отверстие под провод вырезается только там, где в камеру
- * помещается окружность и над планкой блока остаётся место: у узкой «I» его
- * нет, провод идёт через стык блоков.
+ * ответную деталь. Отверстие под провод вырезается там, где в камеру помещается
+ * окружность; если Ø4 мм не влезает, остаётся Ø3 мм. У совсем узкой буквы
+ * отверстия нет — тогда блок получает запасное отверстие в планке крышки.
  *
  * Буква, которая не поместила камеру и печатается сплошной, крышки не требует:
  * null. Координаты — координаты шрифта, сдвиг на позицию в строке делает
@@ -1162,7 +1271,7 @@ function createLetterCover(
   letter: SignLetterShape,
   shift: number,
   plateTop: number,
-): BufferGeometry | null {
+): { geometry: BufferGeometry; wire: SignWireHole | null } | null {
   const cavity = letter.cavity;
 
   if (!cavity) {
@@ -1208,7 +1317,10 @@ function createLetterCover(
     geometry.translate(shift, 0, 0);
   }
 
-  return geometry;
+  return {
+    geometry,
+    wire: wire ? { ...wire, source: "letter" } : null,
+  };
 }
 
 /**
@@ -1281,13 +1393,18 @@ function createBlockPlate(block: SignBlock, params: SignParams): BufferGeometry 
  * (там, где у лица стоит плита SIGN_BASE_PLATE_MM) и печатается вместе с
  * крышками: она лежит за плитой лица и ничему не мешает. Полоса выше планки
  * сплошная, поэтому отверстия под провод ищутся только над её верхом —
- * см. findWireHole.
+ * см. findWireHole. Запасное отверстие в левом поле планки вырезается, если ни
+ * одна крышка буквы не смогла вместить окружность.
  */
-function createBlockCover(block: SignBlock): BufferGeometry {
+function createBlockCover(
+  block: SignBlock,
+  wire: SignWireHole | null,
+): BufferGeometry {
   const bottom = -SIGN_BASE_BOTTOM_MM;
   const top = block.plateHeight;
   const left = block.left;
   const right = block.left + block.width;
+  const holes = wire ? [createCircleContour(wire.center, wire.radius)] : [];
 
   return extrudeRegion(
     [
@@ -1296,7 +1413,7 @@ function createBlockCover(block: SignBlock): BufferGeometry {
       new Vector2(right, top),
       new Vector2(left, top),
     ],
-    [],
+    holes,
     SIGN_COVER_PLATE_MM,
     -SIGN_COVER_PLATE_MM,
   );
@@ -1335,6 +1452,7 @@ function buildSignBlockParts(
   for (const block of blocks) {
     const bodies: BufferGeometry[] = [];
     const covers: BufferGeometry[] = [];
+    const wireHoles: SignWireHole[] = [];
 
     for (const letter of block.letters) {
       let glyph = cache.get(letter.char);
@@ -1376,7 +1494,14 @@ function buildSignBlockParts(
         const cover = createLetterCover(shape, shift, block.plateHeight);
 
         if (cover) {
-          covers.push(cover);
+          covers.push(cover.geometry);
+
+          if (cover.wire) {
+            wireHoles.push({
+              ...cover.wire,
+              center: cover.wire.center.clone().add(new Vector2(shift, 0)),
+            });
+          }
         }
       }
     }
@@ -1389,14 +1514,24 @@ function buildSignBlockParts(
       continue;
     }
 
-    const cover = mergeBodies([createBlockCover(block), ...covers]);
+    // Ни одна крышка буквы не вместила отверстие — значит, блок получит
+    // запасное отверстие в своей планке. Так провод можно вывести всегда.
+    if (wireHoles.length === 0) {
+      wireHoles.push(blockCoverWireHole(block));
+    }
+
+    const blockWire =
+      wireHoles.length === 1 && wireHoles[0].source === "block"
+        ? wireHoles[0]
+        : null;
+    const cover = mergeBodies([createBlockCover(block, blockWire), ...covers]);
 
     if (!cover) {
       face.dispose();
       continue;
     }
 
-    built.push({ block, face, cover });
+    built.push({ block, face, cover, wireHoles });
   }
 
   for (const glyph of cache.values()) {
@@ -1407,6 +1542,370 @@ function buildSignBlockParts(
 }
 
 /**
+ * Подпись нормализованных параметров вывески.
+ *
+ * Отчёт раскладки приходит из сцены асинхронно, после загрузки шрифта. Подпись
+ * не даёт применить старые габариты к новым параметрам: панель сверяет её перед
+ * тем, как строить кнопки экспорта.
+ */
+export function signLayoutSignature(params: Partial<SignParams>): string {
+  const normalized = normalizeSignParams(params);
+
+  return [
+    normalized.signText,
+    normalized.signFont,
+    normalized.signFontSize,
+    normalized.signDepth,
+    normalized.signChannelWidth,
+    normalized.signLetterGap,
+    normalized.signBlockSize,
+    normalized.signBaseMount ? "base" : "rail",
+  ].join("|");
+}
+
+/** Вариант упаковки: как повёрнуты детали и как они стоят друг к другу. */
+type SignPackageCandidate = {
+  arrangement: SignPackageArrangement;
+  faceRotated: boolean;
+  coverRotated: boolean;
+};
+
+/**
+ * Порядок перебора раскладок.
+ *
+ * Сначала привычная: крышка над лицом, обе детали как в предпросмотре. Так
+ * пакет 60/3 и 80/2 занимает 162.5 × 202.8 и 170.5 × 202.8 мм. Если глубина
+ * больше 220 — крышка ставится рядом по X. Последний резерв — поворот обеих
+ * деталей на 90° и боковая раскладка: так 120 «ИИ» из 210.7 × 244.9 мм
+ * превращается в 202.8 × 210.7 мм и влезает на стол 220.
+ */
+const SIGN_PACKAGE_CANDIDATES: readonly SignPackageCandidate[] = [
+  { arrangement: "stack", faceRotated: false, coverRotated: false },
+  { arrangement: "side", faceRotated: false, coverRotated: false },
+  { arrangement: "side", faceRotated: true, coverRotated: true },
+  { arrangement: "stack", faceRotated: true, coverRotated: true },
+  { arrangement: "side", faceRotated: false, coverRotated: true },
+  { arrangement: "side", faceRotated: true, coverRotated: false },
+  { arrangement: "stack", faceRotated: false, coverRotated: true },
+  { arrangement: "stack", faceRotated: true, coverRotated: false },
+];
+
+/** Габарит пакета для одного варианта раскладки. */
+function packageCandidateLayout(
+  faceWidth: number,
+  faceHeight: number,
+  coverWidth: number,
+  coverHeight: number,
+  candidate: SignPackageCandidate,
+): SignPackageLayout {
+  const faceW = candidate.faceRotated ? faceHeight : faceWidth;
+  const faceH = candidate.faceRotated ? faceWidth : faceHeight;
+  const coverW = candidate.coverRotated ? coverHeight : coverWidth;
+  const coverH = candidate.coverRotated ? coverWidth : coverHeight;
+  const width =
+    candidate.arrangement === "side"
+      ? faceW + SIGN_PACKAGE_GAP_MM + coverW
+      : Math.max(faceW, coverW);
+  const depth =
+    candidate.arrangement === "side"
+      ? Math.max(faceH, coverH)
+      : faceH + SIGN_PACKAGE_GAP_MM + coverH;
+
+  return {
+    ...candidate,
+    width,
+    depth,
+    fits:
+      width <= SIGN_PRINT_BED_MM + SIGN_EPSILON &&
+      depth <= SIGN_PRINT_BED_MM + SIGN_EPSILON,
+  };
+}
+
+/**
+ * Выбор раскладки пакета по габаритам деталей.
+ *
+ * Если ни одна раскладка не влезает, возвращается самая компактная попытка:
+ * панель показывает её размер и предупреждение, а API не выдаёт общий файл.
+ */
+export function planSignPackage(
+  faceWidth: number,
+  faceHeight: number,
+  coverWidth: number,
+  coverHeight: number,
+): SignPackageLayout {
+  const layouts = SIGN_PACKAGE_CANDIDATES.map((candidate) =>
+    packageCandidateLayout(
+      faceWidth,
+      faceHeight,
+      coverWidth,
+      coverHeight,
+      candidate,
+    ),
+  );
+  const fitting = layouts.find((layout) => layout.fits);
+
+  if (fitting) {
+    return fitting;
+  }
+
+  return layouts.reduce((best, layout) => {
+    const bestSpan = Math.max(best.width, best.depth);
+    const span = Math.max(layout.width, layout.depth);
+
+    if (span < bestSpan - SIGN_EPSILON) {
+      return layout;
+    }
+
+    if (
+      Math.abs(span - bestSpan) <= SIGN_EPSILON &&
+      layout.width * layout.depth < best.width * best.depth
+    ) {
+      return layout;
+    }
+
+    return best;
+  });
+}
+
+/** Габариты сетки; null — пустая сетка без position. */
+function geometryBounds(geometry: BufferGeometry): SignPartBounds | null {
+  geometry.computeBoundingBox();
+
+  const box = geometry.boundingBox;
+
+  if (!box) {
+    return null;
+  }
+
+  return {
+    minX: box.min.x,
+    maxX: box.max.x,
+    minY: box.min.y,
+    maxY: box.max.y,
+    minZ: box.min.z,
+    maxZ: box.max.z,
+  };
+}
+
+/** Копия детали в начале координат: пакет собирается из независимых копий. */
+function preparePackagePart(
+  source: BufferGeometry,
+  rotated: boolean,
+): BufferGeometry {
+  const geometry = source.clone();
+  const first = geometryBounds(geometry);
+
+  if (!first) {
+    geometry.dispose();
+
+    return new BufferGeometry();
+  }
+
+  geometry.translate(-first.minX, -first.minY, -first.minZ);
+
+  if (rotated) {
+    geometry.rotateZ(Math.PI / 2);
+  }
+
+  const second = geometryBounds(geometry);
+
+  if (second) {
+    geometry.translate(-second.minX, -second.minY, 0);
+  }
+
+  geometry.computeBoundingBox();
+
+  return geometry;
+}
+
+/**
+ * Сборка пакета из готовых деталей.
+ *
+ * Детали копируются, ставятся в начало координат, при необходимости
+ * поворачиваются на 90° и разводятся зазором 6 мм. После этого весь пакет
+ * центрируется по X и опускается на Y = 0; Z обеих деталей уже начинается с
+ * нуля. Отчёт хранит габариты каждой детали, чтобы тест мог проверить зазор и
+ * отсутствие пересечений.
+ */
+function packBlockParts(
+  parts: SignBlockParts,
+  layout: SignPackageLayout,
+  report?: SignBlockPackageReport,
+): BufferGeometry | null {
+  const face = preparePackagePart(parts.face, layout.faceRotated);
+  const cover = preparePackagePart(parts.cover, layout.coverRotated);
+  const faceBox = geometryBounds(face);
+  const coverBox = geometryBounds(cover);
+
+  if (!faceBox || !coverBox) {
+    face.dispose();
+    cover.dispose();
+
+    return null;
+  }
+
+  const faceWidth = faceBox.maxX - faceBox.minX;
+  const faceHeight = faceBox.maxY - faceBox.minY;
+  const coverWidth = coverBox.maxX - coverBox.minX;
+  const width = layout.width;
+  const faceX = layout.arrangement === "stack" ? (width - faceWidth) / 2 : 0;
+  const coverX =
+    layout.arrangement === "stack"
+      ? (width - coverWidth) / 2
+      : faceWidth + SIGN_PACKAGE_GAP_MM;
+  const coverY =
+    layout.arrangement === "stack" ? faceHeight + SIGN_PACKAGE_GAP_MM : 0;
+
+  face.translate(faceX, 0, 0);
+  cover.translate(coverX, coverY, 0);
+
+  const positionedFace = geometryBounds(face);
+  const positionedCover = geometryBounds(cover);
+
+  if (!positionedFace || !positionedCover) {
+    face.dispose();
+    cover.dispose();
+
+    return null;
+  }
+
+  const shiftX = -(
+    Math.min(positionedFace.minX, positionedCover.minX) +
+    Math.max(positionedFace.maxX, positionedCover.maxX)
+  ) / 2;
+  const shiftY = -Math.min(positionedFace.minY, positionedCover.minY);
+
+  face.translate(shiftX, shiftY, 0);
+  cover.translate(shiftX, shiftY, 0);
+
+  const faceBounds = geometryBounds(face);
+  const coverBounds = geometryBounds(cover);
+
+  if (!faceBounds || !coverBounds) {
+    face.dispose();
+    cover.dispose();
+
+    return null;
+  }
+
+  if (report) {
+    const overlap = (aMin: number, aMax: number, bMin: number, bMax: number) =>
+      aMin < bMax - SIGN_EPSILON && bMin < aMax - SIGN_EPSILON;
+
+    report.layout = layout;
+    report.face = faceBounds;
+    report.cover = coverBounds;
+    report.intersects =
+      overlap(
+        faceBounds.minX,
+        faceBounds.maxX,
+        coverBounds.minX,
+        coverBounds.maxX,
+      ) &&
+      overlap(
+        faceBounds.minY,
+        faceBounds.maxY,
+        coverBounds.minY,
+        coverBounds.maxY,
+      ) &&
+      overlap(
+        faceBounds.minZ,
+        faceBounds.maxZ,
+        coverBounds.minZ,
+        coverBounds.maxZ,
+      );
+  }
+
+  const merged = mergeBodies([face, cover]);
+
+  if (merged) {
+    merged.computeBoundingBox();
+    merged.computeBoundingSphere();
+  }
+
+  return merged;
+}
+
+/** Отчёт по блоку без сборки пакета: габариты и отверстия для панели. */
+function blockLayoutReport(parts: SignBlockParts): SignBlockLayoutReport | null {
+  const face = geometryBounds(parts.face);
+  const cover = geometryBounds(parts.cover);
+
+  if (!face || !cover) {
+    return null;
+  }
+
+  const faceWidth = face.maxX - face.minX;
+  const faceHeight = face.maxY - face.minY;
+  const coverWidth = cover.maxX - cover.minX;
+  const coverHeight = cover.maxY - cover.minY;
+
+  return {
+    blockIndex: parts.block.index,
+    faceWidth,
+    faceHeight,
+    coverWidth,
+    coverHeight,
+    package: planSignPackage(faceWidth, faceHeight, coverWidth, coverHeight),
+    wireHoles: parts.wireHoles.map((wire) => ({
+      blockIndex: parts.block.index,
+      x: wire.center.x,
+      y: wire.center.y,
+      radius: wire.radius,
+      source: wire.source,
+      through: true,
+    })),
+  };
+}
+
+/**
+ * Общий STL блока: лицо и крышка одним файлом.
+ *
+ * null — пакет не помещается на стол 220 мм даже после поворота. API отвечает
+ * на такой запрос 422, а панель не показывает кнопку и оставляет отдельные
+ * файлы. Возвращённая сетка уже стоит в начале координат: X центрирован,
+ * Y и Z начинаются с нуля.
+ */
+export function createSignBlockPackageGeometry(
+  params: Partial<SignParams>,
+  font: Font | null = null,
+  blockIndex = 0,
+  report?: SignBlockPackageReport,
+): BufferGeometry | null {
+  const built = buildSignBlockParts(normalizeSignParams(params), font);
+
+  if (!built) {
+    return null;
+  }
+
+  const parts = built.find((item) => item.block.index === blockIndex);
+
+  if (!parts) {
+    return null;
+  }
+
+  const face = geometryBounds(parts.face);
+  const cover = geometryBounds(parts.cover);
+
+  if (!face || !cover) {
+    return null;
+  }
+
+  const layout = planSignPackage(
+    face.maxX - face.minX,
+    face.maxY - face.minY,
+    cover.maxX - cover.minX,
+    cover.maxY - cover.minY,
+  );
+
+  if (!layout.fits) {
+    return null;
+  }
+
+  return packBlockParts(parts, layout, report);
+}
+
+/**
  * Собранная надпись одной сеткой: предпросмотр.
  *
  * Блоки стоят с зазором стыка, шипы входят в пазы — предпросмотр показывает
@@ -1414,13 +1913,23 @@ function buildSignBlockParts(
  * закрывают камеры сзади и с лицевой стороны не видны.
  *
  * font = null допустим: шрифт ещё грузится, и пустая сетка честнее плиты,
- * которой в модели больше нет.
+ * которой в модели больше нет. report заполняется для панели: по нему видно,
+ * какие блоки можно скачать одним файлом и где проходят отверстия под провод.
  */
 export function createSignGeometry(
   params: Partial<SignParams>,
   font: Font | null = null,
+  report?: SignLayoutReport,
 ): BufferGeometry {
-  const built = buildSignBlockParts(normalizeSignParams(params), font);
+  const normalized = normalizeSignParams(params);
+  const built = buildSignBlockParts(normalized, font);
+
+  if (report) {
+    report.signature = signLayoutSignature(normalized);
+    report.blocks = (built ?? [])
+      .map(blockLayoutReport)
+      .filter((block): block is SignBlockLayoutReport => block !== null);
+  }
 
   if (!built) {
     return createEmptyGeometry();
@@ -1438,6 +1947,10 @@ export function createSignGeometry(
  * собирается по всей надписи, потому что кегль зависит от длины строки: файл
  * блока совпадает с тем блоком, который видно в предпросмотре. Номер вне
  * списка даёт пустую сетку — API отсекает такие запросы раньше.
+ *
+ * `package` поддерживается для полноты контракта, но API собирает его через
+ * createSignBlockPackageGeometry: только она умеет отличить «не влезает» от
+ * пустой геометрии и вернуть 422.
  */
 export function createSignBlockGeometry(
   params: Partial<SignParams>,
@@ -1445,6 +1958,13 @@ export function createSignBlockGeometry(
   blockIndex = 0,
   part: SignPart = "face",
 ): BufferGeometry {
+  if (part === "package") {
+    return (
+      createSignBlockPackageGeometry(params, font, blockIndex) ??
+      createEmptyGeometry()
+    );
+  }
+
   const built = buildSignBlockParts(normalizeSignParams(params), font);
 
   if (!built) {

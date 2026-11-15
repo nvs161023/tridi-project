@@ -759,10 +759,11 @@ export type SignChannelWidth = (typeof SIGN_CHANNEL_WIDTHS)[number];
  *
  * Блок печатается двумя деталями: `face` — буквы на общей плите с шипом и
  * пазом, `cover` — задняя крышка с бортиком, который входит в камеру буквы.
- * Ключи латинские: они попадают в имя STL-файла, поэтому кириллица в заголовок
- * ответа не просачивается.
+ * `package` — обе детали одним файлом: удобно для Free-лимита и печати блока
+ * за одно задание. Ключи латинские: они попадают в имя STL-файла, поэтому
+ * кириллица в заголовок ответа не просачивается.
  */
-export const SIGN_PARTS = ["face", "cover"] as const;
+export const SIGN_PARTS = ["face", "cover", "package"] as const;
 
 export type SignPart = (typeof SIGN_PARTS)[number];
 
@@ -770,7 +771,18 @@ export type SignPart = (typeof SIGN_PARTS)[number];
 export const SIGN_PART_LABELS = {
   face: "Лицо",
   cover: "Крышка",
+  package: "Комплект",
 } as const satisfies Record<SignPart, string>;
+
+/** Поле печати, под которое раскладывается общий STL вывески, мм. */
+export const SIGN_PRINT_BED_MM = 220;
+
+/** Зазор между лицом и крышкой в общем STL, мм. */
+export const SIGN_PACKAGE_GAP_MM = 6;
+
+/** Подсказка, если пакет блока физически не помещается на стол. */
+export const SIGN_PACKAGE_TOO_LARGE_MESSAGE =
+  "Размер набора превышает поле печати. Скачайте детали по отдельности.";
 
 /**
  * Шрифты вывески.

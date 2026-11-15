@@ -154,6 +154,7 @@ import {
   SIGN_CHANNEL_WIDTHS,
   SIGN_FONTS,
   SIGN_FONT_LABELS,
+  SIGN_PRINT_BED_MM,
   SIGN_TEXT_MAX_LENGTH,
   VASE_MAX_PATTERN_LAYERS,
   VASE_PATTERNS,
@@ -296,6 +297,11 @@ type ParameterPanelProps = {
   exportOptions: StlExportOption[];
   /** Ошибка последней попытки скачивания; null — ошибок нет. */
   exportError: StlExportError | null;
+  /**
+   * Некритичное предупреждение над кнопками: например, общий STL блока не
+   * помещается на стол и доступен только отдельными деталями.
+   */
+  exportNotice?: string | null;
   /** Запрос к серверному экспорту STL для выбранного файла. */
   onExport: (option: StlExportOption) => void;
   onParamChange: (key: SizeParam, value: number) => void;
@@ -520,6 +526,7 @@ function ExportButtons({
   partsHeading,
   onExport,
   blockedReason,
+  notice,
 }: {
   options: StlExportOption[];
   exportingId: string | null;
@@ -531,6 +538,8 @@ function ExportButtons({
    * вмещает метку 25 мм, и файл заведомо не годится для печати.
    */
   blockedReason: string | null;
+  /** Некритичное предупреждение: скачивание остаётся доступным. */
+  notice?: string | null;
 }) {
   const [primary, ...parts] = options;
 
@@ -543,6 +552,14 @@ function ExportButtons({
 
   return (
     <>
+      {notice ? (
+        <p
+          className="mb-3 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-amber-100"
+          role="status"
+        >
+          {notice}
+        </p>
+      ) : null}
       {blockedReason ? (
         <p
           className="mb-3 rounded-xl border border-rose-400/40 bg-rose-400/10 px-3 py-2 text-xs leading-relaxed text-rose-100"
@@ -1649,6 +1666,7 @@ export function ParameterPanel({
   exportingId,
   exportOptions,
   exportError,
+  exportNotice = null,
   onExport,
   onParamChange,
   onModelChange,
@@ -5012,10 +5030,12 @@ export function ParameterPanel({
 
           <p className="mt-4 text-xs leading-relaxed text-slate-300">
             Блок печатается двумя деталями: лицо с буквами на плите и задняя
-            крышка с бортиком. Плиты соседей стыкуются шипом и пазом, а за плитой
-            на стыке проходит сквозной канал под ленту. Слишком тонкие штрихи —
-            например, у «I» или «1» — собираются сплошными: камера под ленту там
-            не помещается.
+            крышка с бортиком. Общий STL кладёт их рядом с зазором 6 мм: если
+            пакет влезает на стол {SIGN_PRINT_BED_MM} × {SIGN_PRINT_BED_MM} мм,
+            скачивайте его одним файлом, иначе — лицо и крышку по отдельности.
+            Плиты соседей стыкуются шипом и пазом; непрерывного канала на стыке
+            нет. Слишком тонкие штрихи — например, у «I» или «1» — собираются
+            сплошными: камера под ленту там не помещается.
           </p>
         </>
       )}
@@ -5050,6 +5070,7 @@ export function ParameterPanel({
             <ExportButtons
               blockedReason={exportBlockReason}
               exportingId={exportingId}
+              notice={exportNotice}
               onExport={onExport}
               options={exportOptions}
               partsHeading={partsHeading}
@@ -5082,6 +5103,7 @@ export function ParameterPanel({
               <ExportButtons
                 blockedReason={exportBlockReason}
                 exportingId={exportingId}
+                notice={exportNotice}
                 onExport={onExport}
                 options={exportOptions}
                 partsHeading={partsHeading}

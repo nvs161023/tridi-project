@@ -110,6 +110,7 @@ import {
   planterStlFileName,
   resolveLithophaneBrightness,
   resolveLithophaneSideBrightness,
+  SIGN_PACKAGE_TOO_LARGE_MESSAGE,
   signStlFileName,
   vaseGenerationDetails,
   vaseStlFileName,
@@ -152,6 +153,7 @@ import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import {
   SIGN_FONT_URLS,
   createSignBlockGeometry,
+  createSignBlockPackageGeometry,
 } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
@@ -1987,14 +1989,32 @@ export async function POST(request: Request): Promise<Response> {
                               parsed.params.decorations,
                             ),
                           )
-                        : createSignBlockGeometry(
-                            parsed.params,
-                            await loadFont(
-                              SIGN_FONT_URLS[parsed.params.signFont],
-                            ),
-                            parsed.block,
-                            parsed.part,
-                          );
+                        : parsed.part === "package"
+                          ? createSignBlockPackageGeometry(
+                              parsed.params,
+                              await loadFont(
+                                SIGN_FONT_URLS[parsed.params.signFont],
+                              ),
+                              parsed.block,
+                            )
+                          : createSignBlockGeometry(
+                              parsed.params,
+                              await loadFont(
+                                SIGN_FONT_URLS[parsed.params.signFont],
+                              ),
+                              parsed.block,
+                              parsed.part,
+                            );
+
+    // Пустой пакет — это не пустая сетка, а честный отказ: деталь физически
+    // не помещается на стол даже после поворота. Отдельные файлы остаются.
+    if (geometry === null) {
+      return errorResponse(
+        422,
+        "sign_package_too_large",
+        SIGN_PACKAGE_TOO_LARGE_MESSAGE,
+      );
+    }
 
     try {
       const mesh = new Mesh(geometry);

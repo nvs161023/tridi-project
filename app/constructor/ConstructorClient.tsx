@@ -24,6 +24,14 @@ import {
 } from "@/lib/constructor/feedback";
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
 import type { KeychainBuildReport } from "@/lib/constructor/keychain-geometry";
+import {
+  signExportNotice,
+  signExportOptions,
+} from "@/lib/constructor/sign-export-options";
+import {
+  signLayoutSignature,
+  type SignLayoutReport,
+} from "@/lib/constructor/sign-geometry";
 import { randomVaseParams } from "@/lib/constructor/vase-random";
 import {
   keychainPresetById,
@@ -51,7 +59,6 @@ import {
   PEN_SHAPE_LABELS,
   PLANTER_SEPARATE_FILES_HINT,
   PLANTER_SHAPE_LABELS,
-  SIGN_PARTS,
   VASE_MAX_PATTERN_LAYERS,
   VASE_SHAPE_LABELS,
   boxPresetParams,
@@ -83,7 +90,6 @@ import {
   penHolderStlFileName,
   planterFootprint,
   planterStlFileName,
-  signStlFileName,
   vasePatternLabel,
   vaseStlFileName,
   type BoxMagnetSize,
@@ -273,46 +279,12 @@ async function readServerMessage(response: Response): Promise<string | null> {
  * Имена считаются здесь только как запасные: сервер присылает то же имя в
  * Content-Disposition, а браузеру оно нужно, если заголовок потеряется.
  */
-function buildExportOptions(params: ConstructorParams): StlExportOption[] {
+function buildExportOptions(
+  params: ConstructorParams,
+  signLayout: SignLayoutReport | null = null,
+): StlExportOption[] {
   if (params.model === "sign") {
-    const blocks = listSignBlocks(params.signText, params.signBlockSize);
-
-    // Первый файл — лицо первого блока с буквами: это главная деталь вывески.
-    // Дальше идут остальные детали блоков: у каждого блока своя крышка, а
-    // начиная со второго — и своё лицо.
-    const options = blocks.flatMap((block) =>
-      SIGN_PARTS.map((part) => {
-        const letters = block.letters.map((letter) => letter.char).join("");
-
-        return {
-          id: `sign-block-${block.index}-${part}`,
-          label: `Блок ${block.index + 1}: ${
-            part === "face" ? "Лицо" : "Крышка"
-          }`,
-          description: `Блок ${block.index + 1} «${letters}»: ${
-            part === "face" ? "лицо" : "крышка"
-          } отдельным файлом`,
-          request: { blockIndex: block.index, signPart: part },
-          fileName: signStlFileName(params, block.index, part),
-        };
-      }),
-    );
-
-    if (options.length > 0) {
-      return options;
-    }
-
-    // Пустая надпись: кнопка остаётся, но сервер отклонит запрос и панель
-    // покажет подсказку — так пользователь видит, что нужно ввести буквы.
-    return [
-      {
-        id: "sign-empty",
-        label: "Блок 1: Лицо",
-        description: "В надписи нет букв",
-        request: { blockIndex: 0, signPart: "face" },
-        fileName: signStlFileName(params, 0, "face"),
-      },
-    ];
+    return signExportOptions(params, signLayout);
   }
 
   if (params.model === "lithophane") {
@@ -765,6 +737,14 @@ export function ConstructorClient({
    */
   const [keychainImageReport, setKeychainImageReport] =
     useState<KeychainBuildReport | null>(null);
+  /**
+   * Раскладка пакетов вывески из сцены.
+   *
+   * Панель не повторяет расчёт ширины шрифта: отчёт приходит вместе с готовой
+   * геометрией и уже содержит решение, влезает ли блок на стол 220 мм.
+   */
+  const [signLayoutReport, setSignLayoutReport] =
+    useState<SignLayoutReport | null>(null);
 
   /** Модель, по которой открыт опрос после скачивания; null — окно закрыто. */
   const [feedbackModel, setFeedbackModel] = useState<ModelType | null>(null);
@@ -857,6 +837,11 @@ export function ConstructorClient({
       setKeychainImageReport(
         report && report.decorations.length > 0 ? report : null,
       ),
+    [],
+  );
+  /** Стабильная ссылка на приёмник отчёта вывески, как у брелока. */
+  const handleSignLayoutReport = useCallback(
+    (report: SignLayoutReport | null) => setSignLayoutReport(report),
     [],
   );
 
@@ -1462,8 +1447,30 @@ export function ConstructorClient({
     );
   }
 
-  /** Кнопки экспорта пересобираются только при смене параметров модели. */
-  const exportOptions = useMemo(() => buildExportOptions(params), [params]);
+  /**
+   * Кнопки экспорта пересобираются при смене параметров модели или отчёта
+   * вывески. Отчёт приходит после загрузки шрифта; его подпись не даёт применить
+   * старые габариты к новой надписи.
+   */
+  const signLayout =
+    params.model === "sign" &&
+    signLayoutReport?.signature === signLayoutSignature(params)
+      ? signLayoutReport
+      : null;
+  const exportOptions = useMemo(
+    () => buildExportOptions(params, signLayout),
+    [params, signLayout],
+  );
+  /**
+   * Предупреждение о пакете, который не влезает на стол.
+   *
+   * Отдельные файлы остаются доступны: это не запрет, а честная подсказка, что
+   * общий STL такого блока печатать одним заданием нельзя.
+   */
+  const signPackageNotice =
+    params.model === "sign"
+      ? signExportNotice(params, signLayoutReport)
+      : null;
 
   /**
    * Скачивание STL через сервер.
@@ -1662,6 +1669,7 @@ export function ConstructorClient({
         <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-color:#475569_transparent] lg:[scrollbar-width:thin]">
           <ParameterPanel
             exportError={exportError}
+            exportNotice={signPackageNotice}
             freeDownloadsLeft={freeDownloadsLeft}
             hasPro={hasPro}
             exportingId={exportingId}
@@ -1876,6 +1884,7 @@ export function ConstructorClient({
                 debugLight={debugLight}
                 params={params}
                 onKeychainImageReport={handleKeychainImageReport}
+                onSignLayoutReport={handleSignLayoutReport}
               />
 
             </div>

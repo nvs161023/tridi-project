@@ -87,6 +87,7 @@ import { createPlanterGeometry } from "@/lib/constructor/planter-geometry";
 import {
   SIGN_FONT_URLS,
   createSignGeometry,
+  type SignLayoutReport,
 } from "@/lib/constructor/sign-geometry";
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
@@ -137,6 +138,14 @@ type ViewportProps = {
    * панели разошёлся бы с предпросмотром на первом же изменении букв.
    */
   onKeychainImageReport?: (report: KeychainBuildReport | null) => void;
+  /**
+   * Габариты пакетов вывески и отверстия под провод.
+   *
+   * Считаются той же сборкой, что показывает сцена: панель не повторяет
+   * раскладку и не расходится с STL. null — модель не вывеска или шрифт ещё
+   * не загрузился.
+   */
+  onSignLayoutReport?: (report: SignLayoutReport | null) => void;
 };
 
 
@@ -1386,6 +1395,7 @@ export function Viewport({
   debugLight = false,
   fullscreen = false,
   onKeychainImageReport,
+  onSignLayoutReport,
   params,
 }: ViewportProps) {
   /**
@@ -1394,6 +1404,11 @@ export function Viewport({
    * setState из useMemo пересобирал бы сцену на каждом рендере.
    */
   const keychainReport = useRef<KeychainBuildReport>({ decorations: [] });
+  /**
+   * Отчёт раскладки пакетов вывески. Тот же приём, что у брелока: useMemo
+   * заполняет объект, а наверх он уходит после коммита.
+   */
+  const signReport = useRef<SignLayoutReport>({ signature: "", blocks: [] });
 
   /**
    * Какая сторона брелока показана.
@@ -1733,12 +1748,16 @@ export function Viewport({
     // остался один, и чужие числа декораций панели не нужны.
     keychainReport.current = { decorations: [] };
 
+    if (params.model === "sign") {
+      signReport.current = { signature: "", blocks: [] };
+    }
+
     if (params.model === "keychain") {
       return createKeychainGeometry(params, fonts, keychainReport.current);
     }
 
     if (params.model === "sign") {
-      return createSignGeometry(params, font);
+      return createSignGeometry(params, font, signReport.current);
     }
 
     if (params.model === "box") {
@@ -1835,6 +1854,27 @@ export function Viewport({
   useEffect(() => {
     onKeychainImageReport?.(keychainReport.current);
   }, [geometry, onKeychainImageReport]);
+
+  /**
+   * Раскладка пакетов уходит наверх той же сеткой: панель строит кнопку
+   * «Общий STL» только для блоков, которые реально влезают на стол.
+   *
+   * Пустой отчёт (шрифт ещё грузится) лучше не отдавать: иначе панель успела бы
+   * мигнуть предупреждением. При смене модели отчёт сбрасывается в null.
+   */
+  useEffect(() => {
+    if (params.model !== "sign") {
+      onSignLayoutReport?.(null);
+
+      return;
+    }
+
+    const report = signReport.current;
+
+    onSignLayoutReport?.(
+      report.signature && report.blocks.length > 0 ? report : null,
+    );
+  }, [geometry, onSignLayoutReport, params.model]);
 
   /**
    * Габариты для камеры и подписи. У вывески ширина и высота зависят от
