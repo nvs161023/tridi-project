@@ -6,8 +6,12 @@ import { ImageResponse } from "next/og";
  * Next.js сам подставляет её в og:image и twitter:image всех страниц. Рисуем
  * абстрактный тёмно-синий кадр с логотипом TriDi: он не зависит от внешних
  * файлов и всегда отдаётся как PNG 1200×630.
+ *
+ * Надписи на картинке латиницей: встроенный в ImageResponse шрифт не содержит
+ * кириллицы, и русский текст отрисовался бы пустыми прямоугольниками. Alt при
+ * этом русский — его читают поисковики и скринридеры, а не рендерер.
  */
-export const alt = "TriDi — онлайн-курсы по 3D-печати";
+export const alt = "TriDi — Конструктор 3D и генератор по фото";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -131,34 +135,34 @@ export default function OpenGraphImage() {
           >
             <div
               style={{
-                fontSize: "82px",
+                fontSize: "76px",
                 fontWeight: 800,
-                letterSpacing: "-4px",
+                letterSpacing: "-3px",
                 lineHeight: 1,
               }}
             >
-              3D printing,
+              3D models from photos
             </div>
             <div
               style={{
-                fontSize: "82px",
+                fontSize: "76px",
                 fontWeight: 800,
-                letterSpacing: "-4px",
+                letterSpacing: "-3px",
                 lineHeight: 1,
                 color: "#bfdbfe",
               }}
             >
-              from first layer
+              or from parameters.
             </div>
             <div
               style={{
-                fontSize: "82px",
+                fontSize: "76px",
                 fontWeight: 800,
-                letterSpacing: "-4px",
+                letterSpacing: "-3px",
                 lineHeight: 1,
               }}
             >
-              to business.
+              Ready-to-print STL.
             </div>
           </div>
 
@@ -172,11 +176,11 @@ export default function OpenGraphImage() {
             }}
           >
             <div style={{ display: "flex", gap: "10px" }}>
-              <span>4 levels</span>
+              <span>10 model types</span>
               <span style={{ color: "#64748b" }}>·</span>
-              <span>250 lessons</span>
+              <span>AI generation</span>
               <span style={{ color: "#64748b" }}>·</span>
-              <span>250 visuals</span>
+              <span>ready STL</span>
             </div>
             <div
               style={{

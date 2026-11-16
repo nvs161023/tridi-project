@@ -103,20 +103,29 @@ export async function Header() {
             aria-label="Основная навигация"
             className="hidden shrink-0 items-center gap-4 text-sm font-medium whitespace-nowrap text-slate-300 xl:flex xl:gap-6"
           >
+            {/*
+              Витрина главной больше не держит курсовых якорей: пункты ведут на
+              отдельные страницы. «Цены» — тарифы инструментов (/pricing),
+              «Обучение» — курсы (/subscription), «Бесплатный курс» — стартовый
+              уровень (/start).
+            */}
             <Link
               className="transition-colors hover:text-blue-400"
-              href="/#levels"
+              href="/pricing"
             >
-              Уровни
+              Цены
             </Link>
             <Link
               className="transition-colors hover:text-blue-400"
-              href="/#methodology"
+              href="/subscription"
             >
-              Методология
+              Обучение
             </Link>
-            <Link className="transition-colors hover:text-blue-400" href="/#faq">
-              Вопросы
+            <Link
+              className="transition-colors hover:text-blue-400"
+              href="/start"
+            >
+              Бесплатный курс
             </Link>
             <Link
               className="transition-colors hover:text-blue-400"
@@ -130,12 +139,11 @@ export async function Header() {
             >
               Форум
             </Link>
-            <Link
-              className="transition-colors hover:text-blue-400"
-              href="/subscription"
-            >
-              Тарифы
-            </Link>
+            {/*
+              Отдельного пункта «Тарифы» больше нет: он вёл на /subscription —
+              те же курсы, что и «Обучение». Тарифы инструментов живут под
+              «Цены», чтобы не путать два разных оффера.
+            */}
             <ToolsDropdown workshop={workshop} isAuthorized={isAuthorized} />
           </nav>
 

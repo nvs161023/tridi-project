@@ -19,14 +19,20 @@ type MenuLink = {
   badge?: string;
 };
 
-/** Основные разделы сайта. */
+/**
+ * Основные разделы сайта.
+ *
+ * Курсовые якоря главной (`/#levels`, `/#methodology`, `/#faq`) больше не
+ * существуют: главная продаёт инструменты. Пункты ведут на отдельные страницы —
+ * «Цены» на тарифы инструментов, «Обучение» на курсы, «Бесплатный курс» на
+ * стартовый уровень.
+ */
 const MAIN_LINKS: MenuLink[] = [
-  { href: "/#levels", label: "Уровни" },
-  { href: "/#methodology", label: "Методология" },
-  { href: "/#faq", label: "Вопросы" },
+  { href: "/pricing", label: "Цены" },
+  { href: "/subscription", label: "Обучение" },
+  { href: "/start", label: "Бесплатный курс" },
   { href: "/blog", label: "Блог" },
   { href: "/forum", label: "Форум" },
-  { href: "/subscription", label: "Тарифы" },
 ];
 
 const MOBILE_LINK_CLASS =
