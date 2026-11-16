@@ -1,5 +1,8 @@
 import { Buffer } from "node:buffer";
 
+import { deductCredit, getUserCredits, refundCredit } from "@/lib/credits";
+import { createClient } from "@/lib/supabase/server";
+
 /**
  * Умный маршрутизатор генерации 3D-модели по фото.
  *
@@ -22,6 +25,13 @@ import { Buffer } from "node:buffer";
  *
  * Любая ошибка сети или провайдера превращается в 502 с текстом причины:
  * 500 роут не отдаёт никогда, чтобы клиент отличал наш сбой от отказа сети.
+ *
+ * Роут платный, поэтому порядок проверок строгий: сессия (`getUser()`, гость —
+ * 401) → тело и фото (400/413) → ключ сети (503) → кредиты `user_credits`
+ * (0 — 402, недоступный счётчик — 503). Кредит списывается до платного запроса,
+ * чтобы две вкладки не создали две задачи по одному балансу, и возвращается
+ * (`refundCredit`), если сеть отказала: 502 не должен стоить пользователю
+ * денег.
  */
 
 /** Buffer, Blob и FormData для загрузки фото в Tripo нужны только в Node.js. */
@@ -537,12 +547,31 @@ async function createMeshyTask(
  * Создание задачи генерации 3D-модели по фото.
  *
  * Порядок проверок:
- *   1. тело — JSON с массивом `images` (base64 или data URL) и `quality`;
- *   2. каждый кадр — настоящий JPEG, PNG или WebP до 20 МБ;
- *   3. ключ выбранной сети — без него 503, платный запрос не отправляется;
- *   4. создание задачи — и сразу ответ `{ taskId }`, без ожидания модели.
+ *   1. сессия — без неё 401, тело даже не разбирается;
+ *   2. тело — JSON с массивом `images` (base64 или data URL) и `quality`;
+ *   3. каждый кадр — настоящий JPEG, PNG или WebP до 20 МБ;
+ *   4. ключ выбранной сети — без него 503, платный запрос не отправляется;
+ *   5. кредиты `user_credits` — 0 даёт 402, недоступный счётчик — 503; кредит
+ *      списывается здесь же, до вызова сети;
+ *   6. создание задачи — и сразу ответ `{ taskId }`, без ожидания модели.
+ *      Отказ сети возвращает кредит и отвечает 502.
  */
 export async function POST(request: Request): Promise<Response> {
+  // Сессия — первая проверка: без неё платный запрос не должен даже
+  // разбираться, иначе гость получал бы 400 вместо честного 401.
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return errorResponse(
+      401,
+      "Войдите в аккаунт, чтобы сгенерировать 3D-модель.",
+    );
+  }
+
   const declaredLength = Number(request.headers.get("content-length"));
 
   if (
@@ -637,6 +666,33 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  const credits = await getUserCredits(user.id);
+
+  // `null` — счётчик недоступен, а не «0 кредитов»: 402 из-за сбоя базы
+  // отправил бы человека пополнять баланс, который на самом деле есть.
+  if (credits === null) {
+    return errorResponse(
+      503,
+      "Не удалось проверить кредиты. Попробуйте позже.",
+    );
+  }
+
+  if (credits <= 0) {
+    return errorResponse(
+      402,
+      "Кредиты закончились. Одна генерация списывает один кредит.",
+    );
+  }
+
+  // Списываем до платного запроса: иначе две вкладки успели бы создать две
+  // задачи, а баланс остался бы прежним. Отказ сети вернёт кредит ниже.
+  if (!(await deductCredit(user.id))) {
+    return errorResponse(
+      402,
+      "Кредиты закончились. Одна генерация списывает один кредит.",
+    );
+  }
+
   try {
     const taskId =
       provider === "meshy"
@@ -656,6 +712,14 @@ export async function POST(request: Request): Promise<Response> {
 
     return taskResponse(taskId);
   } catch (error) {
+    // Задача не создана — платного запроса не было, значит и кредита быть не
+    // должно. Возврат пишем в лог: он не должен скрыть исходную ошибку.
+    if (!(await refundCredit(user.id))) {
+      console.error(
+        "[generate-3d] Не удалось вернуть кредит после отказа сети.",
+      );
+    }
+
     if (error instanceof ProviderError) {
       console.error("[generate-3d] Отказ сети:", error.message);
 

@@ -5,7 +5,6 @@ import { useId, useMemo, useState, useEffect, type ChangeEvent } from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { ParameterSelect } from "@/components/constructor/ParameterSelect";
-import { PhotoGeneratorSection } from "@/components/constructor/PhotoGeneratorSection";
 import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
 import { heatTransferThickness } from "@/lib/constructor/heat-transfer-geometry";
 import {
@@ -5154,13 +5153,6 @@ export function ParameterPanel({
             <ExportErrorAlert error={exportError} />
           </>
         )}
-      </div>
-
-      {/* Генератор по фото — отдельный поток: он не меняет параметрическую
-          модель, а собирает печатный STL из снимков. Стоит последним, чтобы
-          не разрывать настройки и скачивание готовой модели. */}
-      <div className="mt-5 border-t border-white/10 pt-5">
-        <PhotoGeneratorSection />
       </div>
     </section>
   );

@@ -49,6 +49,15 @@ const DOCS_PATH = "PROJECT.md";
  * `lib/constructor/keychain-relief.ts` — там же с 8 ноября 2026: утопленный
  * рельеф убран вместе с полем `emboss`, а история изменений называет файл, в
  * котором собиралась плита с окнами под рисунок.
+ *
+ * `app/api/3d/generate/route.ts`, `lib/3d/providers.ts`,
+ * `app/3d-generator/GeneratorWorkspace.tsx`,
+ * `components/constructor/PhotoGeneratorSection.tsx`,
+ * `components/constructor/GeneratedModelViewer.tsx` и
+ * `lib/constructor/photo-generator.ts` — с 16 ноября 2026: генератор по фото
+ * переехал на отдельную страницу `/3d-generator` с внутрянкой Tripo/Meshy, а
+ * старый Gen API и его файлы удалены. История изменений по-прежнему называет
+ * прежние пути, поэтому их отсутствие — правильное состояние.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
@@ -59,6 +68,12 @@ const REMOVED_PATHS = new Set([
   "components/constructor/VaseSeedGallery.tsx",
   "lib/lesson-outline.ts",
   "lib/constructor/keychain-relief.ts",
+  "app/api/3d/generate/route.ts",
+  "lib/3d/providers.ts",
+  "app/3d-generator/GeneratorWorkspace.tsx",
+  "components/constructor/PhotoGeneratorSection.tsx",
+  "components/constructor/GeneratedModelViewer.tsx",
+  "lib/constructor/photo-generator.ts",
 ]);
 
 /** Префиксы, по которым отличаем путь к файлу проекта от обычного слова. */

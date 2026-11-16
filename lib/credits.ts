@@ -2,8 +2,10 @@
  * Кредиты генераций 3D-моделей.
  *
  * Счётчик живёт в таблице `user_credits`: одна строка на пользователя, SQL —
- * `supabase/user_credits.sql`. Кредит списывается только после успешной
- * генерации, поэтому проверка и списание — две разные операции.
+ * `supabase/user_credits.sql`. Кредит списывается до платного запроса
+ * (`deductCredit`) и возвращается, если провайдер отказал (`refundCredit`):
+ * так две параллельные генерации не проходят по одному балансу, а 502 не
+ * стоит пользователю денег.
  *
  * Читаем и пишем служебным клиентом (service_role): RLS-политик у таблицы нет,
  * а списание идёт уже после ответа Gen API, когда сессия пользователя роуту не
@@ -73,9 +75,9 @@ export async function getUserCredits(userId: string): Promise<number | null> {
  * заново. Отдельной SQL-функции для этого нет — так миграция остаётся одной
  * таблицей, а списание укладывается в три попытки.
  *
- * Ошибка не бросает исключение: кредит списывается после того, как Gen API уже
- * отдал модель, и падать в этот момент нельзя — вызывающий код только пишет в
- * лог.
+ * Ошибка не бросает исключение: кредит списывается перед платным запросом, и
+ * падать в этот момент нельзя — вызывающий код сам решает, что отвечать
+ * клиенту.
  */
 export async function deductCredit(userId: string): Promise<boolean> {
   try {
@@ -118,6 +120,65 @@ export async function deductCredit(userId: string): Promise<boolean> {
   } catch (error) {
     console.error(
       "[credits] Не удалось списать кредит:",
+      error instanceof Error ? error.message : error,
+    );
+
+    return false;
+  }
+}
+
+/**
+ * Возвращает один кредит после отказа провайдера.
+ *
+ * Списанный заранее кредит нельзя оставлять пользователю, если платный запрос
+ * не создал задачу: 502 — это наш сбой, а не его. Обновление идёт тем же
+ * способом, что и списание, — с условием `credits = прочитанное значение`,
+ * поэтому параллельные возвраты не теряются.
+ *
+ * Возвращает `false`, если строку не удалось обновить; вызывающий код только
+ * пишет в лог — исходная ошибка важнее.
+ */
+export async function refundCredit(userId: string): Promise<boolean> {
+  try {
+    const admin = createAdminClient();
+
+    for (let attempt = 1; attempt <= DEDUCT_ATTEMPTS; attempt += 1) {
+      const credits = await getUserCredits(userId);
+
+      if (credits === null) {
+        return false;
+      }
+
+      const { data, error } = await admin
+        .from(CREDITS_TABLE)
+        .update({
+          credits: credits + 1,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId)
+        .eq("credits", credits)
+        .select("credits");
+
+      if (error) {
+        console.error("[credits] Не удалось вернуть кредит:", error.message);
+        return false;
+      }
+
+      if (Array.isArray(data) && data.length > 0) {
+        return true;
+      }
+
+      // Счётчик изменился между чтением и записью — читаем заново.
+    }
+
+    console.error(
+      "[credits] Не удалось вернуть кредит: счётчик менялся слишком часто.",
+    );
+
+    return false;
+  } catch (error) {
+    console.error(
+      "[credits] Не удалось вернуть кредит:",
       error instanceof Error ? error.message : error,
     );
 
