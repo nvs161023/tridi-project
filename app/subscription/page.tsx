@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import { ButtonLink, Card } from "@/components/ui";
-import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
@@ -35,7 +34,7 @@ import { PlanButton } from "./PlanButton";
 export const metadata: Metadata = {
   title: "Тарифы — 3D-печать с нуля",
   description:
-    "Первый уровень бесплатно, три платных курса и пакет «Всё включено» дешевле покупки по отдельности. Что входит в каждый уровень, сколько стоит навсегда и частые вопросы об оплате.",
+    "Первый уровень бесплатно, три платных курса навсегда. Что входит в каждый уровень, сколько стоит обучение и частые вопросы об оплате.",
   alternates: { canonical: "/subscription" },
   // Свой openGraph: без него og:url наследовался бы от главной.
   openGraph: {
@@ -45,14 +44,12 @@ export const metadata: Metadata = {
     url: "/subscription",
     title: "Тарифы — 3D-печать с нуля",
     description:
-      "Первый уровень бесплатно, три платных курса и пакет «Всё включено» дешевле покупки по отдельности.",
+      "Первый уровень бесплатно, три платных курса навсегда и отдельная подписка Pro для инструментов.",
     // Картинка превью: без неё ссылка на тарифы в соцсетях и мессенджерах
     // приезжала без изображения. OG_IMAGE общий для сайта (1200×630).
     images: [OG_IMAGE],
   },
 };
-
-const { pro: proCourse } = coursesData;
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
@@ -63,17 +60,6 @@ const DISCOUNT_BADGE =
 
 /** Цена уровня для FAQ: «2 990 ₽». */
 const levelPrice = (level: CourseLevel) => `${formatPrice(level.price)} ₽`;
-
-/** Цены из data/courses.json: тот же источник, что и на главной. */
-const proBundlePrice = formatPrice(proCourse.price);
-
-/**
- * Выгода пакета в рублях — считается из цен трёх курсов и пакета.
- * Проценты не рисуем: «−38%» от цены, которой никогда не было, — обман.
- */
-const bundleSaving = formatPrice(
-  PAID_LEVELS.reduce((sum, level) => sum + level.price, 0) - proCourse.price,
-);
 
 /** Бесплатный уровень: цена 0 ₽ и подпись вместо скидочного бейджа. */
 const basicLevel = LEVELS[0];
@@ -172,11 +158,11 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Можно ли купить курс навсегда?",
-    answer: `Да. «Уверенный» стоит ${levelPrice(LEVELS[1])}, «Инженер» — ${levelPrice(LEVELS[2])}, «Заработок» — ${levelPrice(LEVELS[3])}. Пакет из трёх уровней — ${proBundlePrice} ₽ и дешевле покупки по отдельности на ${bundleSaving} ₽. Это разовый платёж, доступ остаётся навсегда.`,
+    answer: `Да. «Уверенный» стоит ${levelPrice(LEVELS[1])}, «Инженер» — ${levelPrice(LEVELS[2])}, «Заработок» — ${levelPrice(LEVELS[3])}. Это разовые платежи, доступ остаётся навсегда. Купить можно каждый уровень отдельно — если не уверены, начните с бесплатного «Новичка».`,
   },
   {
-    question: "Что открывает пакет «Всё включено»?",
-    answer: `Все три платных курса (${PAID_LESSONS} ${pluralize(PAID_LESSONS, LESSON_FORMS)}, ${PAID_VISUALS} ${pluralize(PAID_VISUALS, VISUAL_FORMS)} и ${PAID_TESTS} ${pluralize(PAID_TESTS, TEST_FORMS)} модулей) и библиотеку профилей печати. Каждый уровень можно купить отдельно — если не уверены, начните с бесплатного «Новичка».`,
+    question: "Что стало с пакетом «Всё включено»?",
+    answer: `Пакет из трёх курсов больше не продаётся: новые покупки закрыты. У тех, кто купил его раньше, сохраняются все три уровня, сертификат и доступ к профилям печати. Инструменты платформы — Конструктор, Профили и генератор — теперь открывает отдельная подписка Pro на странице «Тарифы генератора».`,
   },
   {
     question: "Дают ли чек об оплате?",
@@ -237,8 +223,8 @@ export default async function SubscriptionPage() {
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-300 sm:text-xl">
               Первый уровень — бесплатно и без карты. Платные курсы покупаются
-              навсегда, а пакет «Всё включено» открывает все три уровня и стоит
-              дешевле покупки по отдельности.
+              навсегда, а инструменты платформы подключаются отдельной
+              подпиской Pro.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
@@ -249,7 +235,7 @@ export default async function SubscriptionPage() {
                 Курсы от {formatPrice(LEVELS[1].price)} ₽ навсегда
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                Пакет — выгода {bundleSaving} ₽
+                Инструменты — по подписке Pro
               </span>
             </div>
 
@@ -305,10 +291,10 @@ export default async function SubscriptionPage() {
                 ◆
               </span>
               <span>
-                <strong className="text-white">Пакет «Всё включено»</strong> —{" "}
-                {proBundlePrice} ₽ за три уровня навсегда. По отдельности они
-                стоят на {bundleSaving} ₽ дороже. Инструменты — библиотека
-                профилей печати — входят в пакет.
+                <strong className="text-white">Пакет «Всё включено»</strong>{" "}
+                больше не продаётся: новые покупки закрыты. У купивших три
+                уровня и профили печати остаются навсегда. Инструменты теперь
+                открывает подписка Pro.
               </span>
             </div>
 
@@ -581,7 +567,7 @@ export default async function SubscriptionPage() {
                     Купить курсы (навсегда)
                   </p>
                   <h3 className="mt-2 text-xl font-extrabold tracking-tight text-white sm:text-2xl">
-                    Уровни и пакет «Всё включено»
+                    Уровни курсов
                   </h3>
                 </div>
                 <p className="text-sm text-slate-300">

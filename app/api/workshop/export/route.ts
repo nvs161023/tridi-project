@@ -87,7 +87,7 @@ async function readProducts(
  * Порядок проверок:
  *   1. `platform` — только ozon, wb, yandex, avito или megamarket;
  *   2. сессия — `getUser()`, потому что `/api/*` не покрыт middleware;
- *   3. `hasActiveSubscription()` — Мастерская входит в пакет «Всё включено»;
+ *   3. `hasActiveSubscription()` — Мастерская входит в подписку Pro;
  *   4. каталог читается с фильтром по `user_id` и порциями.
  *
  * Гость и пользователь без пакета получают 403: выгрузка не должна открывать
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     return errorResponse(
       403,
       "pro_required",
-      "Выгрузка каталога входит в пакет «Всё включено».",
+      "Выгрузка каталога входит в подписку Pro.",
     );
   }
 

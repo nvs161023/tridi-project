@@ -20,14 +20,14 @@ import { createClient } from "@/lib/supabase/server";
  * app/api/profiles/download/route.ts проверяет сессию и доступ. Прятать файлы
  * только за CSS нельзя: адрес API можно открыть и руками.
  *
- * Доступ проверяется через hasActiveSubscription() — это бессрочный пакет
+ * Доступ проверяется через hasActiveSubscription() — это подписка Pro
  * `pro` «Всё включено» или легаси-подписка `pro-subscription`. Отдельные уровни
  * инструменты не открывают.
  */
 export const metadata: Metadata = {
   title: "Библиотека профилей печати",
   description:
-    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в пакет «Всё включено».",
+    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в подписку Pro.",
   alternates: { canonical: "/profiles" },
   // Свой openGraph, а не унаследованный из корневого layout: иначе og:url
   // указывал бы на главную.
@@ -38,7 +38,7 @@ export const metadata: Metadata = {
     url: "/profiles",
     title: "Библиотека профилей печати",
     description:
-      "Готовые профили принтеров и материалов для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в пакет «Всё включено».",
+      "Готовые профили принтеров и материалов для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в подписку Pro.",
   },
 };
 
@@ -114,7 +114,7 @@ export default async function ProfilesPage() {
           <div className="relative mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
             <div className="flex flex-wrap items-center gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-blue-400/40 bg-blue-500/10 px-3.5 py-1.5 text-blue-200">
-                Входит в пакет «Всё включено»
+                Входит в подписку Pro
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 Обновлено {updatedAt}
@@ -158,7 +158,7 @@ export default async function ProfilesPage() {
           >
             <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-14">
               <p className="text-sm font-semibold tracking-widest text-blue-300 uppercase">
-                Доступ по пакету
+                Доступ по подписке
               </p>
               <h2
                 id="profiles-cta"
@@ -174,10 +174,10 @@ export default async function ProfilesPage() {
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
                 <Link
-                  href="/courses/pro"
+                  href="/pricing"
                   className="inline-flex min-h-14 items-center justify-center gap-2 rounded-full bg-blue-600 px-8 text-lg font-semibold text-white shadow-lg shadow-blue-600/30 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                 >
-                  Открыть пакет «Всё включено»
+                  Оформить подписку Pro
                   <span aria-hidden>→</span>
                 </Link>
 

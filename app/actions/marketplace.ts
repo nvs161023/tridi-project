@@ -24,7 +24,7 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы изменить связи.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы связать SKU.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы связать SKU.";
 const MIGRATION_MISSING =
   "Связи SKU пока не сохраняются: в базе нет workshop_marketplace_links. Примените supabase/workshop_farm_and_shop.sql.";
 const INSERT_FAILED = "Не удалось сохранить связь. Попробуйте ещё раз.";

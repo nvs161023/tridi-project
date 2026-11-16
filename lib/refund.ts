@@ -227,13 +227,47 @@ function isMissingSchemaError(error: { code?: string }): boolean {
 }
 
 /**
+ * Удаляет пожизненный грант при возврате пакета `pro`.
+ *
+ * `legacy_pro_users` — отдельный источник доступа, который важнее покупки.
+ * Если строку не удалить, возвращённый покупатель продолжит открывать
+ * Конструктор, Профили и генератор, даже когда `purchases.expires_at` уже в
+ * прошлом. Ошибка удаления прерывает возврат; отсутствие таблицы (миграция ещё
+ * не применена) — не ошибка.
+ */
+async function revokeLegacyProGrant(
+  admin: AdminClient,
+  userId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await admin
+    .from("legacy_pro_users")
+    .delete()
+    .eq("user_id", userId);
+
+  if (!error || isMissingSchemaError(error)) {
+    return { ok: true };
+  }
+
+  console.error(
+    "[Возврат] Не удалось удалить пожизненный грант Pro:",
+    error.message,
+  );
+
+  return {
+    ok: false,
+    error: "Не удалось отозвать доступ к инструментам. Попробуйте ещё раз.",
+  };
+}
+
+/**
  * Отзывает доступ к инструментам Pro при возврате `pro` или `pro-subscription`.
  *
  * `purchases.expires_at` закрывает только саму покупку. Доступ к Конструктору,
  * Профилям и Мастерской решает ещё и `subscriptions`: пока там `active` с
  * будущим (или пустым) `expires_at`, возвращённый покупатель продолжает
  * пользоваться Pro. Поэтому строки подписки получают `cancelled` и
- * `expires_at` = момент возврата.
+ * `expires_at` = момент возврата. Для `pro` дополнительно удаляется
+ * legacy_pro_users: пожизненный грант иначе переживёт возврат.
  *
  * Вызывается до закрытия покупки: если база не приняла отзыв, возврат
  * прерывается и доступ не остаётся закрытым наполовину. Отсутствие таблицы или
@@ -243,7 +277,16 @@ async function revokeSubscriptionAccess(
   admin: AdminClient,
   userId: string,
   refundedAt: string,
+  courseId: RefundCourseId,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (courseId === "pro") {
+    const legacyRevocation = await revokeLegacyProGrant(admin, userId);
+
+    if (!legacyRevocation.ok) {
+      return legacyRevocation;
+    }
+  }
+
   const revoked = {
     status: "cancelled",
     expires_at: refundedAt,
@@ -504,6 +547,7 @@ export async function refundPurchase(
       admin,
       purchase.user_id,
       refundedAt,
+      courseId,
     );
 
     if (!revocation.ok) {

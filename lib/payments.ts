@@ -38,9 +38,13 @@ const PAYMENT_DESCRIPTION = "Оплата TriDi";
 export const SUBSCRIPTION_PERIOD_DAYS = 30;
 
 /**
- * Все товары, которые можно оплатить. Цены — из каталогов: `data/courses.json`
+ * Товары, которые можно купить сейчас. Цены — из каталогов: `data/courses.json`
  * для курсов и подписки, `data/generation-plans.json` для пакетов токенов.
  * Витрина, кнопки и серверная проверка читают один источник.
+ *
+ * Пакета `pro` здесь больше нет: продажи остановлены (R2), новые ссылки на
+ * оплату для него не создаются. Уже оплаченные заказы принимает вебхук через
+ * `LEGACY_PAYMENT_PLANS`, чтобы платёж, созданный до остановки, не потерялся.
  */
 export const PAYMENT_PLANS = {
   confident: {
@@ -54,10 +58,6 @@ export const PAYMENT_PLANS = {
   profit: {
     price: coursesData.profit.price,
     title: coursesData.profit.title,
-  },
-  pro: {
-    price: coursesData.pro.price,
-    title: coursesData.pro.bundleTitle,
   },
   /**
    * Подписка Pro: доступ к инструментам и месячные лимиты генераций. Продаётся
@@ -79,8 +79,32 @@ export const PAYMENT_PLANS = {
   },
 } as const;
 
-/** Ключ товара, который уходит в Robokassa как `Shp_course`. */
+/**
+ * Исторические товары, которые уже нельзя купить, но чьи подписанные
+ * уведомления Robokassa ещё могут прийти. Сумма проверяется по тем же данным,
+ * поэтому занизить её в вебхуке нельзя.
+ *
+ * `pro` оставлен только здесь: старый разовый пакет «Всё включено». Новые
+ * покупки не создаются, а уведомление по оплате, начатой до остановки продаж,
+ * всё равно записывается в `purchases` и открывает три курса.
+ */
+export const LEGACY_PAYMENT_PLANS = {
+  pro: {
+    price: coursesData.pro.price,
+    title: coursesData.pro.bundleTitle,
+  },
+} as const;
+
+/** Ключ товара, который можно продать и отправить в Robokassa как `Shp_course`. */
 export type PaymentCourseId = keyof typeof PAYMENT_PLANS;
+
+/** Исторический товар: купить нельзя, уведомление об оплате принять можно. */
+export type LegacyPaymentCourseId = keyof typeof LEGACY_PAYMENT_PLANS;
+
+/** Все ключи, для которых вебхук умеет проверить сумму и выдать покупку. */
+export type AcceptedPaymentCourseId =
+  | PaymentCourseId
+  | LegacyPaymentCourseId;
 
 export type PaymentRequest = {
   /** Ключ курса, пакета или подписки. */
@@ -102,14 +126,34 @@ export type PaymentIntent = {
   amount: number;
 };
 
-/** Проверяет, что строка из браузера — известный товар. */
+/** Проверяет, что товар можно купить прямо сейчас. */
 export function isPaymentCourseId(value: string): value is PaymentCourseId {
   return Object.prototype.hasOwnProperty.call(PAYMENT_PLANS, value);
 }
 
-/** Цена товара в рублях. */
-export function getPaymentAmount(courseId: PaymentCourseId): number {
-  return PAYMENT_PLANS[courseId].price;
+/**
+ * Проверяет товар для вебхука: к продаваемым добавляются исторические.
+ *
+ * Отдельная проверка нужна только ResultURL. Ссылку на оплату по-прежнему
+ * создаёт `initializePayment` через `isPaymentCourseId`, поэтому новый заказ
+ * `pro` получить нельзя.
+ */
+export function isAcceptedPaymentCourseId(
+  value: string,
+): value is AcceptedPaymentCourseId {
+  return (
+    isPaymentCourseId(value) ||
+    Object.prototype.hasOwnProperty.call(LEGACY_PAYMENT_PLANS, value)
+  );
+}
+
+/** Цена товара в рублях: для продажи и для проверки старого уведомления. */
+export function getPaymentAmount(courseId: AcceptedPaymentCourseId): number {
+  if (isPaymentCourseId(courseId)) {
+    return PAYMENT_PLANS[courseId].price;
+  }
+
+  return LEGACY_PAYMENT_PLANS[courseId].price;
 }
 
 /** Сумма для Robokassa: строго два знака после точки. */

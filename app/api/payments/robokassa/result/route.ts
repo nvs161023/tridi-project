@@ -6,7 +6,7 @@ import {
   extractShpParams,
   getPaymentAmount,
   getRobokassaPassword2,
-  isPaymentCourseId,
+  isAcceptedPaymentCourseId,
   verifyResultSignature,
 } from "@/lib/payments";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -411,7 +411,10 @@ async function handleResult(
   const courseId = shp.course;
   const userId = shp.user;
 
-  if (!courseId || !isPaymentCourseId(courseId)) {
+  // `pro` здесь ещё принимается: это исторический товар. Новую ссылку на него
+  // создать нельзя (isPaymentCourseId в lib/payments.ts), а подписанное
+  // уведомление по оплате, начатой до остановки продаж, должно закрыться.
+  if (!courseId || !isAcceptedPaymentCourseId(courseId)) {
     return text("invalid course", 400);
   }
 

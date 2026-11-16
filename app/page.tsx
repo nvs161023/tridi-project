@@ -9,7 +9,6 @@ import {
 } from "@/components/landing/BentoCard";
 import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import { cx } from "@/components/ui/class-names";
-import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
 import {
@@ -37,22 +36,8 @@ export const metadata: Metadata = {
   alternates: { canonical: "/" },
 };
 
-const { pro: proCourse } = coursesData;
-
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
-
-/**
- * Выгода пакета — разница с покупкой трёх курсов по отдельности.
- * Уровни бейджей не получают: скидочные проценты обещали бы цену, которой
- * никогда не было. Бейдж пакета рисует `ProBundleCard`.
- */
-const BUNDLE_SAVING = formatPrice(
-  LEVELS.filter((level) => !level.isFree).reduce(
-    (sum, level) => sum + level.price,
-    0,
-  ) - proCourse.price,
-);
 
 /** Регистрация с возвратом в первый бесплатный урок. */
 const START_FREE_HREF = authHref("/auth/sign-up", "/course/lesson-1");
@@ -247,7 +232,8 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Как проходит оплата?",
-    answer: `Курсы покупаются навсегда: уровень или пакет «Всё включено». Пакет дешевле покупки трёх курсов по отдельности на ${BUNDLE_SAVING} ₽. Чек НПД приходит на email, указанный при оплате.`,
+    answer:
+      "Курсы покупаются навсегда: каждый уровень отдельно. Пакет «Всё включено» больше не продаётся, но у тех, кто купил его раньше, доступ сохраняется. Инструменты платформы открывает подписка Pro. Чек НПД приходит на email, указанный при оплате.",
   },
   {
     question: "Сколько времени нужно?",
@@ -995,13 +981,13 @@ export default async function Home() {
                   Следующий уровень
                 </h3>
                 <p className="relative mt-3 text-sm leading-7 text-white/45 sm:text-base">
-                  Купите конкретный курс навсегда или заберите все три пакетом
-                  — он дешевле на {BUNDLE_SAVING} ₽.
+                  Купите конкретный курс навсегда. Пакет «Всё включено» больше
+                  не продаётся — доступ купивших сохранён.
                 </p>
                 <ul className="relative mt-6 space-y-2.5 text-sm text-white/55">
                   {[
                     "Три платных уровня на выбор",
-                    "Пакет «Всё включено» со скидкой",
+                    "Курсы остаются навсегда",
                     "Сертификат после тестов",
                   ].map((item) => (
                     <li key={item} className="flex items-start gap-2.5">
@@ -1015,7 +1001,7 @@ export default async function Home() {
                     Выбрать курс
                   </CtaLink>
                   <CtaLink href="/courses/pro" variant="outline">
-                    Пакет трёх курсов
+                    Все три курса
                   </CtaLink>
                 </div>
               </BentoCard>
@@ -1043,8 +1029,9 @@ export default async function Home() {
                   </span>
                 </h2>
                 <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                  Один курс или пакет «Всё включено» — без подписок, скрытых
-                  условий и платы за продление.
+                  Курсы покупаются по отдельности и остаются навсегда. Для
+                  инструментов платформы есть отдельная подписка Pro — без
+                  скрытых условий и платы за продление курсов.
                 </p>
               </div>
 
@@ -1052,7 +1039,7 @@ export default async function Home() {
                 <span aria-hidden className="text-amber-300">
                   ◆
                 </span>
-                Пакет дешевле на {BUNDLE_SAVING} ₽
+                Курсы навсегда · инструменты по подписке
               </p>
             </div>
 

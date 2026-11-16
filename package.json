@@ -11,6 +11,7 @@
     "check:style": "node scripts/style-check.mjs",
     "check:vase": "node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts",
     "check:credits": "node --import ./scripts/register-alias.mjs scripts/test-generation-credits.ts",
+    "check:billing": "node --import ./scripts/register-alias.mjs scripts/test-billing-access.ts",
     "check:course-access": "node --import ./scripts/register-alias.mjs scripts/test-course-access-guard.ts",
     "check:promo-rls": "node scripts/test-promo-rls.mjs",
     "check:refund": "node --import ./scripts/register-alias.mjs scripts/test-refund-guard.ts",

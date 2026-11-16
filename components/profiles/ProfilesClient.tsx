@@ -513,17 +513,17 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                               <LockIcon className="h-5 w-5" />
                             </span>
                             <span className="text-sm font-semibold text-white">
-                              Доступно в пакете
+                              Доступно в подписке
                             </span>
                             <span className="max-w-[16rem] text-xs leading-relaxed text-slate-300">
-                              Скачивание откроется после покупки пакета «Всё
-                              включено»
+                              Скачивание откроется после оформления подписки
+                              Pro
                             </span>
                             <Link
-                              href="/courses/pro"
+                              href="/pricing"
                               className="mt-1 inline-flex min-h-9 items-center justify-center rounded-full bg-blue-600 px-4 text-xs font-semibold text-white transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                             >
-                              Открыть пакет
+                              Оформить подписку
                             </Link>
                           </div>
                         ) : null}

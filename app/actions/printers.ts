@@ -39,7 +39,7 @@ import { getDiscoveredPrinters } from "@/lib/workshop/printer-store";
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы изменить принтеры.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести принтеры.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы вести принтеры.";
 const MIGRATION_MISSING =
   "Принтеры пока не сохраняются: в базе нет таблицы или колонок workshop_printers. Примените supabase/workshop_farm_and_shop.sql — он добавляет протокол, серийный номер, IP-адрес и ключ доступа; таблицу и колонки обслуживания создают workshop_printers_orders.sql и workshop_printer_z_screw.sql.";
 const ADD_FAILED = "Не удалось добавить принтер. Попробуйте ещё раз.";

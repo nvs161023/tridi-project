@@ -1,21 +1,31 @@
 /**
- * Доступ к платным материалам: покупки в purchases и пакет «Всё включено».
+ * Доступ к платным материалам: курсы, инструменты Pro и подписка.
  *
  * После оплаты Robokassa вебхук записывает покупку:
  *   - confident / engineer / profit — один уровень навсегда;
- *   - pro — пакет «Всё включено»: три уровня навсегда и инструменты платформы
- *     (Конструктор и библиотека Профилей);
- *   - pro-subscription — легаси-подписка Pro на 30 дней: только инструменты,
- *     без доступа к урокам. Новых продаж с этим ключом нет, проверка оставлена
- *     ради тех, кто оплатил её раньше.
+ *   - pro — исторический пакет «Всё включено»: три уровня навсегда. Продажи
+ *     остановлены (R2), новые покупки невозможны. Инструменты он больше не
+ *     открывает: только явный грант в legacy_pro_users у тех, кто купил раньше;
+ *   - pro-subscription — подписка Pro на 30 дней: инструменты платформы и
+ *     месячные лимиты генераций, без доступа к урокам.
  *
- * Легаси-подписка дополнительно проверяется по таблице subscriptions: она уже
+ * Курсы и инструменты разделены намеренно: покупка confident / engineer /
+ * profit открывает только уроки своего уровня, но не Конструктор, Профили,
+ * Мастерскую и генератор. `hasCourseAccess` отвечает за уроки,
+ * `hasActiveSubscription` — только за инструменты.
+ *
+ * Подписка дополнительно проверяется по таблице subscriptions: она уже
  * настроена в живой базе и хранит статус (active / trial), конец пробного
  * периода trial_ends_at и срок оплаты expires_at. Срок оплаты ставит вебхук
  * Robokassa и продлевает автопродление. Это нужно, потому что схема purchases
  * применяется вручную и на момент подключения библиотеки профилей её в базе ещё
  * не было: без второй проверки оплаченная подписка не открывала бы ни профили,
  * ни конструктор.
+ *
+ * Пожизненный доступ живёт в отдельной таблице legacy_pro_users: строка там —
+ * явный грант, а не случайный `active` с пустым expires_at. Пока миграция не
+ * применена, включается fallback на старую покупку `pro` с expires_at = null,
+ * чтобы уже оплатившие не потеряли доступ в день выката.
  *
  * Любая ошибка (строки нет, таблицы нет, сеть отвалилась) означает «доступа
  * нет»: сбой проверки не должен открывать платный контент.
@@ -46,6 +56,24 @@ type SubscriptionRow = {
   expires_at: string | null;
 };
 
+/** Строка legacy_pro_users: сам факт строки и есть пожизненный грант. */
+type LegacyProRow = {
+  user_id: string;
+};
+
+/**
+ * Результат чтения legacy_pro_users.
+ *
+ * `tableAvailable = false` означает, что миграцию ещё не применили. Только в
+ * этом случае разрешён fallback на старую покупку `pro`: без него выкат кода
+ * раньше SQL закрыл бы инструменты всем действующим покупателям.
+ */
+type LegacyProGrant = {
+  granted: boolean;
+  tableAvailable: boolean;
+  error: string | null;
+};
+
 /**
  * Покупки, которые открывают конкретный уровень: свой курс или пакет
  * «Все 3 уровня». Подписка Pro (pro-subscription) сюда не входит: она даёт
@@ -70,20 +98,25 @@ function isPurchaseActive(purchase: PurchaseRow): boolean {
 }
 
 /**
- * Покупка открывает инструменты Pro.
+ * Покупка подписки открывает инструменты Pro.
  *
- * Пакет `pro` — разовый платёж, поэтому инструменты он открывает только при
- * expires_at = null. У `pro-subscription` срок обязателен: после 30 дней
- * доступ закрывается сам.
+ * Срок обязателен: после 30 дней доступ закрывается сам. Пакет `pro` здесь
+ * больше не участвует — его инструменты даёт только legacy_pro_users.
  */
-function isToolsPurchaseActive(purchase: PurchaseRow): boolean {
-  if (purchase.course_id === "pro") {
-    return purchase.expires_at === null;
-  }
-
+function isSubscriptionPurchaseActive(purchase: PurchaseRow): boolean {
   return (
     purchase.course_id === "pro-subscription" && isPurchaseActive(purchase)
   );
+}
+
+/**
+ * Старая покупка пакета `pro` с бессрочным доступом.
+ *
+ * Используется только как fallback, пока таблицы legacy_pro_users нет в базе.
+ * После миграции пожизненный доступ подтверждает явная строка гранта.
+ */
+function isLifetimeBundlePurchase(purchase: PurchaseRow): boolean {
+  return purchase.course_id === "pro" && purchase.expires_at === null;
 }
 
 /**
@@ -142,6 +175,50 @@ type LegacySubscriptionRow = Omit<SubscriptionRow, "expires_at">;
 /** Колонку expires_at добавляет supabase/subscriptions_recurring.sql. */
 function isMissingExpiresAtColumn(error: { code?: string }): boolean {
   return error.code === "42703" || error.code === "PGRST204";
+}
+
+/**
+ * Таблицы legacy_pro_users ещё нет: supabase/legacy_pro.sql не применён.
+ *
+ * Это единственная ошибка, при которой разрешён fallback на старую покупку
+ * `pro`. Остальные ошибки (RLS, сеть) доступ не открывают.
+ */
+function isMissingLegacyProTable(error: { code?: string }): boolean {
+  return error.code === "42P01" || error.code === "PGRST205";
+}
+
+/**
+ * Читает явный пожизненный грант Pro.
+ *
+ * Строка в legacy_pro_users важнее покупки: после возврата `lib/refund.ts`
+ * удаляет её, поэтому повторный доступ не восстановится даже при старом
+ * `purchases.expires_at`.
+ */
+async function readLegacyProGrant(
+  supabase: Supabase,
+  userId: string,
+): Promise<LegacyProGrant> {
+  const { data, error } = await supabase
+    .from("legacy_pro_users")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!error) {
+    return {
+      granted: (data as LegacyProRow | null) !== null,
+      tableAvailable: true,
+      error: null,
+    };
+  }
+
+  if (isMissingLegacyProTable(error)) {
+    return { granted: false, tableAvailable: false, error: null };
+  }
+
+  console.warn("Не удалось проверить пожизненный доступ Pro:", error.message);
+
+  return { granted: false, tableAvailable: true, error: error.message };
 }
 
 /**
@@ -271,9 +348,9 @@ export type ActiveSubscription = {
    */
   expiresAt: string | null;
   /**
-   * Источник доступа: разовый пакет `pro` или легаси-подписка. Кабинет
-   * показывает разные формулировки: «Пакет «Всё включено» активен навсегда»
-   * и «Доступ к инструментам открыт до …».
+   * Источник доступа: пожизненный legacy-грант пакета `pro` или подписка.
+   * Кабинет показывает разные формулировки: «Пакет «Всё включено» активен
+   * навсегда» и «Доступ к инструментам открыт до …».
    */
   source: "bundle" | "subscription" | null;
 };
@@ -281,24 +358,37 @@ export type ActiveSubscription = {
 /**
  * Действующий доступ Pro с датой окончания.
  *
- * Проверяет те же источники, что и hasActiveSubscription(), но ещё возвращает
- * срок и источник для кабинета: «Пакет «Всё включено» активен навсегда» или
- * «Доступ к инструментам открыт до …». Пакет `pro` учитывается только при
- * expires_at = null — это разовая бессрочная покупка. Если подписок несколько,
- * показываем самую позднюю дату; бессрочная запись важнее любой даты.
+ * Источники инструментов:
+ *   1. legacy_pro_users — пожизненный грант для купивших пакет `pro` раньше;
+ *   2. purchases `pro-subscription` с будущим expires_at;
+ *   3. subscriptions active/trial с действующим сроком — та же подписка и
+ *      явные ручные гранты.
+ *
+ * Покупка курса (`confident`, `engineer`, `profit`) и покупка `pro` без строки
+ * legacy_pro_users инструментов не открывают. Пока таблицы legacy_pro_users нет
+ * в базе, действует fallback: бессрочная покупка `pro` считается грантом.
+ *
+ * Если подписок несколько, показываем самую позднюю дату; бессрочный грант
+ * важнее любой даты.
  */
 export async function getActiveSubscription(
   supabase: Supabase,
   userId: string,
 ): Promise<ActiveSubscription> {
-  const [purchasesResult, subscriptionsResult] = await Promise.all([
-    supabase
-      .from("purchases")
-      .select("course_id, expires_at")
-      .eq("user_id", userId)
-      .in("course_id", ["pro", "pro-subscription"]),
-    readSubscriptions(supabase, userId),
-  ]);
+  const [legacyGrant, purchasesResult, subscriptionsResult] =
+    await Promise.all([
+      readLegacyProGrant(supabase, userId),
+      supabase
+        .from("purchases")
+        .select("course_id, expires_at")
+        .eq("user_id", userId)
+        .in("course_id", ["pro", "pro-subscription"]),
+      readSubscriptions(supabase, userId),
+    ]);
+
+  if (legacyGrant.granted) {
+    return { active: true, expiresAt: null, source: "bundle" };
+  }
 
   if (purchasesResult.error) {
     console.warn(
@@ -306,13 +396,19 @@ export async function getActiveSubscription(
       purchasesResult.error.message,
     );
   } else {
-    const purchases = (
-      (purchasesResult.data as PurchaseRow[] | null) ?? []
-    ).filter(isToolsPurchaseActive);
+    const rows = (purchasesResult.data as PurchaseRow[] | null) ?? [];
 
-    if (purchases.some((purchase) => purchase.course_id === "pro")) {
+    // Выкат раньше SQL: явного гранта ещё нет, поэтому сохраняем старую
+    // бессрочную покупку `pro`. После применения legacy_pro.sql ветка не
+    // выполняется и новые покупки `pro` инструментов не открывают.
+    if (
+      !legacyGrant.tableAvailable &&
+      rows.some(isLifetimeBundlePurchase)
+    ) {
       return { active: true, expiresAt: null, source: "bundle" };
     }
+
+    const purchases = rows.filter(isSubscriptionPurchaseActive);
 
     if (purchases.length > 0) {
       return {
@@ -449,15 +545,16 @@ export async function getPurchasedCourses(
 }
 
 /**
- * Действующий доступ Pro для инструментов (профили, конструктор).
+ * Действующий доступ Pro для инструментов (профили, конструктор, генератор).
  *
  * Проверяет три источника:
- *   1. purchases — бессрочная запись `pro` (пакет трёх уровней);
+ *   1. legacy_pro_users — пожизненный грант купивших `pro` до остановки продаж;
  *   2. purchases — запись `pro-subscription` со сроком в expires_at;
  *   3. subscriptions — статус active или неистёкший trial.
  *
- * Вторая и третья проверки нужны, пока схема purchases не применена в живой
- * базе: без них оплаченная подписка не открывала бы профили.
+ * Покупка курса и покупка `pro` без legacy-гранта сюда не входят: уроки и
+ * инструменты разделены. Пока legacy_pro_users нет в базе, fallback сохраняет
+ * старую бессрочную покупку `pro`, чтобы выкат не отобрал уже оплаченное.
  *
  * Дата окончания не нужна — только факт доступа. Если нужна и дата, используйте
  * getActiveSubscription(): это та же проверка с подробностями.

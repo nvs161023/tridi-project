@@ -41,7 +41,7 @@ import { getWorkshopSettings } from "@/lib/workshop/store";
 export const metadata: Metadata = {
   title: "Мастерская",
   description:
-    "Калькулятор себестоимости 3D-печати, склад пластика, принтеры с обслуживанием и заказы клиентов: материал, электричество, амортизация и работа, рекомендованная цена и прибыль. Входит в пакет «Всё включено».",
+    "Калькулятор себестоимости 3D-печати, склад пластика, принтеры с обслуживанием и заказы клиентов: материал, электричество, амортизация и работа, рекомендованная цена и прибыль. Входит в подписку Pro.",
   robots: { index: false, follow: false },
 };
 
@@ -136,7 +136,7 @@ export default async function WorkshopPage() {
                   CRM · 3D-печать
                 </span>
                 <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-2.5 py-1 text-blue-200">
-                  Входит в пакет «Всё включено»
+                  Входит в подписку Pro
                 </span>
                 {hasPro ? (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-emerald-200">
@@ -148,7 +148,7 @@ export default async function WorkshopPage() {
                   </span>
                 ) : (
                   <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-zinc-400">
-                    Доступ по пакету
+                    Доступ по подписке
                   </span>
                 )}
               </div>
@@ -179,11 +179,11 @@ export default async function WorkshopPage() {
                 />
               ) : (
                 <ButtonLink
-                  href="/courses/pro"
+                  href="/pricing"
                   size="lg"
                   className="min-h-12 rounded-2xl px-5 text-sm sm:min-h-14 sm:px-7 sm:text-base"
                 >
-                  Открыть пакет
+                  Оформить подписку Pro
                   <span aria-hidden>→</span>
                 </ButtonLink>
               )}
@@ -355,10 +355,10 @@ function LockedWorkshop() {
 
       <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
         <Link
-          href="/courses/pro"
+          href="/pricing"
           className="inline-flex min-h-12 items-center justify-center gap-2 rounded-full bg-blue-600 px-6 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
-          Открыть пакет «Всё включено»
+          Оформить подписку Pro
           <span aria-hidden>→</span>
         </Link>
         <Link

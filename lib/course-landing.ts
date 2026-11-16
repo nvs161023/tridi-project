@@ -72,8 +72,13 @@ export type LandingTheme = {
 /** Всё, что нужно странице /courses/[id]. */
 export type CourseLanding = {
   id: CourseLandingId;
-  /** Ключ товара для PlanButton и Robokassa. */
-  paymentId: PaidLevelKey | "pro";
+  /**
+   * Ключ товара для PlanButton и Robokassa.
+   *
+   * null — архивный пакет `pro`: страница остаётся для купивших и поиска, но
+   * новую оплату не предлагает.
+   */
+  paymentId: PaidLevelKey | null;
   kicker: string;
   title: string;
   subtitle: string;
@@ -355,7 +360,8 @@ function buildProLanding(): CourseLanding {
 
   return {
     id: "pro",
-    paymentId: "pro",
+    // Продажи пакета остановлены: ссылку на оплату не рисуем.
+    paymentId: null,
     kicker: copy.kicker,
     title: coursesData.pro.bundleTitle,
     subtitle: coursesData.pro.bundleSubtitle,

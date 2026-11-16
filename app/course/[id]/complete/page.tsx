@@ -480,14 +480,14 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
           title="Библиотека профилей печати"
           description={
             proActive
-              ? "Пакет «Всё включено» активен — все профили принтеров и материалов доступны для скачивания без ограничений."
+              ? "Подписка Pro активна — все профили принтеров и материалов доступны для скачивания без ограничений."
               : "Проверенные профили принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer. Импорт занимает пару минут — доступ открывает пакет «Всё включено»."
           }
           href="/profiles"
           linkLabel="Перейти в библиотеку"
           accentText={theme.accentText}
-          secondaryHref={proActive ? undefined : "/courses/pro"}
-          secondaryLabel={proActive ? undefined : "Что входит в пакет"}
+          secondaryHref={proActive ? undefined : "/pricing"}
+          secondaryLabel={proActive ? undefined : "Оформить подписку Pro"}
         />
         <HubCard
           icon="💬"

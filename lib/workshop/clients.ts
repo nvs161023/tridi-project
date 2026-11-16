@@ -93,7 +93,7 @@ export function isClientId(value: unknown): value is string {
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы работать с базой клиентов.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести базу клиентов.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы вести базу клиентов.";
 const MIGRATION_MISSING =
   "База клиентов пока не сохраняется: в базе нет таблицы workshop_clients. Примените миграцию supabase/workshop_clients.sql.";
 const ADD_FAILED =

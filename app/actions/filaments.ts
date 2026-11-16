@@ -28,7 +28,7 @@ import { parseWorkshopNumber } from "@/lib/workshop/settings";
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы изменить склад.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести склад.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы вести склад.";
 const MIGRATION_MISSING =
   "Склад пока не сохраняется: в базе нет таблицы workshop_filaments. Примените миграцию supabase/workshop_filaments.sql.";
 const ADD_FAILED = "Не удалось добавить катушку. Попробуйте ещё раз.";

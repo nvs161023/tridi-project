@@ -1,4 +1,3 @@
-import { PlanButton } from "@/app/subscription/PlanButton";
 import { ButtonLink, Card } from "@/components/ui";
 import coursesData from "@/data/courses.json";
 import {
@@ -21,11 +20,6 @@ const { pro: proCourse } = coursesData;
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
-/** Скидка пакета не рисуется процентами: выгода показывается в рублях. */
-const BUNDLE_SAVING = formatPrice(
-  PAID_LEVELS.reduce((sum, level) => sum + level.price, 0) - proCourse.price,
-);
-
 /** Названия платных уровней в описании пакета не дублируем вручную. */
 const BUNDLE_COURSES = PAID_LEVELS.map((level) => level.shortTitle).join(", ");
 
@@ -36,7 +30,7 @@ const BUNDLE_ARTIFACTS = new Set(
   ),
 ).size;
 
-const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) и библиотека профилей печати — навсегда`;
+const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) — навсегда. Инструменты платформы теперь открывает подписка Pro`;
 
 const BUNDLE_FEATURES = [
   ...PAID_LEVELS.map(
@@ -44,19 +38,19 @@ const BUNDLE_FEATURES = [
       `${level.shortTitle} — ${level.lessons} ${pluralize(level.lessons, LESSON_FORMS)}`,
   ),
   "Коммерческая лицензия (можно продавать напечатанное)",
-  "Доступ навсегда",
+  "Курсы остаются навсегда",
+  "Инструменты — по подписке Pro",
 ];
 
 /**
  * Главные фишки пакета — отдельными зелёными строками.
  *
- * Состав курсов остаётся в BUNDLE_FEATURES, а сертификат и профили
- * вынесены наверх: именно они отличают пакет от покупки отдельных уроков.
- * Число профилей берётся из каталога, а не вписано руками.
+ * Пакет больше не продаётся, но у купивших остаются сертификат, профили и
+ * файлы. Число профилей берётся из каталога, а не вписано руками.
  */
 const BUNDLE_HIGHLIGHTS = [
   "Именной сертификат",
-  `Доступ к ${profileCount} профилям печати`,
+  `Доступ к ${profileCount} профилям печати сохранён у покупателей`,
   ...(BUNDLE_ARTIFACTS > 0
     ? [
         `${BUNDLE_ARTIFACTS} ${pluralize(BUNDLE_ARTIFACTS, FILE_FORMS)} к урокам`,
@@ -72,12 +66,12 @@ type ProBundleCardProps = {
 };
 
 /**
- * Карточка пакета «Всё включено» для главной и страницы тарифов.
+ * Карточка архивного пакета «Всё включено» для главной и страницы тарифов.
  *
- * Один компонент на две витрины нужен, чтобы цена, состав, статистика и кнопки
- * не разошлись. Цифры берутся из данных уровней, цена и бейдж — из
- * data/courses.json, а оплата идёт через тот же PlanButton, что у отдельных
- * курсов: сумма и доступ проверяются на сервере.
+ * Пакет больше не продаётся (R2): новых ссылок на оплату нет, поэтому вместо
+ * PlanButton здесь только статус и переходы к отдельным курсам или подписке.
+ * Купившим показываем «Доступ открыт»: их права сохранены через
+ * legacy_pro_users.
  */
 export function ProBundleCard({
   hasBundle,
@@ -100,10 +94,10 @@ export function ProBundleCard({
 
       <div className="relative flex flex-wrap items-center gap-3">
         <span className="text-xs font-semibold tracking-[0.16em] text-violet-300 uppercase">
-          Пакет «{proCourse.bundleTitle}»
+          Архивный пакет «{proCourse.bundleTitle}»
         </span>
         <span className="rounded-full bg-gradient-to-r from-amber-300 to-amber-500 px-3 py-1 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/25">
-          {proCourse.badge}
+          Продажи завершены
         </span>
       </div>
 
@@ -134,14 +128,16 @@ export function ProBundleCard({
             <span className="text-3xl font-extrabold text-white">
               {formatPrice(proCourse.price)} ₽
             </span>
-            <span className="text-xs text-slate-300">навсегда</span>
+            <span className="text-xs text-slate-300">
+              историческая цена, новых продаж нет
+            </span>
           </p>
 
           <p className="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 px-3 py-2 text-xs text-slate-300">
             <span className="font-semibold text-emerald-200">
-              Выгода {BUNDLE_SAVING} ₽
+              Покупателям пакета
             </span>
-            <span>против покупки трёх курсов по отдельности</span>
+            <span>курсы и инструменты сохранены навсегда</span>
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">
@@ -199,12 +195,30 @@ export function ProBundleCard({
                 </ButtonLink>
               </>
             ) : (
-              <PlanButton
-                label="Купить пакет"
-                courseId="pro"
-                variant="gold"
-                size="compact"
-              />
+              <>
+                <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs leading-relaxed text-slate-300">
+                  Новые покупки пакета закрыты. Курсы можно взять по
+                  отдельности, инструменты — по подписке Pro.
+                </p>
+                <ButtonLink
+                  href="/subscription#pricing"
+                  variant="gold"
+                  fullWidth
+                  className="mt-3"
+                >
+                  Выбрать курсы
+                  <span aria-hidden>→</span>
+                </ButtonLink>
+                <ButtonLink
+                  href="/pricing"
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  className="mt-2"
+                >
+                  Подписка Pro для инструментов
+                </ButtonLink>
+              </>
             )}
           </div>
         </div>

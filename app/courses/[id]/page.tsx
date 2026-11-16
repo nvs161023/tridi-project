@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { PlanButton } from "@/app/subscription/PlanButton";
+import { ButtonLink } from "@/components/ui";
 import { Header } from "@/components/Header";
 import { authHref } from "@/lib/auth-redirect";
 import { getCourseLanding } from "@/lib/course-landing";
@@ -119,6 +120,8 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
   const price = formatPrice(course.price);
   const saving = course.saving ? formatPrice(course.saving) : null;
   const loginHref = authHref("/auth/login", `/courses/${course.id}`);
+  /** null — архивный пакет `pro`: показываем историю, но не кнопку оплаты. */
+  const isPurchasable = course.paymentId !== null;
 
   const stats = [
     { value: course.modules, label: pluralize(course.modules, MODULE_FORMS) },
@@ -147,13 +150,19 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
     inLanguage: "ru-RU",
     isAccessibleForFree: false,
     provider: organizationJsonLd(siteUrl),
-    offers: {
-      "@type": "Offer",
-      url: courseUrl,
-      price: course.price,
-      priceCurrency: "RUB",
-      availability: "https://schema.org/InStock",
-    },
+    // У архивного пакета нет продажи — нет и Offer: иначе поиск показывал бы
+    // цену товара, который нельзя купить.
+    ...(isPurchasable
+      ? {
+          offers: {
+            "@type": "Offer",
+            url: courseUrl,
+            price: course.price,
+            priceCurrency: "RUB",
+            availability: "https://schema.org/InStock",
+          },
+        }
+      : {}),
     hasCourseInstance: {
       "@type": "CourseInstance",
       courseMode: "online",
@@ -170,25 +179,27 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
    * странице. Отзывов и рейтинга здесь нет по той же причине, что и в Course:
    * выдуманные оценки нарушают правила Google.
    */
-  const productJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "Product",
-    name: course.title,
-    description: `${course.subtitle}. ${course.goal}`,
-    image: absoluteUrl(OG_IMAGE.url, siteUrl),
-    url: courseUrl,
-    sku: course.paymentId,
-    category: "Онлайн-курс",
-    brand: { "@type": "Brand", name: "TriDi" },
-    offers: {
-      "@type": "Offer",
-      url: courseUrl,
-      price: course.price,
-      priceCurrency: "RUB",
-      availability: "https://schema.org/InStock",
-      seller: organizationJsonLd(siteUrl),
-    },
-  };
+  const productJsonLd = isPurchasable
+    ? {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        name: course.title,
+        description: `${course.subtitle}. ${course.goal}`,
+        image: absoluteUrl(OG_IMAGE.url, siteUrl),
+        url: courseUrl,
+        sku: course.paymentId,
+        category: "Онлайн-курс",
+        brand: { "@type": "Brand", name: "TriDi" },
+        offers: {
+          "@type": "Offer",
+          url: courseUrl,
+          price: course.price,
+          priceCurrency: "RUB",
+          availability: "https://schema.org/InStock",
+          seller: organizationJsonLd(siteUrl),
+        },
+      }
+    : null;
 
   return (
     <div className="min-h-screen text-slate-100">
@@ -198,12 +209,14 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
           __html: JSON.stringify(courseJsonLd).replace(/</g, "\\u003c"),
         }}
       />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(productJsonLd).replace(/</g, "\\u003c"),
-        }}
-      />
+      {productJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(productJsonLd).replace(/</g, "\\u003c"),
+          }}
+        />
+      ) : null}
 
       <Header />
 
@@ -274,7 +287,9 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
               <p
                 className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold tracking-wide uppercase ${course.theme.badge}`}
               >
-                {course.badge ?? "Доступ навсегда"}
+                {isPurchasable
+                  ? (course.badge ?? "Доступ навсегда")
+                  : "Архивный пакет"}
               </p>
 
               <div className="mt-5 flex flex-wrap items-baseline gap-3">
@@ -283,21 +298,42 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-300">
-                Разовый платёж. Доступ остаётся навсегда.
+                {isPurchasable
+                  ? "Разовый платёж. Доступ остаётся навсегда."
+                  : "Историческая цена. Пакет больше не продаётся."}
               </p>
-              {saving ? (
+              {isPurchasable && saving ? (
                 <p className="mt-3 inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
                   Экономия {saving} ₽ против трёх курсов
                 </p>
               ) : null}
 
               <div className="mt-6">
-                <PlanButton
-                  label={`Купить за ${price} ₽`}
-                  courseId={course.paymentId}
-                  variant={course.theme.button}
-                  loginHref={loginHref}
-                />
+                {course.paymentId ? (
+                  <PlanButton
+                    label={`Купить за ${price} ₽`}
+                    courseId={course.paymentId}
+                    variant={course.theme.button}
+                    loginHref={loginHref}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <ButtonLink
+                      href="/subscription#pricing"
+                      variant="gold"
+                      fullWidth
+                    >
+                      Выбрать курсы по отдельности
+                    </ButtonLink>
+                    <ButtonLink
+                      href="/pricing"
+                      variant="secondary"
+                      fullWidth
+                    >
+                      Подписка Pro для инструментов
+                    </ButtonLink>
+                  </div>
+                )}
               </div>
 
               <section className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-4">
@@ -701,16 +737,37 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-300">
-                Разовый платёж. Доступ остаётся навсегда.
+                {isPurchasable
+                  ? "Разовый платёж. Доступ остаётся навсегда."
+                  : "Историческая цена. Пакет больше не продаётся."}
               </p>
 
               <div className="mt-6">
-                <PlanButton
-                  label={`Купить за ${price} ₽`}
-                  courseId={course.paymentId}
-                  variant={course.theme.button}
-                  loginHref={loginHref}
-                />
+                {course.paymentId ? (
+                  <PlanButton
+                    label={`Купить за ${price} ₽`}
+                    courseId={course.paymentId}
+                    variant={course.theme.button}
+                    loginHref={loginHref}
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    <ButtonLink
+                      href="/subscription#pricing"
+                      variant="gold"
+                      fullWidth
+                    >
+                      Выбрать курсы по отдельности
+                    </ButtonLink>
+                    <ButtonLink
+                      href="/pricing"
+                      variant="secondary"
+                      fullWidth
+                    >
+                      Подписка Pro для инструментов
+                    </ButtonLink>
+                  </div>
+                )}
               </div>
 
               <Link
@@ -721,8 +778,9 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
               </Link>
 
               <p className="mt-4 text-center text-xs leading-relaxed text-slate-300">
-                Оплата через Robokassa · чек НПД на email · уроки в личном
-                кабинете
+                {isPurchasable
+                  ? "Оплата через Robokassa · чек НПД на email · уроки в личном кабинете"
+                  : "Пакет закрыт для новых покупок · доступ купивших сохранён"}
               </p>
             </div>
           </div>

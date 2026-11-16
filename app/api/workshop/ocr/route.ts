@@ -56,7 +56,7 @@ type OpenAiResponse = {
  * Порядок проверок:
  *   1. `OPENAI_API_KEY` — без ключа 503 «OCR временно недоступен»;
  *   2. сессия — `getUser()`, потому что `/api/*` не покрыт middleware;
- *   3. `hasActiveSubscription()` — OCR входит в пакет «Всё включено»;
+ *   3. `hasActiveSubscription()` — OCR входит в подписку Pro;
  *   4. файл из multipart-поля `file`: формат и размер;
  *   5. запрос к ProxyAPI и проверка JSON-массива.
  *
@@ -81,7 +81,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
-    return errorResponse(403, "Импорт остатков входит в пакет «Всё включено».");
+    return errorResponse(403, "Импорт остатков входит в подписку Pro.");
   }
 
   let form: FormData;

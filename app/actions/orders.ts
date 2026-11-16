@@ -94,7 +94,7 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы изменить заказы.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести заказы.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы вести заказы.";
 const MIGRATION_MISSING =
   "Заказы пока не сохраняются: в базе нет таблиц workshop_orders/workshop_printers. Примените миграцию supabase/workshop_printers_orders.sql.";
 const INSERT_FAILED = "Не удалось создать заказ. Попробуйте ещё раз.";

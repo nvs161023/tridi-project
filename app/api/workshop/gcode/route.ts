@@ -25,7 +25,7 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Порядок проверок:
  *   1. сессия — `/api/*` не покрыт middleware;
- *   2. `hasActiveSubscription()` — каталог входит в пакет «Всё включено»;
+ *   2. `hasActiveSubscription()` — каталог входит в подписку Pro;
  *   3. файл из multipart-поля `file`: назначение, расширение и размер;
  *   4. модель принтера из 3MF (только для `.3mf`);
  *   5. загрузка service_role-клиентом.
@@ -107,7 +107,7 @@ export async function POST(request: Request): Promise<Response> {
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return errorResponse(
       403,
-      "Каталог входит в пакет «Всё включено». Оформите доступ, чтобы загрузить файл товара.",
+      "Каталог входит в подписку Pro. Оформите подписку, чтобы загрузить файл товара.",
     );
   }
 

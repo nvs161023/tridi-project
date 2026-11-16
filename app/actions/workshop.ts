@@ -37,7 +37,7 @@ import {
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы сохранить настройки.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы сохранять настройки.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы сохранять настройки.";
 const MIGRATION_MISSING =
   "Настройки пока не сохраняются: в базе нет нужных таблиц или колонок. Примените миграции supabase/workshop_settings.sql, supabase/workshop_requisites.sql и supabase/workshop_marketplace_integration.sql.";
 const SAVE_FAILED = "Не удалось сохранить настройки. Попробуйте ещё раз.";

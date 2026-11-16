@@ -719,7 +719,7 @@ export default async function DashboardPage() {
                   ? hasBundle
                     ? "Все три платных курса и инструменты платформы открыты навсегда. Это разовая покупка пакета — продлевать ничего не нужно."
                     : "Библиотека профилей открыта. Доступ действует на инструменты платформы, курсы остаются доступны навсегда после покупки."
-                  : "Курсы можно купить навсегда, а библиотеку профилей открывает пакет «Всё включено». Начните с бесплатного уровня — карта не нужна."}
+                  : "Курсы можно купить навсегда, а инструменты платформы открывает подписка Pro. Начните с бесплатного уровня — карта не нужна."}
               </p>
             </div>
 
@@ -734,10 +734,10 @@ export default async function DashboardPage() {
                 </span>
               ) : (
                 <Link
-                  href="/courses/pro"
+                  href="/pricing"
                   className={`min-h-12 px-7 text-base ${PRIMARY_ACTION}`}
                 >
-                  Открыть пакет
+                  Оформить подписку Pro
                   <span aria-hidden>→</span>
                 </Link>
               )}
@@ -942,13 +942,13 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
             {tool.title}
           </h3>
           <p className="text-sm leading-relaxed text-zinc-400">
-            Доступно в пакете «Всё включено»
+            Доступно в подписке Pro
           </p>
           <Link
-            href="/courses/pro"
+            href="/pricing"
             className={`mt-1 min-h-11 px-6 ${PRIMARY_ACTION}`}
           >
-            Открыть пакет
+            Оформить подписку
             <span aria-hidden>→</span>
           </Link>
         </div>

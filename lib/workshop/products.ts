@@ -259,7 +259,7 @@ const IMPORT_WRITE_FAILED =
 const SESSION_EXPIRED =
   "Сессия истекла. Войдите снова, чтобы добавить товар.";
 const PRO_REQUIRED =
-  "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы вести каталог товаров.";
+  "Мастерская входит в подписку Pro. Оформите подписку, чтобы вести каталог товаров.";
 const MIGRATION_MISSING =
   "Каталог пока не сохраняется: в базе нет таблицы workshop_products. Примените миграцию supabase/workshop_products.sql.";
 const ADD_FAILED = "Не удалось добавить товар. Попробуйте ещё раз.";
@@ -1742,7 +1742,7 @@ export async function deleteProduct(
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return {
       error:
-        "Мастерская входит в пакет «Всё включено». Оформите доступ, чтобы менять каталог.",
+        "Мастерская входит в подписку Pro. Оформите подписку, чтобы менять каталог.",
     };
   }
 
