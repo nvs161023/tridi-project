@@ -12223,3 +12223,35 @@ Amvera гасила сборку с SIGTERM на шаге «Linting and checking
 
 Проверки: `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run check:box`, `npm run check:docs`, `npm run check:imports`, `npm run check:style` — зелёные.
 
+
+**Умный роутер генерации 3D по фото: Tripo и Meshy (15 ноября 2026).** Новый роут
+`app/api/generate-3d/route.ts` принимает JSON `{ images: string[], quality }`, где `images` — base64
+или data URL с JPEG/PNG/WebP, и сразу отдаёт `{ taskId }`: задача создаётся у сети, а статус клиент
+опрашивает отдельно, поэтому HTTP-запрос не висит минуты. Выбор сети по входу: несколько фото —
+Tripo `POST /v3/generation/multiview-to-model` (модель `v3.1-20260211`, `texture: false`); одно фото
+и `quality: "ultra"` — Meshy `POST /openapi/v1/image-to-3d` (`ai_model: "meshy-7.1"`,
+`should_texture: false`); одно фото и `standard` — Tripo `POST /v3/generation/image-to-model`.
+Пропущенный `quality` считается `standard`, незнакомое значение даёт 400.
+
+Два расхождения с буквой задания, оба в пользу работоспособности. Первое: в Meshy модель выбирается
+полем `ai_model`, а `model_type` — это вид сетки (`standard` или `smart-topology`), значение
+`meshy-7.1` там отклоняется валидацией. Второе: у Tripo вместе с `texture: false` отправляется
+`pbr: false`, иначе включённый по умолчанию PBR снова требует текстуру и задача стоит дороже.
+
+Tripo v3 не принимает base64 в теле задачи: каждое фото сначала уходит multipart-полем `file` в
+`POST /v3/files`, ответ `{ code: 0, data: { file_token } }`, а задача получает токены в `inputs` —
+первый кадр как `front`, дальше `left`, `back`, `right` (сеть требует фронт всегда и принимает 2–4
+вида). Meshy получает фото сразу как data URL, поэтому для одного фото загрузки нет. Ошибки
+провайдера разбираются по общему конверту Tripo (`code`, `message`, `suggestion`) и по телу Meshy и
+превращаются в 502 с причиной; 500 роут не отдаёт никогда. Без ключа выбранной сети — 503 с именем
+переменной и без платного запроса: `TRIPO_API_KEY` и `MESHY_API_KEY` добавлены в `.env.example` и
+`.env.local` (в `.env.local` пустые — ключи из консоли вписать перед проверкой).
+
+Проверки: `npx tsc --noEmit` — 0 ошибок, `npm run lint` — чисто, `npm run build` — успешно (маршрут
+`/api/generate-3d` в сборке). Живых запросов к сетям не было: ключей нет, деньги не тратились.
+Вместо них mock-fetch в `.fonttmp/test-generate-3d-route.ts` — 58 проверок, 0 расхождений: адреса и
+тела задач для трёх веток, порядок видов, `texture`/`pbr`/`should_texture`, заголовки Bearer,
+multipart-поле `file`, отсутствие опроса `/tasks`, 503 без ключа, 502 при отказе Tripo (HTTP и
+`code != 0`), Meshy и загрузки фото, 400 на битом JSON, чужом `quality`, пустом и слишком длинном
+`images`, не-строке и не-картинке.
+
