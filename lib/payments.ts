@@ -307,16 +307,30 @@ function nextInvId(): number {
 }
 
 /**
- * Тестовый режим включён по умолчанию: без явного `ROBOKASSA_IS_TEST=false`
- * сайт не начнёт списывать реальные деньги. На хостинге переменную нужно
- * выставить осознанно.
+ * Тестовый режим Robokassa.
  *
+ * В разработке он включён по умолчанию, а в production требует явного
+ * `ROBOKASSA_IS_TEST`: если переменной нет, это ошибка конфигурации, а не
+ * молчаливая отправка всех платежей в тестовый контур. Раньше забытая
+ * переменная означала «тест», и боевой магазин мог показывать оплату, которая
+ * не списывает деньги.
+ *
+ * `false`, `0` и `no` выключают тест; любое другое явное значение включает.
  * При `IsTest=1` Robokassa ждёт **тестовые** пароли №1 и №2 из технических
  * настроек: с боевым паролем любая подпись получает ошибку 29, даже без чека.
- * Поэтому боевой магазин должен работать с `ROBOKASSA_IS_TEST=false`.
  */
-function isTestMode(): boolean {
+export function isTestMode(): boolean {
   const value = process.env.ROBOKASSA_IS_TEST?.trim().toLowerCase();
+
+  if (!value) {
+    if (process.env.NODE_ENV === "production") {
+      throw new Error(
+        "Не задана ROBOKASSA_IS_TEST: в production укажите false для боевых платежей или true для тестового контура.",
+      );
+    }
+
+    return true;
+  }
 
   return value !== "false" && value !== "0" && value !== "no";
 }

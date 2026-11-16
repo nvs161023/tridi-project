@@ -5,6 +5,10 @@ import {
   GENERATED_STL_DIR,
   resolveGeneratedStl,
 } from "@/lib/constructor/mesh-fixer";
+import { canAccessGeneration } from "@/lib/generator/generation-access";
+import { getGenerationAccessByTaskId } from "@/lib/generator/generation-store";
+import { verifyGeneratedFileLink } from "@/lib/security/signed-links";
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * Отдача готового STL из «мясорубки».
@@ -12,10 +16,17 @@ import {
  * Ссылку возвращает `/api/check-3d-status` после постобработки GLB:
  *
  *   GET /api/generated-stl/<40 hex-символов>.stl
+ *       ?taskId=<номер>&expires=<unix>&signature=<hmac>
  *
  * Имя файла — SHA-256 от ссылки на исходный GLB. Роут принимает только этот
  * шаблон (`resolveGeneratedStl`), поэтому выйти из временной папки через `..`
  * или подставить чужой путь нельзя.
+ *
+ * Право проверяется дважды: HMAC-подпись подтверждает, что ссылку выдал наш
+ * сервер, а строка `generations` — что вошедший пользователь владеет задачей
+ * или модель опубликована. Гость получает 401, чужая приватная задача — 403,
+ * просроченная подпись — 403. Без проверки любой, кто узнал имя файла, скачал
+ * бы чужую модель.
  */
 export const runtime = "nodejs";
 
@@ -49,7 +60,7 @@ function asciiFileName(name: string): string {
  * сверяется с корнем папки — защита от ошибки в самом шаблоне.
  */
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ file: string }> },
 ): Promise<Response> {
   const { file } = await context.params;
@@ -57,6 +68,50 @@ export async function GET(
 
   if (!filePath) {
     return errorResponse(404, "Такой модели нет.");
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return errorResponse(401, "Войдите в аккаунт, чтобы скачать модель.");
+  }
+
+  const params = new URL(request.url).searchParams;
+  const taskId = params.get("taskId");
+
+  if (!taskId) {
+    return errorResponse(403, "Ссылка на модель повреждена.");
+  }
+
+  // Строка задачи нужна до проверки подписи: подпись выдана на владельца
+  // задачи, а скачать опубликованную модель может любой вошедший пользователь.
+  const generation = await getGenerationAccessByTaskId(taskId);
+
+  if (!generation) {
+    return errorResponse(404, "Такой модели нет.");
+  }
+
+  if (
+    !verifyGeneratedFileLink({
+      file,
+      taskId,
+      userId: generation.userId,
+      expires: params.get("expires"),
+      signature: params.get("signature"),
+    })
+  ) {
+    return errorResponse(
+      403,
+      "Ссылка на модель устарела или повреждена. Сгенерируйте модель заново.",
+    );
+  }
+
+  if (!canAccessGeneration(user.id, generation)) {
+    return errorResponse(403, "Эта модель создана в другом аккаунте.");
   }
 
   const relativePath = path.relative(GENERATED_STL_DIR, filePath);

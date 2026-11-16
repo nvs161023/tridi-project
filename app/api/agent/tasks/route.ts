@@ -7,6 +7,10 @@ import {
   type PrinterStatus,
 } from "@/lib/db/workshop-types";
 import { validateAgentToken } from "@/lib/agent-auth";
+import {
+  GCODE_BUCKET,
+  signStoredStorageUrl,
+} from "@/lib/storage";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isOrderStatus, type OrderStatus } from "@/lib/workshop/orders";
@@ -30,8 +34,11 @@ import { isOrderStatus, type OrderStatus } from "@/lib/workshop/orders";
  *      а также название заказа для журнала.
  *
  * Ответ: `{ "tasks": [...] }`. Пустой массив — нормальный ответ «печатать
- * нечего», а не ошибка. `gcodeUrl` — снимок ссылки на момент постановки
- * задания: товар могли отредактировать позже.
+ * нечего», а не ошибка. `gcodeUrl` в базе — снимок ссылки на момент постановки
+ * задания: товар могли отредактировать позже. Перед каждым опросом ссылка
+ * заново подписывается на час из пути Storage: сам бакет `workshop-gcode`
+ * закрыт, а сохранённая подпись истекает. Внешний URL (файл не из нашего
+ * хранилища) возвращается как есть.
  *
  * api_key принтера — секрет мастерской. Он уходит только агенту, который уже
  * подтвердил agent_token, поэтому ни страницы, ни Server Actions этот роут не
@@ -237,6 +244,25 @@ function normalizeTask(value: unknown): AgentTask | null {
   };
 }
 
+/**
+ * Обновляет подпись ссылки на файл печати перед выдачей агенту.
+ *
+ * В `workshop_print_jobs.gcode_url` лежит снимок ссылки на момент постановки
+ * задания, а подпись Storage живёт час. Без обновления задание, простоявшее в
+ * очереди дольше, скачивалось бы с 400/403. Внешние ссылки не трогаем: у них
+ * нет пути внутри нашего бакета.
+ */
+async function refreshGcodeUrl(task: AgentTask): Promise<AgentTask> {
+  if (!task.gcodeUrl) {
+    return task;
+  }
+
+  return {
+    ...task,
+    gcodeUrl: await signStoredStorageUrl(task.gcodeUrl, GCODE_BUCKET),
+  };
+}
+
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
@@ -296,5 +322,21 @@ export async function GET(request: Request): Promise<Response> {
     .map(normalizeTask)
     .filter((task): task is AgentTask => task !== null);
 
-  return json({ tasks });
+  let signedTasks: AgentTask[];
+
+  try {
+    signedTasks = await Promise.all(tasks.map(refreshGcodeUrl));
+  } catch (error) {
+    console.error(
+      "Агент: подписи ссылок на файлы печати не обновлены:",
+      error instanceof Error ? error.message : error,
+    );
+
+    return json(
+      { error: "Ссылки на файлы печати не обновлены. Повторите опрос." },
+      503,
+    );
+  }
+
+  return json({ tasks: signedTasks });
 }

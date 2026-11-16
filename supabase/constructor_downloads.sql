@@ -45,6 +45,97 @@ revoke all on public.constructor_downloads from anon, authenticated;
 grant select on public.constructor_downloads to authenticated;
 grant all on public.constructor_downloads to service_role;
 
+-- =============================================================================
+-- Атомарное списание бесплатного лимита
+-- =============================================================================
+-- Проверка «посчитай и вставь» двумя запросами гоняется: две параллельные
+-- генерации обе видят count = 2 и обе получают третье скачивание. Функция
+-- берёт транзакционную блокировку по пользователю, считает записи за текущий
+-- месяц UTC и вставляет новую только при наличии места.
+--
+-- Возвращает id резерва или NULL, если лимит исчерпан. Роут при ошибке
+-- генерации удаляет резерв (`release_constructor_download`), чтобы неудачная
+-- попытка не сжигала скачивание.
+--
+-- security definer нужен, потому что запись делает только service_role, но
+-- execute намеренно закрыт для anon/authenticated: иначе пользователь мог бы
+-- резервировать слоты за других. p_limit проверяется в разумных границах,
+-- чтобы ошибка вызова не заблокировала всех навсегда.
+-- =============================================================================
+
+create or replace function public.reserve_constructor_download(
+  p_user_id uuid,
+  p_limit integer
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_used integer;
+  v_id uuid;
+begin
+  if p_user_id is null then
+    raise exception 'p_user_id is required' using errcode = '22023';
+  end if;
+
+  if p_limit is null or p_limit < 1 or p_limit > 100 then
+    raise exception 'p_limit must be between 1 and 100'
+      using errcode = '22023';
+  end if;
+
+  -- Блокировка на пользователя, а не на таблицу: генерации разных людей не
+  -- ждут друг друга.
+  perform pg_advisory_xact_lock(hashtextextended(p_user_id::text, 0));
+
+  select count(*)::integer
+    into v_used
+    from public.constructor_downloads
+   where user_id = p_user_id
+     and created_at >= (date_trunc('month', now() at time zone 'utc')
+                        at time zone 'utc');
+
+  if v_used >= p_limit then
+    return null;
+  end if;
+
+  insert into public.constructor_downloads (user_id)
+  values (p_user_id)
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+comment on function public.reserve_constructor_download(uuid, integer) is
+  'Атомарно резервирует бесплатное скачивание STL; NULL — месячный лимит исчерпан.';
+
+-- Удаление резерва при неудачной генерации. Отдельная функция, чтобы у
+-- service_role не было прямого доступа к произвольному delete из клиента.
+create or replace function public.release_constructor_download(p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  delete from public.constructor_downloads where id = p_id;
+end;
+$$;
+
+comment on function public.release_constructor_download(uuid) is
+  'Возвращает бесплатное скачивание, если генерация STL завершилась ошибкой.';
+
+revoke all on function public.reserve_constructor_download(uuid, integer)
+  from public, anon, authenticated;
+revoke all on function public.release_constructor_download(uuid)
+  from public, anon, authenticated;
+grant execute on function public.reserve_constructor_download(uuid, integer)
+  to service_role;
+grant execute on function public.release_constructor_download(uuid)
+  to service_role;
+
 -- Примеры проверки доступа:
 --   select count(*) from public.constructor_downloads
 --    where user_id = '<UUID>'

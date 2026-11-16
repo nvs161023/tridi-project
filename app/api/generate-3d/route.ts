@@ -10,6 +10,11 @@ import {
 } from "@/lib/generator/categories";
 import { effectiveGeneratorQuality } from "@/lib/generator/generation-credits";
 import { rememberGenerationTask } from "@/lib/generator/generation-store";
+import {
+  consumeRateLimit,
+  rateLimitKey,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
@@ -61,6 +66,9 @@ export const dynamic = "force-dynamic";
 
 /** Загрузка фото и создание задачи: сама генерация идёт уже без нас. */
 export const maxDuration = 120;
+
+/** Не больше пяти запусков в минуту на пользователя: защита от случайных петель. */
+const GENERATE_RATE_LIMIT = { limit: 5, windowMs: 60_000 } as const;
 
 /** Боевой адрес Tripo3D v3 для всех стран, кроме Китая. */
 const TRIPO_BASE_URL = "https://openapi.tripo3d.ai/v3";
@@ -592,6 +600,18 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(
       401,
       "Войдите в аккаунт, чтобы сгенерировать 3D-модель.",
+    );
+  }
+
+  const rate = consumeRateLimit(
+    rateLimitKey(request, "generate-3d", user.id),
+    GENERATE_RATE_LIMIT,
+  );
+
+  if (!rate.allowed) {
+    return rateLimitResponse(
+      rate,
+      "Слишком много запусков генерации. Подождите минуту и попробуйте снова.",
     );
   }
 

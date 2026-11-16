@@ -6,7 +6,18 @@ import {
   MeshFixerError,
   processGeneratedMesh,
 } from "@/lib/constructor/mesh-fixer";
-import { saveGenerationStl } from "@/lib/generator/generation-store";
+import { canAccessGeneration } from "@/lib/generator/generation-access";
+import {
+  getGenerationAccessByTaskId,
+  saveGenerationStl,
+} from "@/lib/generator/generation-store";
+import { buildGeneratedFileUrl } from "@/lib/security/signed-links";
+import {
+  consumeRateLimit,
+  rateLimitKey,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * Опрос задачи генерации 3D и постобработка готовой модели.
@@ -45,6 +56,13 @@ export const dynamic = "force-dynamic";
 
 /** Постобработка GLB на первом успешном опросе может занять минуты. */
 export const maxDuration = 300;
+
+/**
+ * Клиент опрашивает задачу раз в три секунды, то есть до ~20 запросов в минуту
+ * на одну генерацию. 120 — запас на несколько вкладок, но не бесконечный спам
+ * платного API.
+ */
+const STATUS_RATE_LIMIT = { limit: 120, windowMs: 60_000 } as const;
 
 /** Боевой адрес Tripo3D v3: домен `.ai`, а не `.com` из черновика ТЗ. */
 const TRIPO_BASE_URL = "https://openapi.tripo3d.ai/v3";
@@ -390,6 +408,11 @@ async function pollMeshy(apiKey: string, taskId: string): Promise<PollResult> {
 /**
  * GET /api/check-3d-status?taskId=<номер>&service=tripo|meshy
  *
+ * Роут приватный: `/api/*` не покрыт middleware, поэтому сессия проверяется
+ * здесь. Номер задачи должен принадлежать вошедшему пользователю — иначе любой
+ * мог бы опрашивать чужую генерацию и получать готовую модель. Ошибка в базе
+ * закрывает доступ, а не пропускает запрос.
+ *
  * На первом успешном опросе модель проходит постобработку. Всё, что после
  * этого может пойти не так (битый GLB, пустая сетка), возвращается как 502 с
  * понятным текстом: клиент показывает его вместо бесконечного «обрабатываем».
@@ -408,6 +431,38 @@ export async function GET(request: Request): Promise<Response> {
       400,
       "Параметр service принимает только tripo или meshy.",
     );
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return errorResponse(401, "Войдите в аккаунт, чтобы проверить задачу.");
+  }
+
+  const rate = consumeRateLimit(
+    rateLimitKey(request, "check-3d-status", user.id),
+    STATUS_RATE_LIMIT,
+  );
+
+  if (!rate.allowed) {
+    return rateLimitResponse(
+      rate,
+      "Слишком много проверок статуса. Подождите минуту и попробуйте снова.",
+    );
+  }
+
+  const generation = await getGenerationAccessByTaskId(taskId);
+
+  if (!generation) {
+    return errorResponse(404, "Задача не найдена.");
+  }
+
+  if (!canAccessGeneration(user.id, generation)) {
+    return errorResponse(403, "Эта задача создана в другом аккаунте.");
   }
 
   // Ключ нужен только для опроса: ссылки на готовые модели подписаны.
@@ -452,7 +507,14 @@ export async function GET(request: Request): Promise<Response> {
     return statusResponse({
       status: "success",
       progress: 100,
-      modelUrl: `/api/generated-stl/${path.basename(stlPath)}`,
+      // Подпись привязана к владельцу строки, а не к тому, кто сейчас опрашивает
+      // задачу: опубликованную модель может открыть другой пользователь, и его
+      // id не совпадёт с проверкой в `/api/generated-stl`.
+      modelUrl: buildGeneratedFileUrl(
+        path.basename(stlPath),
+        taskId,
+        generation.userId,
+      ),
     });
   } catch (error) {
     if (error instanceof StatusError) {

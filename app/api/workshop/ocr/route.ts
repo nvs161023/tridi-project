@@ -1,3 +1,8 @@
+import {
+  consumeRateLimit,
+  rateLimitKey,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -15,6 +20,9 @@ export const dynamic = "force-dynamic";
 
 /** Распознавание фото занимает десятки секунд — даём модели время. */
 export const maxDuration = 60;
+
+/** Дорогой OCR: не больше пяти накладных в минуту на пользователя. */
+const OCR_RATE_LIMIT = { limit: 5, windowMs: 60_000 } as const;
 
 /** Таймаут запроса к ProxyAPI: зависший запрос не должен держать роут. */
 const OCR_TIMEOUT_MS = 45_000;
@@ -78,6 +86,18 @@ export async function POST(request: Request): Promise<Response> {
 
   if (authError || !user) {
     return errorResponse(401, "Войдите в аккаунт, чтобы распознать накладную.");
+  }
+
+  const rate = consumeRateLimit(
+    rateLimitKey(request, "workshop-ocr", user.id),
+    OCR_RATE_LIMIT,
+  );
+
+  if (!rate.allowed) {
+    return rateLimitResponse(
+      rate,
+      "Слишком много распознаваний. Подождите минуту и попробуйте снова.",
+    );
   }
 
   if (!(await hasActiveSubscription(supabase, user.id))) {

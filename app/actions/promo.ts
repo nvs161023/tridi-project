@@ -8,9 +8,13 @@ import {
   isPromoCourseId,
   normalizePromoCode,
 } from "@/lib/promo-codes";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { hasCourseAccess } from "@/lib/subscription";
+
+/** Сколько попыток активации разрешено пользователю за минуту. */
+const PROMO_RATE_LIMIT = { limit: 10, windowMs: 60_000 } as const;
 
 /** Строка promo_codes, которая нужна для решения об активации. */
 type PromoRow = {
@@ -47,6 +51,14 @@ export async function activatePromoCode(
 
   if (sessionError || !user) {
     return { error: "Войдите в аккаунт, чтобы активировать промокод." };
+  }
+
+  const rate = consumeRateLimit(`promo-activate:user:${user.id}`, PROMO_RATE_LIMIT);
+
+  if (!rate.allowed) {
+    return {
+      error: `Слишком много попыток активации. Повторите через ${rate.retryAfterSeconds} с.`,
+    };
   }
 
   const code = normalizePromoCode(String(formData.get("code") ?? ""));

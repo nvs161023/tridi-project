@@ -477,6 +477,50 @@ export async function attachGenerationPreviews(
   );
 }
 
+/**
+ * Право на задачу по номеру у сети (`task_id`).
+ *
+ * Опрос статуса получает только номер задачи, а не UUID строки. Читаем
+ * служебным клиентом: RLS не отдаёт чужую приватную строку, и тогда роут не
+ * смог бы отличить «нет задачи» от «задача чужая» — оба случая должны быть
+ * закрыты, но 403 честнее 404 для владельца ссылки.
+ *
+ * `null` — строки нет или база не ответила. Роут в обоих случаях закрывает
+ * доступ: ошибка чтения не должна пропускать чужой taskId.
+ */
+export async function getGenerationAccessByTaskId(
+  taskId: string,
+): Promise<{ userId: string; isPublic: boolean } | null> {
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin
+      .from(GENERATIONS_TABLE)
+      .select("user_id, is_public")
+      .eq("task_id", taskId)
+      .maybeSingle();
+
+    if (error) {
+      warnAboutHistory(
+        `задача ${taskId} не прочитана (${error.code ?? "без кода"})`,
+        error.message,
+      );
+      return null;
+    }
+
+    if (!data?.user_id) {
+      return null;
+    }
+
+    return {
+      userId: data.user_id,
+      isPublic: data.is_public === true,
+    };
+  } catch (error) {
+    warnAboutHistory(`задача ${taskId} не прочитана`, error);
+    return null;
+  }
+}
+
 /** Что нужно роуту скачивания, чтобы проверить право и отдать файл. */
 export type DownloadableGeneration = {
   userId: string;

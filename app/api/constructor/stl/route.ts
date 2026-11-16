@@ -8,8 +8,8 @@ import type { Font, FontData } from "three/examples/jsm/loaders/FontLoader.js";
 
 import { recordConstructorGeneration } from "@/lib/analytics/generations";
 import {
-  FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH,
-  countConstructorDownloadsThisMonth,
+  releaseConstructorDownload,
+  reserveConstructorDownload,
 } from "@/lib/constructor/downloads";
 import {
   HOLE_PLACEMENT_LABELS,
@@ -159,8 +159,12 @@ import {
 import { createVaseGeometry } from "@/lib/constructor/vase-geometry";
 import { createVaseProfile } from "@/lib/constructor/vase-profile";
 import { parseSvgOutline } from "@/lib/constructor/svg-outline";
+import {
+  consumeRateLimit,
+  rateLimitKey,
+  rateLimitResponse,
+} from "@/lib/security/rate-limit";
 import { hasActiveSubscription } from "@/lib/subscription";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -169,7 +173,8 @@ import { createClient } from "@/lib/supabase/server";
  * Проверки идут строго по порядку, как у скачивания профилей:
  *   1. сессия — getUser(), потому что /api/* не покрыт middleware;
  *   2. доступ — Pro проходит сразу, Free получает три скачивания в
- *      календарный месяц по UTC (countConstructorDownloadsThisMonth);
+ *      календарный месяц по UTC. Слот резервируется атомарной SQL-функцией
+ *      (`reserveConstructorDownload`) до сборки;
  *   3. параметры — только числа внутри границ слайдеров, известная форма и
  *      узор вазы, брелок с именем и формой заготовки, вывеска с надписью,
  *      глубиной, каналом, зазором, размером блока и деталью блока, коробка с
@@ -181,9 +186,8 @@ import { createClient } from "@/lib/supabase/server";
  *      слои и зеркало термопринта.
  *
  * Гость получает 401, исчерпанный бесплатный лимит — 403, недоступная
- * проверка лимита — 503, испорченное тело — 422. Запись о бесплатном
- * скачивании появляется только после успешной сборки STL и пишется
- * service-role клиентом: RLS не даёт браузеру подделать счётчик.
+ * проверка лимита — 503, испорченное тело — 422. Неудачная сборка возвращает
+ * резерв, поэтому ошибка не сжигает бесплатное скачивание.
  */
 
 /** three.js и STLExporter работают в Node.js, Edge для них не нужен. */
@@ -191,6 +195,9 @@ export const runtime = "nodejs";
 
 /** Ответ зависит от cookies пользователя, кэшировать его нельзя. */
 export const dynamic = "force-dynamic";
+
+/** Не больше пяти экспортов в минуту на пользователя: защита от случайных петель. */
+const CONSTRUCTOR_RATE_LIMIT = { limit: 5, windowMs: 60_000 } as const;
 
 /** Ошибка в JSON: клиент показывает message, статус остаётся машинным. */
 function errorResponse(
@@ -1779,35 +1786,19 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const isPro = await hasActiveSubscription(supabase, user.id);
+  const rate = consumeRateLimit(
+    rateLimitKey(request, "constructor-stl", user.id),
+    CONSTRUCTOR_RATE_LIMIT,
+  );
 
-  if (!isPro) {
-    const usage = await countConstructorDownloadsThisMonth(
-      supabase,
-      user.id,
+  if (!rate.allowed) {
+    return rateLimitResponse(
+      rate,
+      "Слишком много экспортов. Подождите минуту и попробуйте снова.",
     );
-
-    if (usage.count === null) {
-      console.error(
-        "Не удалось проверить лимит бесплатных скачиваний:",
-        usage.error,
-      );
-
-      return errorResponse(
-        503,
-        "limit_unavailable",
-        "Не удалось проверить лимит бесплатных скачиваний. Попробуйте ещё раз.",
-      );
-    }
-
-    if (usage.count >= FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH) {
-      return errorResponse(
-        403,
-        "free_limit_reached",
-        "Лимит бесплатных скачиваний (3 в месяц) исчерпан. Безлимитный экспорт входит в подписку Pro.",
-      );
-    }
   }
+
+  const isPro = await hasActiveSubscription(supabase, user.id);
 
   let body: unknown;
 
@@ -1957,6 +1948,49 @@ export async function POST(request: Request): Promise<Response> {
     }
   }
 
+  // Бесплатное скачивание резервируется до сборки, одной SQL-функцией:
+  // проверка count и вставка под блокировкой не пропускают четвёртую
+  // параллельную генерацию. Если сборка упадёт, резерв вернётся.
+  let reservedDownloadId: string | null = null;
+
+  if (!isPro) {
+    const reservation = await reserveConstructorDownload(user.id);
+
+    if (!reservation.ok && reservation.reason === "limit") {
+      return errorResponse(
+        403,
+        "free_limit_reached",
+        "Лимит бесплатных скачиваний (3 в месяц) исчерпан. Безлимитный экспорт входит в подписку Pro.",
+      );
+    }
+
+    if (!reservation.ok) {
+      console.error(
+        "Не удалось проверить лимит бесплатных скачиваний:",
+        reservation.error,
+      );
+
+      return errorResponse(
+        503,
+        "limit_unavailable",
+        "Не удалось проверить лимит бесплатных скачиваний. Попробуйте ещё раз.",
+      );
+    }
+
+    reservedDownloadId = reservation.id;
+  }
+
+  /** Возвращает слот, если файл так и не был отдан. */
+  const releaseReservedDownload = async (): Promise<void> => {
+    if (!reservedDownloadId) {
+      return;
+    }
+
+    const id = reservedDownloadId;
+    reservedDownloadId = null;
+    await releaseConstructorDownload(id);
+  };
+
   try {
     // Шрифт читается брелоку и вывеске; остальные модели собираются без него,
     // чтобы не парсить 130 КБ JSON. loadFont() кэширует промис по пути, поэтому
@@ -2015,6 +2049,8 @@ export async function POST(request: Request): Promise<Response> {
     // Пустой пакет — это не пустая сетка, а честный отказ: деталь физически
     // не помещается на стол даже после поворота. Отдельные файлы остаются.
     if (geometry === null) {
+      await releaseReservedDownload();
+
       return errorResponse(
         422,
         "sign_package_too_large",
@@ -2059,33 +2095,8 @@ export async function POST(request: Request): Promise<Response> {
                               parsed.part,
                             );
 
-      // Запись появляется после успешной генерации: упавшая сборка не должна
-      // списывать бесплатную попытку. Если запись не удалась, файл не отдаём —
-      // иначе счётчик можно было бы обойти, отключив таблицу.
-      if (!isPro) {
-        try {
-          const admin = createAdminClient();
-          const { error: insertError } = await admin
-            .from("constructor_downloads")
-            .insert({ user_id: user.id });
-
-          if (insertError) {
-            throw insertError;
-          }
-        } catch (error) {
-          console.error(
-            "Не удалось записать бесплатное скачивание:",
-            error,
-          );
-
-          return errorResponse(
-            500,
-            "download_not_recorded",
-            "Не удалось учесть скачивание. Попробуйте ещё раз.",
-          );
-        }
-      }
-
+      // Слот уже зарезервирован до сборки, поэтому здесь только журнал: файл
+      // готов и уходит пользователю. Ошибка аналитики не отменяет скачивание.
       // Журнал для ежедневного отчёта: тип модели, время и — у вазы — силуэт,
       // узор и деформации. Это не лимит, а аналитика, поэтому пишем и Free, и
       // Pro, а ошибку записи не превращаем в отказ: файл уже собран и должен
@@ -2112,6 +2123,8 @@ export async function POST(request: Request): Promise<Response> {
       geometry.dispose();
     }
   } catch (error) {
+    await releaseReservedDownload();
+
     console.error("Не удалось собрать STL:", error);
 
     // Геометрия рельефа проверяет бюджет сетки и сама: если сюда дошёл её

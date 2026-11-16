@@ -21,6 +21,10 @@ import {
 } from "@/lib/3d/print-compatibility";
 import { isMarketplace } from "@/lib/db/workshop-types";
 import { relinkUnmappedOrders } from "@/lib/order-processor";
+import {
+  GCODE_BUCKET,
+  signStoredStorageUrl,
+} from "@/lib/storage";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
@@ -350,7 +354,7 @@ function readPriceValue(
  *
  * Относительный путь агенту фермы бесполезен: он скачивает файл не из
  * браузера. Файл, загруженный через /api/workshop/gcode, уже приходит
- * публичным https-адресом.
+ * подписанной https-ссылкой на наш Storage; внешняя ссылка тоже допустима.
  */
 function readFileLink(
   formData: FormData,
@@ -1013,6 +1017,31 @@ export function normalizeProductRow(
 }
 
 /**
+ * Обновляет подпись ссылки на файл товара.
+ *
+ * Ссылка в базе — снимок на момент загрузки, а подпись Storage живёт час.
+ * Каталог читают позже, поэтому перед показом ссылка пересобирается из пути
+ * закрытого бакета. Внешние ссылки и битые значения возвращаются без изменений:
+ * их подписывать нечем, а прятать поле из-за сбоя Storage не нужно.
+ */
+async function refreshProductFileUrl(url: string | null): Promise<string | null> {
+  if (!url) {
+    return null;
+  }
+
+  try {
+    return await signStoredStorageUrl(url, GCODE_BUCKET);
+  } catch (error) {
+    console.warn(
+      "[workshop] Не удалось обновить ссылку на файл товара:",
+      error instanceof Error ? error.message : error,
+    );
+
+    return url;
+  }
+}
+
+/**
  * Товары текущего пользователя: новые сверху.
  *
  * Любая ошибка — в том числе неприменённая миграция или истёкшая сессия —
@@ -1065,10 +1094,20 @@ export async function getWorkshopProducts(): Promise<WorkshopProduct[]> {
   }
 
   const rows = (data ?? []) as Partial<Record<string, unknown>>[];
-
-  return rows
+  const products = rows
     .map(normalizeProductRow)
     .filter((product): product is WorkshopProduct => product !== null);
+
+  return Promise.all(
+    products.map(async (product) => {
+      const [modelUrl, gcodeUrl] = await Promise.all([
+        refreshProductFileUrl(product.modelUrl),
+        refreshProductFileUrl(product.gcodeUrl),
+      ]);
+
+      return { ...product, modelUrl, gcodeUrl };
+    }),
+  );
 }
 
 /** Повтор артикула у того же пользователя: unique(user_id, sku). */

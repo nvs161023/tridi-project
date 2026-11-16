@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+import { securityHeaders } from "./lib/security/headers";
+
 const nextConfig: NextConfig = {
   /**
    * Standalone-сборка для хостинга.
@@ -54,6 +56,22 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     "/api/profiles/download": ["./profiles/**/*"],
+  },
+  /**
+   * Заголовки безопасности на все ответы сайта и API.
+   *
+   * CSP разрешает только нужные домены аналитики и Supabase; HSTS добавляется
+   * лишь в production — на localhost он не нужен и мешает отладке по http.
+   * Список собран в `lib/security/headers.ts`, чтобы тест проверял те же
+   * значения, что уходят в собранный ответ.
+   */
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: securityHeaders(),
+      },
+    ];
   },
   /**
    * Короткие адреса документов и регистрации.
