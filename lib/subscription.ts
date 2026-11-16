@@ -87,21 +87,45 @@ function isToolsPurchaseActive(purchase: PurchaseRow): boolean {
 }
 
 /**
- * Подписка действует, если статус active или пробный период ещё не закончился.
- * Остальные статусы (inactive, canceled, past_due) доступа не дают.
+ * Статусы, которыми подписка закрывается навсегда.
+ *
+ * Возврат (`lib/refund.ts`) ставит `cancelled`; старые версии SQL писали
+ * `canceled`. Оба варианта, а также истёкшие и отозванные статусы доступа не
+ * дают. Набор явный, чтобы новое значение статуса по ошибке не открыло Pro.
+ */
+const REVOKED_SUBSCRIPTION_STATUSES = new Set([
+  "cancelled",
+  "canceled",
+  "inactive",
+  "past_due",
+  "expired",
+  "revoked",
+  "refunded",
+]);
+
+/**
+ * Подписка действует, только если статус active или trial и срок в будущем.
  *
  * `expires_at` — срок оплаты из вебхука Robokassa: его ставит первый платёж и
- * продлевает автопродление. Если колонки ещё нет в базе, поле остаётся null, и
- * для active действует прежнее правило «доступ есть».
+ * продлевает автопродление. Дата в прошлом закрывает доступ даже при статусе
+ * active: вебхук мог не успеть обновить статус, а возврат ставит `cancelled` и
+ * `expires_at` = момент возврата. Если колонки ещё нет в базе, поле остаётся
+ * null, и для active действует прежнее правило «доступ есть».
  */
 function isSubscriptionActive(subscription: SubscriptionRow): boolean {
-  if (subscription.status === "active") {
+  const status = (subscription.status ?? "").trim().toLowerCase();
+
+  if (REVOKED_SUBSCRIPTION_STATUSES.has(status)) {
+    return false;
+  }
+
+  if (status === "active") {
     return (
       subscription.expires_at === null || isFutureDate(subscription.expires_at)
     );
   }
 
-  if (subscription.status !== "trial") {
+  if (status !== "trial") {
     return false;
   }
 

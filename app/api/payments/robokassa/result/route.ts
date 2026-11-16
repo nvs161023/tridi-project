@@ -255,6 +255,18 @@ async function extendSubscription(
   userId: string,
   paidUntil: string,
 ): Promise<{ error: DatabaseError | null }> {
+  // Повторное уведомление по возвращённому заказу приходит с тем же InvId:
+  // purchases.expires_at уже равен моменту возврата. Такой срок не должен
+  // снова включать подписку — иначе ретрай Robokassa отменял бы возврат.
+  if (timeOf(paidUntil) <= Date.now()) {
+    console.log(
+      "[Robokassa] Срок подписки уже истёк или возвращён, продление пропущено:",
+      paidUntil,
+    );
+
+    return { error: null };
+  }
+
   const { rows, error } = await readSubscriptions(admin, userId);
 
   if (error) {

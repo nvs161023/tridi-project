@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- временный скрипт проверки: динамические ответы Supabase и cookies. */
 /**
- * Проверка защиты от возврата для начатых курсов.
+ * Проверка защиты от возврата для начатых курсов и отзыва доступа (R6).
  *
  * Запуск (сервер уже слушает, по умолчанию http://127.0.0.1:3135, в его
  * окружении `ADMIN_EMAIL=refund-test-admin@example.com`):
- *   node scripts/test-refund-guard.ts
+ *   npm run check:refund
+ * или напрямую:
+ *   node --import ./scripts/register-alias.mjs scripts/test-refund-guard.ts
  *
  * Что делает:
  *  1. создаёт временного пользователя через Admin API Supabase;
@@ -13,17 +15,23 @@
  *     закрытую покупку;
  *  3. входит тестовым админом (email из `ADMIN_EMAIL` сервера) и дергает
  *     `POST /api/admin/refund` для каждой покупки;
- *  4. проверяет коды ответа, текст оферты, состояние `purchases.expires_at` и
- *     что без прав администратора роут отвечает 403;
- *  5. удаляет тестовые строки, ученика и тестового админа.
+ *  4. проверяет коды ответа, текст оферты, состояние `purchases.expires_at`,
+ *     отзыв `subscriptions`, `hasActiveSubscription`/`hasCourseAccess` и запись
+ *     в `refund_audit` (если миграция применена);
+ *  5. повторяет подписанное уведомление Robokassa по возвращённому заказу и
+ *     проверяет, что доступ не восстанавливается;
+ *  6. удаляет тестовые строки, ученика и тестового админа.
  *
  * Код сайта не меняется. Изображения не снимаются — только текст.
  */
 import fs from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr";
+
+import coursesData from "@/data/courses.json";
+import { hasActiveSubscription, hasCourseAccess } from "@/lib/subscription";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const BASE_URL = process.env.REFUND_TEST_BASE_URL ?? "http://127.0.0.1:3135";
@@ -92,6 +100,10 @@ const anonKey =
   localEnv.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const serviceKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? localEnv.SUPABASE_SERVICE_ROLE_KEY;
+
+/** Пароль №2 нужен, чтобы повторить подписанное уведомление Robokassa. */
+const robokassaPassword2 =
+  process.env.ROBOKASSA_PASSWORD2 ?? localEnv.ROBOKASSA_PASSWORD2;
 
 /**
  * Тестовый админ. Его email должен стоять в `ADMIN_EMAIL` окружения сервера —
@@ -202,6 +214,26 @@ async function buildAdminCookie(): Promise<string> {
   return jar.map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
 }
 
+/** Клиент ученика: RLS отдаёт только его покупки и подписки. */
+type StudentClient = Parameters<typeof hasActiveSubscription>[0];
+
+/** Вход тестовым учеником — тем же паролем, что задан при создании. */
+async function buildStudentClient(
+  email: string,
+  password: string,
+): Promise<StudentClient> {
+  const client = createSupabaseClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  const { error } = await client.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    throw new Error(`Не удалось войти учеником: ${error.message}`);
+  }
+
+  return client as unknown as StudentClient;
+}
+
 /** Номер заказа: уникальный, как у Robokassa. */
 let nextInvId = 991_000_000 + Math.floor(Math.random() * 1_000_000);
 
@@ -235,7 +267,7 @@ async function createPurchase(
 async function readPurchase(purchaseId: string) {
   const { data, error } = await admin
     .from("purchases")
-    .select("expires_at")
+    .select("expires_at, inv_id, amount, course_id")
     .eq("id", purchaseId)
     .maybeSingle();
 
@@ -243,23 +275,156 @@ async function readPurchase(purchaseId: string) {
     throw new Error(`Не удалось прочитать покупку: ${error.message}`);
   }
 
-  return data as { expires_at: string | null } | null;
+  return data as {
+    expires_at: string | null;
+    inv_id: number | null;
+    amount: number;
+    course_id: string;
+  } | null;
+}
+
+/** Срок тестовой подписки: заметно в будущем, чтобы доступ был явно открыт. */
+const SUBSCRIPTION_PERIOD_MS = 14 * 24 * 60 * 60 * 1000;
+
+/**
+ * Создаёт действующую строку `subscriptions` — такую же, какую оставляет
+ * вебхук Robokassa после оплаты подписки.
+ */
+async function createActiveSubscription(userId: string): Promise<string> {
+  const expiresAt = new Date(Date.now() + SUBSCRIPTION_PERIOD_MS).toISOString();
+  const { error } = await admin.from("subscriptions").insert({
+    user_id: userId,
+    status: "active",
+    expires_at: expiresAt,
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    throw new Error(`Не удалось создать подписку: ${error.message}`);
+  }
+
+  return expiresAt;
+}
+
+/** Состояние подписки после возврата. */
+async function readSubscription(userId: string) {
+  const { data, error } = await admin
+    .from("subscriptions")
+    .select("status, expires_at")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Не удалось прочитать подписку: ${error.message}`);
+  }
+
+  return data as { status: string | null; expires_at: string | null } | null;
+}
+
+/** Есть ли в базе журнал возвратов: миграцию применяют вручную. */
+async function hasRefundAuditTable(): Promise<boolean> {
+  const { error } = await admin.from("refund_audit").select("id").limit(1);
+
+  if (!error) {
+    return true;
+  }
+
+  if (error.code === "42P01" || error.code === "PGRST205") {
+    return false;
+  }
+
+  throw new Error(`Не удалось проверить refund_audit: ${error.message}`);
+}
+
+/** Запись журнала по возвращённой покупке. */
+async function readRefundAudit(purchaseId: string) {
+  const { data, error } = await admin
+    .from("refund_audit")
+    .select("purchase_id, user_id, course_id, refunded_at, reason, refunded_by")
+    .eq("purchase_id", purchaseId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Не удалось прочитать refund_audit: ${error.message}`);
+  }
+
+  return data as {
+    purchase_id: string;
+    user_id: string;
+    course_id: string;
+    refunded_at: string;
+    reason: string;
+    refunded_by: string | null;
+  } | null;
+}
+
+/** MD5 — так Robokassa подписывает ResultURL. */
+function md5(value: string): string {
+  return createHash("md5").update(value).digest("hex");
+}
+
+/**
+ * Повторное уведомление Robokassa по уже записанному заказу.
+ *
+ * Подпись та же, что у платежа: `MD5(OutSum:InvId:Пароль#2:Shp_*)`, `Shp_*`
+ * отсортированы по имени. Если бы вебхук снова включал подписку, возврат
+ * отменялся бы ретраем платёжной системы.
+ */
+async function resendRobokassaResult(args: {
+  invId: number;
+  userId: string;
+  courseId: string;
+  amount: number;
+}) {
+  if (!robokassaPassword2) {
+    throw new Error(
+      "Нужен ROBOKASSA_PASSWORD2 в .env.local для повтора вебхука Robokassa",
+    );
+  }
+
+  const outSum = args.amount.toFixed(2);
+  const signature = md5(
+    `${outSum}:${args.invId}:${robokassaPassword2}` +
+      `:Shp_course=${args.courseId}:Shp_user=${args.userId}`,
+  );
+  const body = new URLSearchParams({
+    OutSum: outSum,
+    InvId: String(args.invId),
+    SignatureValue: signature,
+    Shp_course: args.courseId,
+    Shp_user: args.userId,
+  });
+
+  const response = await fetch(`${BASE_URL}/api/payments/robokassa/result`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+  });
+
+  return { status: response.status, text: await response.text() };
 }
 
 /** Вызов роута возврата: статус и тело ответа. */
-async function refund(purchaseId: string, cookie: string | null) {
+async function refund(
+  purchaseId: string,
+  cookie: string | null,
+  reason?: string,
+) {
   const response = await fetch(`${BASE_URL}/api/admin/refund`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       ...(cookie ? { cookie } : {}),
     },
-    body: JSON.stringify({ purchaseId }),
+    body: JSON.stringify(reason ? { purchaseId, reason } : { purchaseId }),
   });
 
   const body = (await response.json().catch(() => null)) as {
     ok?: boolean;
     error?: string;
+    auditSaved?: boolean;
     progress?: { paidLessons: number; moduleTests: number };
   } | null;
 
@@ -289,6 +454,7 @@ async function main() {
 
   const userId = created.user.id;
   let adminUserId: string | null = null;
+  const student = await buildStudentClient(email, password);
   console.log(`Пользователь: ${email} (${userId})`);
 
   try {
@@ -296,6 +462,15 @@ async function main() {
     const cookie = await buildAdminCookie();
     console.log(`Админ: ${ADMIN_TEST_EMAIL}`);
     console.log(`Сервер: ${BASE_URL}\n`);
+
+    const auditReady = await hasRefundAuditTable();
+
+    if (!auditReady) {
+      console.warn(
+        "  refund_audit не найдена: примените supabase/refund_audit.sql, " +
+          "проверка аудита пропущена.",
+      );
+    }
 
     // 1. Прогресса нет — возврат разрешён.
     const cleanPurchase = await createPurchase(userId, "confident", 2990);
@@ -319,6 +494,24 @@ async function main() {
       isClosed(cleanRow?.expires_at ?? null),
       `expires_at=${cleanRow?.expires_at ?? "null"}`,
     );
+
+    check(
+      "После возврата курса hasCourseAccess = false",
+      !(await hasCourseAccess(student, userId, "confident")),
+      "hasCourseAccess(confident)=false",
+    );
+
+    if (auditReady) {
+      const cleanAudit = await readRefundAudit(cleanPurchase);
+      check(
+        "Возврат курса записан в refund_audit",
+        cleanAudit?.user_id === userId &&
+          cleanAudit.course_id === "confident" &&
+          cleanAudit.refunded_by !== null,
+        `course_id=${cleanAudit?.course_id ?? "null"}, ` +
+          `refunded_by=${cleanAudit?.refunded_by ?? "null"}`,
+      );
+    }
 
     const repeat = await refund(cleanPurchase, cookie);
     check(
@@ -401,6 +594,54 @@ async function main() {
       `HTTP ${pro.status}, «${pro.body?.error ?? "—"}»`,
     );
 
+    // 4b. Возврат пакета pro отзывает инструменты: и покупку, и subscriptions.
+    // Блокирующие покупки и весь прогресс убираем — это тестовые фикстуры.
+    await admin.from("purchases").delete().eq("id", proPurchase);
+    await admin.from("purchases").delete().eq("id", startedPurchase);
+    await admin.from("lesson_progress").delete().eq("user_id", userId);
+
+    await createActiveSubscription(userId);
+    const bundlePurchase = await createPurchase(
+      userId,
+      "pro",
+      coursesData.pro.price,
+    );
+    const bundle = await refund(bundlePurchase, cookie);
+    check(
+      "Пакет pro без прогресса возвращается",
+      bundle.status === 200 && bundle.body?.ok === true,
+      `HTTP ${bundle.status}, ok=${bundle.body?.ok}`,
+    );
+
+    const bundleSubscription = await readSubscription(userId);
+    check(
+      "Возврат pro отзывает subscriptions",
+      (bundleSubscription?.status === "cancelled" ||
+        bundleSubscription?.status === "canceled") &&
+        isClosed(bundleSubscription?.expires_at ?? null),
+      `status=${bundleSubscription?.status ?? "null"}, ` +
+        `expires_at=${bundleSubscription?.expires_at ?? "null"}`,
+    );
+
+    const proAccessAfterRefund = await hasActiveSubscription(student, userId);
+    check(
+      "После возврата pro hasActiveSubscription = false",
+      !proAccessAfterRefund,
+      `hasActiveSubscription=${proAccessAfterRefund}`,
+    );
+
+    const bundleCourses = await Promise.all([
+      hasCourseAccess(student, userId, "confident"),
+      hasCourseAccess(student, userId, "engineer"),
+      hasCourseAccess(student, userId, "profit"),
+    ]);
+    check(
+      "После возврата pro три уровня закрыты",
+      bundleCourses.every((value) => !value),
+      `confident=${bundleCourses[0]}, engineer=${bundleCourses[1]}, ` +
+        `profit=${bundleCourses[2]}`,
+    );
+
     // 5. Сданный тест модуля — тоже начало курса.
     await admin
       .from("lesson_progress")
@@ -413,22 +654,108 @@ async function main() {
       `HTTP ${profit.status}, «${profit.body?.error ?? "—"}»`,
     );
 
-    // 6. Легаси-подписка даёт только инструменты: уроки её возврат не держат.
+    // 6. Легаси-подписка даёт только инструменты: уроки её возврат не держат,
+    // но доступ Pro отзывается — R6.
+    const subscriptionExpiresAt = await createActiveSubscription(userId);
+    check(
+      "До возврата подписка активна",
+      await hasActiveSubscription(student, userId),
+      `hasActiveSubscription=true, expires_at=${subscriptionExpiresAt}`,
+    );
+
     const subscriptionPurchase = await createPurchase(
       userId,
       "pro-subscription",
-      299,
-      new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+      coursesData.pro.subscriptionPrice,
+      subscriptionExpiresAt,
     );
-    const subscription = await refund(subscriptionPurchase, cookie);
+    const subscription = await refund(
+      subscriptionPurchase,
+      cookie,
+      "Тестовый возврат подписки",
+    );
     check(
       "Подписка Pro возвращается без проверки уроков",
       subscription.status === 200 && subscription.body?.ok === true,
       `HTTP ${subscription.status}, ok=${subscription.body?.ok}`,
     );
 
+    const subscriptionRow = await readSubscription(userId);
+    check(
+      "Возврат подписки ставит cancelled и закрывает expires_at",
+      (subscriptionRow?.status === "cancelled" ||
+        subscriptionRow?.status === "canceled") &&
+        isClosed(subscriptionRow?.expires_at ?? null),
+      `status=${subscriptionRow?.status ?? "null"}, ` +
+        `expires_at=${subscriptionRow?.expires_at ?? "null"}`,
+    );
+
+    const subscriptionActiveAfterRefund = await hasActiveSubscription(
+      student,
+      userId,
+    );
+    check(
+      "После возврата подписки hasActiveSubscription = false",
+      !subscriptionActiveAfterRefund,
+      `hasActiveSubscription=${subscriptionActiveAfterRefund}`,
+    );
+
+    check(
+      "После возврата подписки hasCourseAccess(pro-subscription) = false",
+      !(await hasCourseAccess(student, userId, "pro-subscription")),
+      "hasCourseAccess(pro-subscription)=false",
+    );
+
+    if (auditReady) {
+      const subscriptionAudit = await readRefundAudit(subscriptionPurchase);
+      check(
+        "Возврат подписки записан в refund_audit с причиной",
+        subscriptionAudit?.user_id === userId &&
+          subscriptionAudit.course_id === "pro-subscription" &&
+          subscriptionAudit.reason === "Тестовый возврат подписки" &&
+          subscriptionAudit.refunded_by !== null,
+        `course_id=${subscriptionAudit?.course_id ?? "null"}, ` +
+          `reason=${subscriptionAudit?.reason ?? "null"}`,
+      );
+      check(
+        "Ответ сообщает, что аудит сохранён",
+        subscription.body?.auditSaved === true,
+        `auditSaved=${subscription.body?.auditSaved}`,
+      );
+    }
+
+    const paidSubscriptionPurchase = await readPurchase(subscriptionPurchase);
+    const subscriptionInvId = paidSubscriptionPurchase?.inv_id ?? 0;
+
+    if (subscriptionInvId > 0) {
+      const replay = await resendRobokassaResult({
+        invId: subscriptionInvId,
+        userId,
+        courseId: "pro-subscription",
+        amount: coursesData.pro.subscriptionPrice,
+      });
+      check(
+        "Повторный вебхук Robokassa принят",
+        replay.status === 200 && replay.text === `OK${subscriptionInvId}`,
+        `HTTP ${replay.status}, «${replay.text}»`,
+      );
+
+      const afterReplayRow = await readSubscription(userId);
+      check(
+        "Повторный вебхук не восстанавливает доступ",
+        (afterReplayRow?.status === "cancelled" ||
+          afterReplayRow?.status === "canceled") &&
+          isClosed(afterReplayRow?.expires_at ?? null) &&
+          !(await hasActiveSubscription(student, userId)),
+        `status=${afterReplayRow?.status ?? "null"}, ` +
+          `expires_at=${afterReplayRow?.expires_at ?? "null"}`,
+      );
+    } else {
+      check("У возвращённой подписки есть inv_id", false, "inv_id=null");
+    }
+
     // 7. Права и параметры запроса.
-    const anonymous = await refund(startedPurchase, null);
+    const anonymous = await refund(bundlePurchase, null);
     check(
       "Без сессии — 403",
       anonymous.status === 403,
@@ -462,6 +789,8 @@ async function main() {
       `HTTP ${closed.status}, «${closed.body?.error ?? "—"}»`,
     );
   } finally {
+    await admin.from("refund_audit").delete().eq("user_id", userId);
+    await admin.from("subscriptions").delete().eq("user_id", userId);
     await admin.from("purchases").delete().eq("user_id", userId);
     await admin.from("lesson_progress").delete().eq("user_id", userId);
     await admin.auth.admin.deleteUser(userId);

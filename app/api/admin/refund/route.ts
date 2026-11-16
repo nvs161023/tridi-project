@@ -29,14 +29,16 @@ function json(body: unknown, status: number): Response {
 /**
  * Оформление возврата за курс.
  *
- * POST /api/admin/refund с телом `{ "purchaseId": "<uuid>" }`.
+ * POST /api/admin/refund с телом
+ * `{ "purchaseId": "<uuid>", "reason": "необязательный текст" }`.
  *
  * Проверка доступа — по реальной сессии и `ADMIN_EMAIL`, как в `/admin/purchases`
  * и выгрузке CSV: возврат закрывает платный доступ, поэтому анонимный запрос
  * получает 403, а не «покупка не найдена».
  *
  * Коды ответа:
- *   200 — доступ закрыт (покупка получила `expires_at` = момент возврата);
+ *   200 — доступ закрыт (покупка получила `expires_at` = момент возврата,
+ *         подписка Pro отозвана, след записан в `refund_audit`);
  *   400 — некорректный запрос или неизвестный товар;
  *   403 — нет прав администратора **или** курс уже начат (текст оферты);
  *   404 — покупки нет; 409 — доступ уже закрыт; 500 — ошибка базы;
@@ -72,6 +74,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       : undefined;
   const purchaseId = String(rawPurchaseId ?? "").trim();
 
+  const rawReason =
+    typeof payload === "object" && payload !== null
+      ? (payload as { reason?: unknown }).reason
+      : undefined;
+  const reason =
+    typeof rawReason === "string" ? rawReason.trim().slice(0, 500) : "";
+
   if (!UUID_PATTERN.test(purchaseId)) {
     return json({ ok: false, error: "Некорректная покупка." }, 400);
   }
@@ -91,7 +100,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     );
   }
 
-  const result = await refundPurchase(admin, purchaseId);
+  const result = await refundPurchase(admin, purchaseId, {
+    refundedBy: user.id,
+    reason,
+  });
 
   if (!result.ok) {
     return json(
@@ -109,6 +121,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       ok: true,
       courseId: result.courseId,
       refundedAt: result.refundedAt,
+      auditSaved: result.auditSaved,
       purchase: result.purchase,
     },
     200,

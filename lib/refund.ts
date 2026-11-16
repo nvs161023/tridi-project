@@ -40,6 +40,19 @@ export const REFUNDABLE_COURSE_IDS = [
 
 export type RefundCourseId = (typeof REFUNDABLE_COURSE_IDS)[number];
 
+/**
+ * Кто и почему оформил возврат.
+ *
+ * Попадает в `refund_audit`: админка передаёт id администратора из сессии и
+ * необязательную причину. Пустая причина заменяется формулировкой по умолчанию.
+ */
+export type RefundAuditContext = {
+  /** id администратора, оформившего возврат. */
+  refundedBy?: string | null;
+  /** Причина возврата из запроса; длиннее 500 символов обрезается. */
+  reason?: string | null;
+};
+
 /** Проверяет, что товар из базы известен: остальное возвращать нечем. */
 export function isRefundCourseId(value: string): value is RefundCourseId {
   return (REFUNDABLE_COURSE_IDS as readonly string[]).includes(value);
@@ -191,6 +204,153 @@ export function isPurchaseActive(purchase: {
   return purchase.expires_at === null || isFutureDate(purchase.expires_at);
 }
 
+/** Товары, которые открывают инструменты Pro и связаны с subscriptions. */
+const TOOLS_COURSE_IDS = new Set<RefundCourseId>(["pro", "pro-subscription"]);
+
+/** Причина по умолчанию: админка не спрашивает текст у администратора. */
+const DEFAULT_REFUND_REASON = "Возврат по запросу администратора";
+
+/**
+ * Ошибка «таблицы или колонки ещё нет в базе».
+ *
+ * `refund_audit` и колонку `subscriptions.expires_at` добавляют SQL-миграции
+ * вручную. Пока их не применили, возврат должен работать по-старому, а не
+ * падать с 500.
+ */
+function isMissingSchemaError(error: { code?: string }): boolean {
+  return (
+    error.code === "42P01" || // undefined_table
+    error.code === "42703" || // undefined_column
+    error.code === "PGRST204" || // колонки нет в схеме PostgREST
+    error.code === "PGRST205" // таблицы нет в схеме PostgREST
+  );
+}
+
+/**
+ * Отзывает доступ к инструментам Pro при возврате `pro` или `pro-subscription`.
+ *
+ * `purchases.expires_at` закрывает только саму покупку. Доступ к Конструктору,
+ * Профилям и Мастерской решает ещё и `subscriptions`: пока там `active` с
+ * будущим (или пустым) `expires_at`, возвращённый покупатель продолжает
+ * пользоваться Pro. Поэтому строки подписки получают `cancelled` и
+ * `expires_at` = момент возврата.
+ *
+ * Вызывается до закрытия покупки: если база не приняла отзыв, возврат
+ * прерывается и доступ не остаётся закрытым наполовину. Отсутствие таблицы или
+ * старой колонки — не ошибка: в такой базе подписки просто нет.
+ */
+async function revokeSubscriptionAccess(
+  admin: AdminClient,
+  userId: string,
+  refundedAt: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const revoked = {
+    status: "cancelled",
+    expires_at: refundedAt,
+    updated_at: refundedAt,
+  };
+  const { error } = await admin
+    .from("subscriptions")
+    .update(revoked)
+    .eq("user_id", userId);
+
+  if (!error) {
+    return { ok: true };
+  }
+
+  // В старой схеме CHECK subscriptions_status_check разрешает только
+  // active / trial / canceled (одна «l»). Пробуем «cancelled» первым, а при
+  // нарушении ограничения ставим совместимый статус: доступ всё равно закрыт,
+  // потому что expires_at уже в прошлом.
+  if (error.code === "23514") {
+    const { error: legacyError } = await admin
+      .from("subscriptions")
+      .update({ ...revoked, status: "canceled" })
+      .eq("user_id", userId);
+
+    if (!legacyError) {
+      return { ok: true };
+    }
+
+    console.error(
+      "[Возврат] Не удалось отозвать подписку (legacy-статус):",
+      legacyError.message,
+    );
+
+    return {
+      ok: false,
+      error: "Не удалось отозвать доступ к инструментам. Попробуйте ещё раз.",
+    };
+  }
+
+  if (isMissingSchemaError(error)) {
+    console.warn(
+      "[Возврат] subscriptions недоступна, отзыв подписки пропущен:",
+      error.message,
+    );
+
+    return { ok: true };
+  }
+
+  console.error("[Возврат] Не удалось отозвать подписку:", error.message);
+
+  return {
+    ok: false,
+    error: "Не удалось отозвать доступ к инструментам. Попробуйте ещё раз.",
+  };
+}
+
+/**
+ * Пишет строку в `refund_audit`: кто вернул, что и когда.
+ *
+ * Журнал не должен мешать самой денежной операции: если миграцию ещё не
+ * применили, возврат всё равно завершается, а в ответе будет `auditSaved:
+ * false`. Повторная запись по той же покупке (23505) уже существует — считаем
+ * её сохранённой.
+ */
+async function writeRefundAudit(
+  admin: AdminClient,
+  purchase: RefundablePurchase,
+  courseId: RefundCourseId,
+  refundedAt: string,
+  context: RefundAuditContext,
+): Promise<boolean> {
+  const reason =
+    (context.reason ?? "").trim().slice(0, 500) || DEFAULT_REFUND_REASON;
+
+  const { error } = await admin.from("refund_audit").insert({
+    purchase_id: purchase.id,
+    user_id: purchase.user_id,
+    course_id: courseId,
+    refunded_at: refundedAt,
+    reason,
+    refunded_by: context.refundedBy ?? null,
+  });
+
+  if (!error) {
+    return true;
+  }
+
+  if (error.code === "23505") {
+    console.log("[Возврат] Запись в refund_audit уже есть:", purchase.id);
+
+    return true;
+  }
+
+  if (isMissingSchemaError(error)) {
+    console.warn(
+      "[Возврат] refund_audit не создана: примените supabase/refund_audit.sql",
+      error.message,
+    );
+
+    return false;
+  }
+
+  console.error("[Возврат] Не удалось записать refund_audit:", error.message);
+
+  return false;
+}
+
 type ProgressResult =
   | { ok: true; progress: CourseProgress }
   | { ok: false; error: string };
@@ -247,6 +407,8 @@ export type RefundSuccess = {
   courseId: RefundCourseId;
   /** Момент, которым закрыт доступ (ISO). */
   refundedAt: string;
+  /** Удалось ли записать след в `refund_audit`. */
+  auditSaved: boolean;
 };
 
 export type RefundFailure = {
@@ -260,15 +422,20 @@ export type RefundFailure = {
 export type RefundResult = RefundSuccess | RefundFailure;
 
 /**
- * Оформляет возврат: проверяет прогресс и закрывает покупку.
+ * Оформляет возврат: проверяет прогресс, отзывает подписку и закрывает покупку.
  *
  * Порядок проверок важен: сначала существование покупки и её состояние, потом
  * прогресс. Уже закрытую покупку второй раз не возвращаем (409), иначе админка
  * показывала бы успех там, где ничего не произошло.
+ *
+ * Для `pro` и `pro-subscription` сначала отзывается доступ в `subscriptions`, и
+ * только затем закрывается покупка: иначе при ошибке базы человек остался бы с
+ * действующим Pro после «успешного» возврата.
  */
 export async function refundPurchase(
   admin: AdminClient,
   purchaseId: string,
+  context: RefundAuditContext = {},
 ): Promise<RefundResult> {
   const { data, error } = await admin
     .from("purchases")
@@ -331,6 +498,19 @@ export async function refundPurchase(
   }
 
   const refundedAt = new Date().toISOString();
+
+  if (TOOLS_COURSE_IDS.has(courseId)) {
+    const revocation = await revokeSubscriptionAccess(
+      admin,
+      purchase.user_id,
+      refundedAt,
+    );
+
+    if (!revocation.ok) {
+      return { ok: false, status: 500, error: revocation.error };
+    }
+  }
+
   const { error: closeError } = await admin
     .from("purchases")
     .update({ expires_at: refundedAt })
@@ -346,8 +526,16 @@ export async function refundPurchase(
     };
   }
 
-  // Строка в логах — единственный след возврата: отдельного журнала в базе нет,
-  // а деньги администратор возвращает в кабинете Robokassa.
+  const auditSaved = await writeRefundAudit(
+    admin,
+    purchase,
+    courseId,
+    refundedAt,
+    context,
+  );
+
+  // Деньги администратор возвращает в кабинете Robokassa, а след возврата
+  // остаётся в refund_audit (если миграция применена) и в логах сервера.
   console.log("[Возврат] доступ закрыт:", {
     purchaseId,
     invId: purchase.inv_id,
@@ -355,7 +543,9 @@ export async function refundPurchase(
     courseId,
     amount: purchase.amount,
     refundedAt,
+    refundedBy: context.refundedBy ?? null,
+    auditSaved,
   });
 
-  return { ok: true, purchase, courseId, refundedAt };
+  return { ok: true, purchase, courseId, refundedAt, auditSaved };
 }
