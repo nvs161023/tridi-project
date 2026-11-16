@@ -25,6 +25,11 @@ const contactLinkClassName = `${footerLinkClassName} text-base font-medium`;
  * с регистрации. Реквизиты берутся из lib/legal.ts — того же источника, что и в
  * самих документах. Телефон, ИНН и email вынесены в отдельную карточку: их
  * проверяют платёжные сервисы при активации магазина.
+ *
+ * Кроме пяти документов в футере стоят ссылка на их оглавление `/legal` и
+ * ссылка на лендинг бесплатного уровня `/start`: обе страницы были сиротами —
+ * попасть на них можно было только из карты сайта и статей блога (см.
+ * all-pages-audit.md, раздел «Страницы-сироты»).
  */
 export function Footer() {
   const currentYear = new Date().getFullYear();
@@ -46,11 +51,35 @@ export function Footer() {
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-400">
               Сервис предназначен для лиц старше 18 лет.
             </p>
+            {/*
+              Ссылка на лендинг бесплатного уровня. Без неё /start оставался
+              сиротой: из меню и с главной все кнопки бесплатного старта ведут
+              сразу на регистрацию, а на сам лендинг ссылались только статьи
+              блога (см. all-pages-audit.md, раздел «Страницы-сироты»).
+            */}
+            <Link
+              href="/start"
+              className="mt-5 inline-flex w-fit items-center gap-2 text-sm font-semibold text-white/85 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+            >
+              Бесплатный курс для новичков
+              <span aria-hidden>→</span>
+            </Link>
           </div>
 
           <nav aria-label="Юридические документы">
             <h2 className={footerHeadingClassName}>Документы</h2>
             <ul className="mt-5 space-y-3 text-sm">
+              {/*
+                Оглавление документов. Отдельная строка нужна, чтобы /legal
+                перестал быть сиротой: в футере перечислены только пять
+                документов, а ссылки на сам список не было нигде, кроме карты
+                сайта (см. all-pages-audit.md §5).
+              */}
+              <li>
+                <Link href="/legal" className={footerLinkClassName}>
+                  Все документы
+                </Link>
+              </li>
               {LEGAL_DOCUMENTS.map((document) => (
                 <li key={document.href}>
                   <Link

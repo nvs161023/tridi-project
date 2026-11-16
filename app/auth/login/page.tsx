@@ -1,8 +1,24 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { authHref, safeNextPath } from "@/lib/auth-redirect";
 
 import { LoginForm } from "./LoginForm";
+
+/**
+ * Заголовок и описание для вкладки и соцсетей.
+ *
+ * «TriDi» в title не дублируем: бренд подставляет шаблон корневого layout, и в
+ * выдаче получается «Вход | TriDi». robots.noindex — иначе форма входа попадёт
+ * в индекс и будет конкурировать в выдаче с главной, не добавляя ничего
+ * полезного. follow оставляем выключенным: со страницы входа нечего обходить.
+ */
+export const metadata: Metadata = {
+  title: "Вход",
+  description:
+    "Войдите в TriDi, чтобы продолжить курс с того места, где остановились, и открыть личный кабинет.",
+  robots: { index: false, follow: false },
+};
 
 type LoginPageProps = {
   /** Параметры адреса: ?next= — страница, куда вернуться после входа. */

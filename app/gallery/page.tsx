@@ -45,7 +45,6 @@ export const metadata: Metadata = {
   title: "Галерея 3D-моделей",
   description:
     "Модели, созданные в 3D-генераторе по фото: посмотрите результат и скачайте STL после входа.",
-  robots: { index: false, follow: false },
 };
 
 export const dynamic = "force-dynamic";

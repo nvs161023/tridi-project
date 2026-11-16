@@ -1,8 +1,23 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 
 import { authHref, safeNextPath } from "@/lib/auth-redirect";
 
 import { SignUpForm } from "./SignUpForm";
+
+/**
+ * Заголовок и описание для вкладки и соцсетей.
+ *
+ * Бренд добавляет шаблон корневого layout («Регистрация | TriDi»), поэтому в
+ * title его нет. robots.noindex — форма регистрации не должна попадать в
+ * индекс: тонкая служебная страница в выдаче только мешает главной.
+ */
+export const metadata: Metadata = {
+  title: "Регистрация",
+  description:
+    "Создайте аккаунт TriDi, чтобы сохранять прогресс курса по 3D-печати, собирать модели в конструкторе и скачивать STL.",
+  robots: { index: false, follow: false },
+};
 
 type SignUpPageProps = {
   /** Параметры адреса: ?next= — страница, куда вернуться после регистрации. */
