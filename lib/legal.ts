@@ -25,8 +25,14 @@ export const LEGAL_OPERATOR = {
 /** Дата редакции Правил и Политики. */
 export const LEGAL_UPDATED_AT = "02.11.2026";
 
-/** Дата редакции Публичной оферты: правила доступа и возврата обновились. */
-export const LEGAL_OFFER_UPDATED_AT = "24.10.2026";
+/** Дата редакции Политики обработки персональных данных. */
+export const LEGAL_PRIVACY_UPDATED_AT = "16.11.2026";
+
+/** Дата редакции Согласия на обработку персональных данных. */
+export const LEGAL_CONSENT_UPDATED_AT = "16.11.2026";
+
+/** Дата редакции Публичной оферты: подписка, токены и возвраты. */
+export const LEGAL_OFFER_UPDATED_AT = "16.11.2026";
 
 /** Юридический документ: адрес и названия для меню, футера и страниц. */
 export type LegalDocument = {

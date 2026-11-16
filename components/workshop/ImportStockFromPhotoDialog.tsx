@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
@@ -490,6 +491,20 @@ export function ImportStockFromPhotoDialog({
                 />
               </label>
             </div>
+            <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+              Фото передаётся через ProxyAPI в OpenAI GPT-4o (США) только для
+              распознавания материалов. Не загружайте накладные с персональными
+              данными людей. Подробнее — в{" "}
+              <Link
+                className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
+                href="/legal/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Политике обработки персональных данных
+              </Link>
+              .
+            </p>
             {selectedFile ? (
               <p role="status" className="mt-3 text-xs text-blue-200">
                 Фото выбрано: {selectedFile.name}

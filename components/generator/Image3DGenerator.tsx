@@ -235,6 +235,10 @@ export function Image3DGenerator({
   // или позже в «Моих моделях». Значение уходит в `/api/generate-3d` вместе
   // с фото и записывается в строку истории.
   const [isPublic, setIsPublic] = useState(true);
+  // Отдельное согласие на обработку фотографии: без него кнопка генерации
+  // неактивна. Это не регистрационное согласие — фотография уходит AI-провайдеру,
+  // в том числе за пределы РФ, поэтому согласие спрашивается перед запуском.
+  const [photoConsent, setPhotoConsent] = useState(false);
   // Категория нужна фильтрам галереи: по умолчанию «Другое», чтобы модель
   // никогда не оставалась без подписи. Значение уходит в `/api/generate-3d`
   // вместе с фото и записывается в строку истории.
@@ -267,7 +271,11 @@ export function Image3DGenerator({
       : chooseCreditSource(balance, plannedQuality, hasSubscription);
   const notEnoughCredits = balance !== null && plannedSource === null;
   const canGenerate =
-    photos.length > 0 && !isBusy && !isReading && !notEnoughCredits;
+    photos.length > 0 &&
+    photoConsent &&
+    !isBusy &&
+    !isReading &&
+    !notEnoughCredits;
 
   /** Общий путь для выбора файлов и drag-and-drop: готовит и добавляет фото. */
   async function addFiles(files: File[]) {
@@ -681,6 +689,44 @@ export function Image3DGenerator({
           Браузер сам сжимает снимок до {GENERATOR_PHOTO_MAX_SIDE_PX} px по
           длинной стороне. Порядок видов: {GENERATOR_PHOTO_VIEWS.join(", ")}.
         </p>
+
+        {/* Отдельное согласие на обработку фото: фотография уходит внешнему
+            AI-сервису, поэтому одной регистрационной галочки недостаточно. */}
+        <label className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5">
+          <input
+            checked={photoConsent}
+            className="mt-0.5 size-4 shrink-0 accent-blue-400"
+            disabled={isBusy}
+            onChange={(event) => setPhotoConsent(event.target.checked)}
+            type="checkbox"
+          />
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold text-zinc-200">
+              Согласен(на) на обработку фотографии
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">
+              Фото уйдёт AI-провайдеру Tripo3D или Meshy только для создания
+              модели, в том числе за пределы РФ; исходник после обработки не
+              сохраняется. Не загружайте фото людей, документов и банковских
+              карт. Подробнее — в{" "}
+              <Link
+                className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
+                href="/legal/privacy"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Политике обработки персональных данных
+              </Link>
+              .
+            </span>
+          </span>
+        </label>
+        {photos.length > 0 && !photoConsent ? (
+          <p aria-live="polite" className="mt-2 text-xs leading-relaxed text-amber-200">
+            <span aria-hidden>⚠️</span> Отметьте согласие на обработку
+            фотографии — без него генерация недоступна.
+          </p>
+        ) : null}
 
         <div className="mt-5">
           <p className="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
