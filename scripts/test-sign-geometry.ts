@@ -3,12 +3,14 @@
  *
  * Проверяет то, что обещают панель и API: общий STL блока влезает на стол
  * 220 × 220 мм, при необходимости разворачивается, лицо и задняя стенка не
- * пересекаются, а в каждой стенке есть сквозное отверстие под провод. Отдельно
- * проверяются три режима рельса: съёмный рельс с пазами, жёсткий рельс одной
- * деталью со стенкой и плоская глухая стенка без рельса. Ножек нет ни в одном
- * режиме: низ букв совпадает с базовой линией шрифта. Честный отказ тоже
- * проверяется: блок 120/2 не помещается на стол, и общего файла для него быть
- * не должно — только лицо и задняя стенка по отдельности.
+ * пересекаются, а в каждой стенке есть сквозное отверстие под провод. Задняя
+ * стенка держится на букве без клея во всех трёх режимах: у каждой стенки есть
+ * шип в паз заднего торца. Отдельно проверяются три режима рельса: съёмный рельс
+ * с пазами под клипсы, жёсткий рельс одной деталью со стенкой и стенка без
+ * рельса — с тем же шипом, но без пазов под клипсы. Ножек нет ни в одном режиме:
+ * низ букв совпадает с базовой линией шрифта. Честный отказ тоже проверяется:
+ * блок 120/2 не помещается на стол, и общего файла для него быть не должно —
+ * только лицо и задняя стенка по отдельности.
  *
  * Запуск:
  *   npm run check:sign
@@ -31,7 +33,10 @@ import type { Font, FontData } from "three/examples/jsm/loaders/FontLoader.js";
 import { calculateGeometryWeightGrams } from "../lib/constructor/geometry-volume";
 import {
   SIGN_COVER_PLATE_MM,
+  SIGN_COVER_TENON_HEIGHT_MM,
+  SIGN_COVER_WELD_MM,
   SIGN_FONT_URLS,
+  SIGN_GROOVE_DEPTH_MM,
   SIGN_RAIL_HEIGHT_MM,
   SIGN_RAIL_THICKNESS_MM,
   SIGN_RAIL_WIRE_HOLE_MM,
@@ -422,6 +427,74 @@ for (const mode of ["detachable", "fixed", "none"] as const) {
   }
 }
 
+console.log("\nЗамок задней стенки: шип в паз буквы во всех режимах");
+for (const mode of ["detachable", "fixed", "none"] as const) {
+  const modeLayout =
+    mode === "detachable"
+      ? baseLayout
+      : layoutOf({ ...base, signRailMode: mode }, font);
+
+  check(
+    `${mode}: у каждой стенки есть шип`,
+    modeLayout.blocks.every(
+      (block) =>
+        block.coverLocks.covers > 0 &&
+        block.coverLocks.tenons === block.coverLocks.covers,
+    ),
+    true,
+  );
+  check(
+    `${mode}: ${
+      mode === "detachable" ? "паз под клипсу у каждой стенки" : "пазов под клипсу нет"
+    }`,
+    modeLayout.blocks.every((block) =>
+      mode === "detachable"
+        ? block.coverLocks.railNotches === block.coverLocks.covers
+        : block.coverLocks.railNotches === 0,
+    ),
+    true,
+  );
+}
+
+for (const block of baseLayout.blocks) {
+  console.log(
+    `    б${block.blockIndex + 1}: стенок ${block.coverLocks.covers}, шипов ${block.coverLocks.tenons}, пазов под клипсу ${block.coverLocks.railNotches}`,
+  );
+}
+
+// Шип задней стенки не должен дотянуться ни до лица, ни до дна паза: он на
+// 1.4 мм выше плиты стенки при пазе 1.5 мм, а стенка буквы начинается на 1.5 мм
+// от задней плоскости. Поэтому замок остаётся целиком за лицом.
+check(
+  "шип короче паза: до лица не достаёт",
+  SIGN_COVER_TENON_HEIGHT_MM < SIGN_GROOVE_DEPTH_MM,
+  true,
+);
+
+for (const mode of ["detachable", "none"] as const) {
+  const cover = createSignBlockGeometry(
+    { ...base, signRailMode: mode },
+    font,
+    0,
+    "cover",
+  );
+
+  cover.computeBoundingBox();
+
+  if (!cover.boundingBox) {
+    failures.push(`${mode}: у задней стенки нет габаритов`);
+  } else {
+    // Плита 2 мм плюс шип 1.4 мм: рельс в этих режимах в стенку не входит.
+    near(
+      `${mode}: плита и шип стенки`,
+      cover.boundingBox.max.z - cover.boundingBox.min.z,
+      SIGN_COVER_PLATE_MM + SIGN_COVER_TENON_HEIGHT_MM,
+    );
+  }
+
+  cover.dispose();
+}
+
 for (const blockIndex of [0, 1]) {
   for (const part of ["face", "cover", "rail"] as const) {
     const partGeometry = createSignBlockGeometry(base, font, blockIndex, part);
@@ -550,6 +623,16 @@ if (!railPart.boundingBox) {
     0,
   );
   railMesh.clear();
+
+  // Клипса растёт из передней плоскости рельса и заканчивается заподлицо с
+  // передней плоскостью задней стенки: рельс 4 мм и плита 2 мм дают ровно 6 мм.
+  // Буквы «ТРИ ДИ» полые, у каждой есть паз, поэтому глубже клипса не идёт —
+  // шип и паз буквы остаются свободными.
+  near(
+    "клипса не выходит за переднюю плоскость стенки",
+    railBox.max.z - railBox.min.z,
+    SIGN_RAIL_THICKNESS_MM + SIGN_COVER_PLATE_MM,
+  );
 }
 
 const coverPart = createSignBlockGeometry(base, font, 0, "cover");
@@ -558,7 +641,7 @@ coverPart.computeBoundingBox();
 
 if (coverPart.boundingBox) {
   atMost(
-    "съёмная задняя стенка остаётся плоской",
+    "съёмная задняя стенка: плита и шип, без рельса",
     coverPart.boundingBox.max.z - coverPart.boundingBox.min.z,
     4,
   );
@@ -657,7 +740,7 @@ check(
   true,
 );
 
-console.log("\nБез рельса: плоская глухая стенка, рельса нет");
+console.log("\nБез рельса: рельса нет, замок стенки тот же");
 const noneLayout = layoutOf({ ...base, signRailMode: "none" }, font);
 
 check(
@@ -691,9 +774,9 @@ if (!noneCover.boundingBox) {
   failures.push("без рельса: у задней стенки нет габаритов");
 } else {
   near(
-    "без рельса: стенка ровно 2 мм, без шипа",
+    "без рельса: стенка — плита 2 мм и шип, без паза под клипсу",
     noneCover.boundingBox.max.z - noneCover.boundingBox.min.z,
-    SIGN_COVER_PLATE_MM,
+    SIGN_COVER_PLATE_MM + SIGN_COVER_TENON_HEIGHT_MM,
   );
 }
 
@@ -718,7 +801,7 @@ check(
   false,
 );
 check(
-  "без рельса: кнопка плоской стенки есть",
+  "без рельса: кнопка стенки с шипом есть",
   noRailOptions.some((option) => option.request.signPart === "cover"),
   true,
 );
@@ -743,6 +826,29 @@ if (!solidBlock) {
     SIGN_RAIL_WIRE_HOLE_MM,
   );
   check("буква 1: задней стенки нет", solidBlock.coverWidth, 0);
+
+  // У сплошной буквы паза нет, поэтому клипса рельса входит в её заднюю
+  // плоскость на SIGN_COVER_WELD_MM: рельс держится натягом, а не висит рядом.
+  const solidRail = createSignBlockGeometry(
+    { ...base, signText: "1", signBlockSize: 1 },
+    font,
+    0,
+    "rail",
+  );
+
+  solidRail.computeBoundingBox();
+
+  if (!solidRail.boundingBox) {
+    failures.push("буква 1: у рельса нет габаритов");
+  } else {
+    near(
+      "буква 1: клипса держится натягом в задней плоскости",
+      solidRail.boundingBox.max.z - solidRail.boundingBox.min.z,
+      SIGN_RAIL_THICKNESS_MM + SIGN_COVER_PLATE_MM + SIGN_COVER_WELD_MM,
+    );
+  }
+
+  solidRail.dispose();
 
   const solidPackage = createSignBlockPackageGeometry(
     { ...base, signText: "1", signBlockSize: 1 },

@@ -34,8 +34,8 @@ import {
  *   detachable — рельс отдельный, его клипсы входят в пазы задней стенки;
  *   fixed      — рельс печатается вместе с задней стенкой одной монолитной
  *                деталью: клипс, пазов и зазоров между ними нет;
- *   none       — рельса нет, задняя стенка плоская и глухая, только отверстия
- *                под провод.
+ *   none       — рельса нет, вырезов под него в стенке тоже нет: наружная
+ *                плоскость пластины гладкая, кроме отверстия под провод.
  *
  * Рельс не выходит за контур букв и стоит целиком за их задней плоскостью,
  * поэтому спереди его не видно.
@@ -44,8 +44,9 @@ import {
  * 2 × 1.5 мм, в него входит шип 1.4 мм высотой на краю задней стенки. Ширина
  * шипа на 0.2 мм меньше паза, глубина — на 0.1 мм: стенка садится без
  * заклинивания, а камера под ленту остаётся закрытой. Шип повторяет и внешний
- * контур буквы, и контуры её отверстий. В режиме `none` ни паза, ни шипа нет:
- * задняя стенка — плоская пластина 2 мм, только с отверстием под провод.
+ * контур буквы, и контуры её отверстий. Замок одинаков во всех трёх режимах:
+ * шип держит стенку от смещения по плоскости буквы, а сняться назад ей не даёт
+ * рельс (в режиме без рельса — крепление к стене), поэтому клей не нужен.
  *
  * Буква построена в плоскости XY: низ на Y = 0, лицо смотрит в +Z, толщина идёт
  * от 0 до signDepth, лицо — на z = signDepth. Печатается деталь лицом вниз,
@@ -58,11 +59,19 @@ import {
  * Булевых операций в проекте нет, поэтому каждая оболочка собирается из
  * пересекающихся замкнутых тел: пластина лица на всю толщину, стенка с пазом
  * (нижний пояс и две губки паза), стенки вокруг отверстий буквы. Каждое тело
- * watertight, а слайсер объединяет их при печати. Клипса рельса — такое же
- * отдельное замкнутое тело, входящее в заднюю стенку с перекрытием; в режиме
- * `fixed` рельс сдвинут вперёд на 0.2 мм, перекрывает заднюю стенку и печатается
- * с ней одной деталью. У сплошной буквы без камеры рельс соединяется с ней
- * коротким мостиком, поэтому отдельной висящей детали не остаётся.
+ * watertight, а слайсер объединяет их при печати. Шип задней стенки — такое же
+ * отдельное замкнутое тело: на 0.2 мм входит в плиту стенки и на 1.4 мм — в паз
+ * буквы. Клипса рельса проходит паз задней стенки насквозь и заканчивается
+ * заподлицо с её передней плоскостью. В режиме `fixed` рельс сдвинут вперёд на
+ * 0.2 мм, перекрывает заднюю стенку и печатается с ней одной деталью. У сплошной
+ * буквы без камеры рельс соединяется с ней коротким мостиком, поэтому отдельной
+ * висящей детали не остаётся.
+ *
+ * Шип не достаёт до лица: он поднимается на 1.4 мм при пазе 1.5 мм, а стенка
+ * буквы начинается на 1.5 мм от задней плоскости. Поэтому замок не выходит на
+ * лицевую сторону и не спорит с рельсом: паз под клипсу режется в задней стенке
+ * в свободной полосе между гребнями шипа, а сама клипса заканчивается заподлицо
+ * с передней плоскостью стенки — до шипа и до лица она не достаёт.
  *
  * Если штрих буквы тоньше, чем нужно камере, буква печатается сплошной:
  * контур просто не поджимается, паза и шипа у такой буквы нет. Условие одно —
@@ -124,8 +133,8 @@ const SIGN_LETTER_EMBED_MM = 0.2;
 /** Толщина задней стенки, мм: плоская пластина по контуру буквы. */
 export const SIGN_COVER_PLATE_MM = 2;
 
-/** Насколько шип и клипса входят в заднюю стенку, мм: перекрытие вместо стыка. */
-const SIGN_COVER_WELD_MM = 0.2;
+/** Насколько шип, клипса и мостик входят в заднюю стенку, мм: перекрытие, а не стык. */
+export const SIGN_COVER_WELD_MM = 0.2;
 
 /** Высота заднего рельса, мм: тонкий брус 6 × 4. */
 export const SIGN_RAIL_HEIGHT_MM = 6;
@@ -149,7 +158,7 @@ export const SIGN_RAIL_CLIP_WIDTH_MM = 2;
 const SIGN_RAIL_CLIP_HEIGHT_MM = 4;
 
 /** Зазор клипсы в пазу съёмного рельса, мм на сторону. */
-const SIGN_RAIL_CLIP_CLEARANCE_DETACHABLE_MM = 0.3;
+const SIGN_RAIL_CLIP_CLEARANCE_DETACHABLE_MM = 0.2;
 
 /** На какой высоте над низом буквы ищется материал под клипсу, мм. */
 const SIGN_BOTTOM_PROBE_MM = 1;
@@ -213,6 +222,22 @@ export type SignLetterBounds = {
   right: number;
 };
 
+/**
+ * Механическое крепление задних стенок блока.
+ *
+ * Замок одинаков во всех режимах рельса: шип стенки входит в паз на заднем торце
+ * буквы, поэтому клей для сборки не обязателен. `railNotches` остаётся нулём
+ * везде, кроме съёмного рельса: паз под клипсу режется только там.
+ */
+export type SignCoverLocks = {
+  /** Задних стенок в блоке. */
+  covers: number;
+  /** Стенок с шипом по контуру: держатся в пазу буквы без клея. */
+  tenons: number;
+  /** Стенок с пазом под клипсу съёмного рельса. */
+  railNotches: number;
+};
+
 /** Отчёт раскладки одного блока для панели и тестов. */
 export type SignBlockLayoutReport = {
   blockIndex: number;
@@ -226,6 +251,8 @@ export type SignBlockLayoutReport = {
   letters: SignLetterBounds[];
   package: SignPackageLayout;
   wireHoles: SignWireHoleReport[];
+  /** Замок задних стенок: шип в пазу буквы и пазы под клипсы рельса. */
+  coverLocks: SignCoverLocks;
 };
 
 /** Отчёт всей надписи: подпись параметров и блоки. */
@@ -688,7 +715,6 @@ function createShapeBodies(
   shape: Shape,
   depth: number,
   channelWidth: number,
-  backGroove: boolean,
 ): { bodies: BufferGeometry[]; letter: SignLetterShape } {
   const { shape: shapePoints, holes: holePoints } =
     shape.extractPoints(SIGN_CURVE_SEGMENTS);
@@ -704,7 +730,7 @@ function createShapeBodies(
   const holes = holePoints
     .map((hole) => cleanContour(hole))
     .filter((hole) => hole.length >= 3);
-  const hollow = createHollowBodies(outer, holes, depth, channelWidth, backGroove);
+  const hollow = createHollowBodies(outer, holes, depth, channelWidth);
 
   if (!hollow) {
     return {
@@ -723,16 +749,15 @@ function createShapeBodies(
  * оставляет щель, а перекрытие даёт монолит после печати.
  *
  * Заодно возвращается полость: её контур нужен задней стенке, шип которой входит в
- * паз. null означает, что штрих не вмещает стенку с камерой. backGroove = false
- * оставляет задний торец стенки ровным: в режиме без рельса стенка ложится на
- * него плоской пластиной, без шипа и паза.
+ * паз. null означает, что штрих не вмещает стенку с камерой. Паз на заднем торце
+ * режется всегда: шип задней стенки держит её во всех режимах рельса, включая
+ * режим без рельса.
  */
 function createHollowBodies(
   outer: Vector2[],
   holes: Vector2[][],
   depth: number,
   channelWidth: number,
-  backGroove = true,
 ): { bodies: BufferGeometry[]; cavity: SignCavity } | null {
   const front = SIGN_LETTER_FRONT_MM;
   const chamberDepth = depth - front;
@@ -800,15 +825,13 @@ function createHollowBodies(
   const bodies: BufferGeometry[] = [
     extrudeRegion(outer, holes, front, chamberDepth),
   ];
-  const outerWall = backGroove
-    ? createGroovedWallBodies(
-        outer,
-        inset,
-        wallDepth,
-        SIGN_GROOVE_DEPTH_MM,
-        grooveWidth,
-      )
-    : null;
+  const outerWall = createGroovedWallBodies(
+    outer,
+    inset,
+    wallDepth,
+    SIGN_GROOVE_DEPTH_MM,
+    grooveWidth,
+  );
   let grooved = outerWall !== null;
 
   if (outerWall) {
@@ -870,7 +893,6 @@ function createGlyph(
   font: Font,
   depth: number,
   channelWidth: number,
-  backGroove: boolean,
 ): SignGlyph | null {
   const shapes = font.generateShapes(char, size);
 
@@ -882,7 +904,7 @@ function createGlyph(
   const letters: SignLetterShape[] = [];
 
   for (const shape of shapes) {
-    const created = createShapeBodies(shape, depth, channelWidth, backGroove);
+    const created = createShapeBodies(shape, depth, channelWidth);
 
     bodies.push(...created.bodies);
 
@@ -1048,6 +1070,8 @@ type SignBlockParts = {
   railCore: SignPartBounds | null;
   letters: SignLetterBounds[];
   wireHoles: SignWireHole[];
+  /** Замок задних стенок: сколько шипов и пазов под клипсы построено. */
+  coverLocks: SignCoverLocks;
 };
 
 /** Окружность замкнутым контуром: отверстие под провод в задней стенке. */
@@ -1205,13 +1229,33 @@ function findWireHole(
 }
 
 /**
+ * Полоса шипа задней стенки: от и до по нормали к контуру, мм.
+ *
+ * Одна формула на шип и на паз под клипсу рельса: клипса обязана обойти эту
+ * полосу, иначе она упрётся в гребень шипа.
+ */
+function signTenonBand(): { near: number; far: number; width: number } {
+  const grooveWidth = Math.min(
+    SIGN_GROOVE_WIDTH_MM,
+    SIGN_LETTER_WALL_MM - 2 * SIGN_GROOVE_MIN_LIP_MM,
+  );
+  const width = Math.min(
+    SIGN_COVER_TENON_WIDTH_MM,
+    grooveWidth - 2 * SIGN_COVER_TENON_CLEARANCE_MM,
+  );
+  const lip = (SIGN_LETTER_WALL_MM - grooveWidth) / 2;
+  const near = lip + SIGN_COVER_TENON_CLEARANCE_MM;
+
+  return { near, far: near + width, width };
+}
+
+/**
  * Шип задней стенки по контуру: кольцо, которое входит в паз стенки.
  *
- * Шип начинается на lip + зазор от контура и занимает ширину паза минус два
- * зазора (не больше SIGN_COVER_TENON_WIDTH_MM), то есть садится в паз с
- * зазором SIGN_COVER_TENON_CLEARANCE_MM на сторону. По высоте он на столько же
- * короче паза, а на SIGN_COVER_WELD_MM входит в плиту стенки — так он приварен
- * к ней, а не стоит встык.
+ * Шип начинается на near от контура и занимает полосу signTenonBand, то есть
+ * садится в паз с зазором SIGN_COVER_TENON_CLEARANCE_MM на сторону. По высоте
+ * он на столько же короче паза, а на SIGN_COVER_WELD_MM входит в плиту стенки —
+ * так он приварен к ней, а не стоит встык.
  *
  * direction = 1 — шип снаружи контура буквы, −1 — внутри её отверстия: там
  * кольцо расширяется наружу, а не поджимается внутрь.
@@ -1220,28 +1264,20 @@ function createCoverTenon(
   contour: Vector2[],
   direction: 1 | -1,
 ): BufferGeometry | null {
-  const grooveWidth = Math.min(
-    SIGN_GROOVE_WIDTH_MM,
-    SIGN_LETTER_WALL_MM - 2 * SIGN_GROOVE_MIN_LIP_MM,
-  );
-  const tenonWidth = Math.min(
-    SIGN_COVER_TENON_WIDTH_MM,
-    grooveWidth - 2 * SIGN_COVER_TENON_CLEARANCE_MM,
-  );
+  const band = signTenonBand();
 
-  if (tenonWidth < 0.6) {
+  if (band.width < 0.6) {
     return null;
   }
 
-  const lip = (SIGN_LETTER_WALL_MM - grooveWidth) / 2;
-  const start = lip + SIGN_COVER_TENON_CLEARANCE_MM;
-  const end = start + tenonWidth;
   const near =
     direction > 0
-      ? offsetContour(contour, start)
-      : offsetContour(contour, -end);
+      ? offsetContour(contour, band.near)
+      : offsetContour(contour, -band.far);
   const far =
-    direction > 0 ? offsetContour(contour, end) : offsetContour(contour, -start);
+    direction > 0
+      ? offsetContour(contour, band.far)
+      : offsetContour(contour, -band.near);
 
   if (!near || !far || !isSimpleContour(near) || !isSimpleContour(far)) {
     return null;
@@ -1264,9 +1300,10 @@ function createCoverTenon(
  * окружность; если Ø4 мм не влезает, остаётся Ø3 мм. У совсем узкой буквы
  * отверстия нет — провод уходит по каналу рельса.
  *
- * Паз под клипсу рельса добавляется только в съёмном режиме. В жёстком и без
- * рельса плита остаётся глухой: наружная плоскость ровная, кроме отверстия под
- * провод.
+ * Шип строится во всех режимах: он держит стенку в пазу буквы, поэтому клей для
+ * сборки не нужен. В жёстком режиме к нему добавляется рельс, но уже другой
+ * деталью. Паз под клипсу рельса режется только в съёмном режиме и только в
+ * свободной полосе нижнего штриха: гребни шипа остаются целыми.
  *
  * Буква, которая не поместила камеру и печатается сплошной, задней стенки не
  * требует: null. Координаты — координаты шрифта, сдвиг на позицию в строке
@@ -1277,7 +1314,12 @@ function createLetterCover(
   shift: number,
   clipNotch: Vector2 | null = null,
   clipClearance = 0,
-): { geometry: BufferGeometry; wire: SignWireHole | null } | null {
+): {
+  geometry: BufferGeometry;
+  wire: SignWireHole | null;
+  /** Построен ли шип по внешнему контуру: он и держит стенку в пазу. */
+  tenon: boolean;
+} | null {
   const cavity = letter.cavity;
 
   if (!cavity) {
@@ -1312,11 +1354,14 @@ function createLetterCover(
     ),
   );
 
+  let tenonBuilt = false;
+
   if (cavity.grooved) {
     const outerTenon = createCoverTenon(letter.outline, 1);
 
     if (outerTenon) {
       bodies.push(outerTenon);
+      tenonBuilt = true;
     }
 
     letter.holes.forEach((hole) => {
@@ -1341,6 +1386,7 @@ function createLetterCover(
   return {
     geometry,
     wire: wire ? { ...wire, source: "letter" } : null,
+    tenon: tenonBuilt,
   };
 }
 
@@ -1432,35 +1478,147 @@ function pickBottomInterval(
   );
 }
 
+/** Вертикальный интервал материала: низ и верх штриха на срезе X = x. */
+type SignStrokeSpan = {
+  bottom: number;
+  top: number;
+};
+
+/**
+ * Интервалы материала на вертикальном срезе контура.
+ *
+ * Тот же обход рёбер, что и у горизонтального среза, только по X: клипсе
+ * съёмного рельса нужна высота нижнего штриха, чтобы её паз не попал на гребень
+ * шипа задней стенки.
+ */
+function verticalIntervals(contour: Vector2[], x: number): SignStrokeSpan[] {
+  const crossings: number[] = [];
+
+  for (let index = 0; index < contour.length; index += 1) {
+    const a = contour[index];
+    const b = contour[(index + 1) % contour.length];
+    const straddles = (a.x <= x && b.x > x) || (b.x <= x && a.x > x);
+
+    if (!straddles) {
+      continue;
+    }
+
+    const t = (x - a.x) / (b.x - a.x);
+
+    crossings.push(a.y + (b.y - a.y) * t);
+  }
+
+  crossings.sort((a, b) => a - b);
+
+  const intervals: SignStrokeSpan[] = [];
+
+  for (let index = 0; index + 1 < crossings.length; index += 2) {
+    const bottom = crossings[index];
+    const top = crossings[index + 1];
+
+    if (top - bottom > SIGN_EPSILON) {
+      intervals.push({ bottom, top });
+    }
+  }
+
+  return intervals;
+}
+
+/**
+ * Место клипсы съёмного рельса на нижнем штрихе буквы.
+ *
+ * Клипса проходит паз задней стенки насквозь, поэтому паз не должен попадать на
+ * гребень шипа: гребень идёт полосой signTenonBand от контура и снизу, и сверху
+ * штриха. Клипса ставится в свободную полосу между ними с зазором
+ * signRailClipClearance на сторону. avoidTenon = false — у буквы нет задней
+ * стенки: гребней нет, клипса садится на штрих с обычным отступом от кромки.
+ * null — штрих ниже клипсы; тогда рельс держится на остальных буквах блока, а эта
+ * стенка остаётся без паза.
+ */
+function findClipMount(
+  contour: Vector2[],
+  avoidTenon: boolean,
+): { x: number; y: number } | null {
+  const interval = pickBottomInterval(
+    contour,
+    SIGN_BOTTOM_PROBE_MM,
+    "center",
+  );
+
+  if (!interval) {
+    return null;
+  }
+
+  const clearance = signRailClipClearance();
+  const band = signTenonBand();
+  const edge = avoidTenon ? band.far + clearance : 0.5;
+
+  // Клипса и её паз должны пройти между гребнями боковых стенок штриха: к полосе
+  // гребня добавляется зазор и самого паза.
+  if (
+    interval.right - interval.left <
+    SIGN_RAIL_CLIP_WIDTH_MM + 2 * clearance + 2 * edge
+  ) {
+    return null;
+  }
+
+  const x = (interval.left + interval.right) / 2;
+  const span = verticalIntervals(contour, x).find(
+    (item) =>
+      item.bottom <= SIGN_BOTTOM_PROBE_MM + SIGN_EPSILON &&
+      item.top >= SIGN_BOTTOM_PROBE_MM,
+  );
+
+  if (!span) {
+    return null;
+  }
+
+  const notchBottom = span.bottom + edge;
+  const notchTop = notchBottom + SIGN_RAIL_CLIP_HEIGHT_MM + 2 * clearance;
+
+  if (notchTop > span.top - edge) {
+    return null;
+  }
+
+  return {
+    x,
+    y: notchBottom + SIGN_RAIL_CLIP_HEIGHT_MM / 2 + clearance,
+  };
+}
+
 /** Зазор паза задней стенки под клипсу съёмного рельса, мм на сторону. */
 function signRailClipClearance(): number {
   return SIGN_RAIL_CLIP_CLEARANCE_DETACHABLE_MM;
 }
 
 /**
- * Клипса рельса: тонкая пластина 2 мм, утопленная в паз задней стенки.
+ * Клипса рельса: тонкий язык 2 × 4 мм, проходящий паз задней стенки насквозь.
  *
- * Клипса растёт из передней плоскости рельса, проходит сквозь паз стенки и на
- * SIGN_COVER_WELD_MM входит в заднюю плоскость лица. В собранном виде она не
- * выходит за габарит стенки с рельсом, поэтому спереди её не видно: наружу
- * торчит только паз, закрытый самой клипсой. Ширина 2 мм и высота 4 мм входят
- * в нижний штрих буквы.
+ * Клипса растёт из передней плоскости рельса (z = −2 мм) и заканчивается
+ * заподлицо с передней плоскостью задней стенки (z = 0): до шипа и до паза буквы
+ * она не достаёт, поэтому замок стенки и рельс друг другу не мешают. В собранном
+ * виде клипса стоит в пазу с зазором signRailClipClearance и опирается на его
+ * нижнюю кромку — буквы висят на рельсе, а снимаются движением назад. Ширина
+ * 2 мм и высота 4 мм входят в нижний штрих буквы между гребнями шипа.
+ *
+ * weld = true — у буквы нет задней стенки (штрих сплошной): паза в ней тоже нет,
+ * поэтому клипса на SIGN_COVER_WELD_MM входит в заднюю плоскость буквы и держит
+ * рельс натягом, как единственная механическая связь с такой буквой.
  */
 function createRailClip(
   centerX: number,
-  railBottom: number,
+  centerY: number,
+  weld: boolean,
 ): BufferGeometry {
-  const front = -SIGN_COVER_WELD_MM;
-  const back = SIGN_COVER_PLATE_MM + SIGN_COVER_WELD_MM;
-  const bottom =
-    railBottom + (SIGN_RAIL_HEIGHT_MM - SIGN_RAIL_CLIP_HEIGHT_MM) / 2;
+  const front = weld ? -SIGN_COVER_WELD_MM : 0;
+  const bottom = centerY - SIGN_RAIL_CLIP_HEIGHT_MM / 2;
   const top = bottom + SIGN_RAIL_CLIP_HEIGHT_MM;
 
   const geometry = extrudeRegion(
     [
       new Vector2(front, bottom),
-      new Vector2(back, bottom),
-      new Vector2(back, top),
+      new Vector2(SIGN_COVER_PLATE_MM, bottom),
+      new Vector2(SIGN_COVER_PLATE_MM, top),
       new Vector2(front, top),
     ],
     [],
@@ -1607,9 +1765,12 @@ function buildSignBlockParts(
   const built: SignBlockParts[] = [];
   const railMode = params.signRailMode;
 
-  /** Точка на нижнем штрихе, где задняя стенка получит паз под клипсу. */
+  /** Место клипсы рельса: центр паза на нижнем штрихе буквы. */
   type RailMount = {
     x: number;
+    y: number;
+    /** Буква сплошная: паза нет, клипса держится натягом в её задней плоскости. */
+    weld: boolean;
   };
 
   for (const block of blocks) {
@@ -1620,6 +1781,7 @@ function buildSignBlockParts(
     const letterBounds: SignLetterBounds[] = [];
     const clipClearance =
       railMode === "detachable" ? signRailClipClearance() : 0;
+    const coverLocks: SignCoverLocks = { covers: 0, tenons: 0, railNotches: 0 };
 
     for (const letter of block.letters) {
       let glyph = cache.get(letter.char);
@@ -1631,7 +1793,6 @@ function buildSignBlockParts(
           font,
           params.signDepth,
           params.signChannelWidth,
-          railMode !== "none",
         );
 
         if (!created) {
@@ -1693,22 +1854,19 @@ function buildSignBlockParts(
       let clipNotch: Vector2 | null = null;
 
       if (mainShape && railMode === "detachable") {
-        // Клипса стоит на нижнем штрихе: там материал идёт на всю глубину.
-        // Ширина клипсы всего 2 мм, поэтому она помещается и в узкой букве.
-        const interval = pickBottomInterval(
-          mainShape.outline,
-          SIGN_BOTTOM_PROBE_MM,
-          "center",
-        );
+        const hasCover = mainShape.cavity !== null;
 
-        if (
-          interval &&
-          interval.right - interval.left >= SIGN_RAIL_CLIP_WIDTH_MM + 0.6
-        ) {
-          const center = (interval.left + interval.right) / 2;
+        // У буквы с камерой паз под клипсу идёт в свободной полосе нижнего
+        // штриха: гребни шипа остаются целыми, клипса их не задевает. Сплошной
+        // букве паз не нужен: её клипса садится в заднюю плоскость натягом.
+        const mount = findClipMount(mainShape.outline, hasCover);
 
-          clipNotch = new Vector2(center, SIGN_RAIL_HEIGHT_MM / 2);
-          mounts.push({ x: shift + center });
+        if (mount) {
+          if (hasCover) {
+            clipNotch = new Vector2(mount.x, mount.y);
+          }
+
+          mounts.push({ x: shift + mount.x, y: mount.y, weld: !hasCover });
         }
       }
 
@@ -1724,6 +1882,15 @@ function buildSignBlockParts(
 
         if (cover) {
           covers.push(cover.geometry);
+          coverLocks.covers += 1;
+
+          if (cover.tenon) {
+            coverLocks.tenons += 1;
+          }
+
+          if (shape === mainShape && clipNotch) {
+            coverLocks.railNotches += 1;
+          }
 
           if (shape === mainShape) {
             mainCover = cover.geometry;
@@ -1786,7 +1953,7 @@ function buildSignBlockParts(
         const railBodies: BufferGeometry[] = [core];
 
         for (const mount of mounts) {
-          railBodies.push(createRailClip(mount.x, railBottom));
+          railBodies.push(createRailClip(mount.x, mount.y, mount.weld));
         }
 
         rail = mergeBodies(railBodies) ?? createEmptyGeometry();
@@ -1819,6 +1986,7 @@ function buildSignBlockParts(
       railCore,
       letters: letterBounds,
       wireHoles,
+      coverLocks,
     });
   }
 
@@ -2154,6 +2322,7 @@ function blockLayoutReport(parts: SignBlockParts): SignBlockLayoutReport | null 
       source: wire.source,
       through: true,
     })),
+    coverLocks: { ...parts.coverLocks },
   };
 }
 
