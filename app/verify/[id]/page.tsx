@@ -141,7 +141,7 @@ function ValidCertificate({
           На главную TriDi
         </Link>
         <Link
-          href="/#levels"
+          href="/subscription"
           className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           Программы курсов

@@ -523,8 +523,12 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
               Готовы к следующему уровню?
             </h2>
           </div>
+          {/*
+            «Все программы» ведут на лендинг курсов: курсового блока с уровнями
+            на главной больше нет, главная продаёт инструменты.
+          */}
           <Link
-            href="/#levels"
+            href="/subscription"
             className={`text-sm font-semibold underline-offset-4 hover:underline ${theme.accentText}`}
           >
             Все программы
