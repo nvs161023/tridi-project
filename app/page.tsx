@@ -1,46 +1,43 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link, { type LinkProps } from "next/link";
 import type { ReactNode } from "react";
 
 import { Header } from "@/components/Header";
-import {
-  BentoCard,
-  type BentoAccent,
-} from "@/components/landing/BentoCard";
-import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import { cx } from "@/components/ui/class-names";
-import { authHref } from "@/lib/auth-redirect";
-import { resolveUserId } from "@/lib/current-user";
-import {
-  LEVELS,
-  TOTAL_LESSONS,
-  TOTAL_TESTS,
-  TOTAL_VISUALS,
-  type CourseLevel,
-} from "@/lib/course-levels";
-import {
-  FILE_FORMS,
-  LESSON_FORMS,
-  TEST_FORMS,
-  VISUAL_FORMS,
-  pluralize,
-} from "@/lib/course-stats";
-import { profileCount } from "@/lib/profiles";
-import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
-import { createClient } from "@/lib/supabase/server";
+import { VASE_RECIPES, vaseRecipeImagePath } from "@/data/vase-recipes";
+import { MODEL_TYPES, MODEL_TYPE_LABELS } from "@/lib/constructor/model-types";
+import { LEVELS, TOTAL_LESSONS } from "@/lib/course-levels";
+import { SUBSCRIPTION_PLAN, TOKEN_PACKS } from "@/lib/generation-plans";
+import { getPaymentAmount } from "@/lib/payments";
 
+/**
+ * Главная продаёт инструменты, а не курсы.
+ *
+ * Первый экран отвечает на вопрос «что я получу»: 3D-модель из фото или из
+ * параметров и готовый STL для печати. Курсы остались одной строкой-мостиком в
+ * конце — они не потеряны, но больше не занимают первый экран.
+ *
+ * Числа не дублируются руками: список моделей берётся из `MODEL_TYPES`, цена
+ * подписки — из того же источника, что у Robokassa (`getPaymentAmount`), пакет
+ * токенов — из `TOKEN_PACKS`. Превью галереи — реальные PNG Конструктора из
+ * `public/constructor/recipes`, поэтому блок демонстрации не обещает модели,
+ * которых нет.
+ */
 export const metadata: Metadata = {
-  // Заголовок берётся из корневого layout (title.default): главная — это и есть
-  // бренд, дублировать его шаблоном «… | TriDi» не нужно.
-  description: `Практический курс по 3D-печати: ${TOTAL_LESSONS} глубоких уроков, ${TOTAL_VISUALS} наглядных схем, именной сертификат и проверка знаний. Старт бесплатно, без карты.`,
+  // Заголовок главной без шаблона: template из корневого layout действует
+  // только на вложенные сегменты, поэтому бренд дописываем здесь сами.
+  title: "TriDi — генератор 3D-моделей из фото и Конструктор",
+  description: `Создайте 3D-модель из фотографии или настройте параметры в Конструкторе TriDi: ${MODEL_TYPES.length} моделей, готовый STL для 3D-печати и первая генерация бесплатно.`,
   alternates: { canonical: "/" },
 };
 
+/** Цена в рублях с разделителями разрядов: 500 → «500», 1 486 → «1 486». */
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
 
-/** Регистрация с возвратом в первый бесплатный урок. */
-const START_FREE_HREF = authHref("/auth/sign-up", "/course/lesson-1");
+/** Сумма подписки Pro: та же, что уходит в Robokassa, без копии цены в разметке. */
+const subscriptionPrice = getPaymentAmount(SUBSCRIPTION_PLAN.courseId);
 
 const SECTION_LABEL =
   "text-[11px] font-semibold tracking-[0.24em] uppercase";
@@ -48,226 +45,39 @@ const SECTION_LABEL =
 const SECTION_TITLE =
   "mt-4 text-balance text-4xl font-extrabold leading-[1.02] tracking-[-0.045em] text-white sm:text-5xl lg:text-6xl";
 
-/** Цвета bento-карточек, схем и тарифов. Один набор акцентов на всю главную. */
-const ACCENT_STYLES: Record<
-  BentoAccent,
-  {
-    text: string;
-    dot: string;
-    line: string;
-    glow: string;
-    ring: string;
-    badge: string;
-  }
+/** Акценты карточек: иконка, подпись и мягкое пятно в углу. */
+type Tone = "blue" | "violet" | "emerald" | "amber";
+
+const TONE_STYLES: Record<
+  Tone,
+  { icon: string; text: string; badge: string; glow: string }
 > = {
   blue: {
+    icon: "border-blue-400/20 bg-blue-500/10 text-blue-300",
     text: "text-blue-300",
-    dot: "bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]",
-    line: "from-blue-400/0 via-blue-300/60 to-blue-400/0",
-    glow: "bg-blue-500/15",
-    ring: "border-blue-400/20",
     badge: "border-blue-400/20 bg-blue-500/10 text-blue-200",
+    glow: "bg-blue-500/15",
   },
   violet: {
+    icon: "border-violet-400/20 bg-violet-500/10 text-violet-300",
     text: "text-violet-300",
-    dot: "bg-violet-400 shadow-[0_0_8px_rgba(167,139,250,0.8)]",
-    line: "from-violet-400/0 via-violet-300/60 to-violet-400/0",
-    glow: "bg-violet-500/15",
-    ring: "border-violet-400/20",
     badge: "border-violet-400/20 bg-violet-500/10 text-violet-200",
+    glow: "bg-violet-500/15",
   },
   emerald: {
+    icon: "border-emerald-400/20 bg-emerald-500/10 text-emerald-300",
     text: "text-emerald-300",
-    dot: "bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]",
-    line: "from-emerald-400/0 via-emerald-300/60 to-emerald-400/0",
-    glow: "bg-emerald-500/15",
-    ring: "border-emerald-400/20",
     badge: "border-emerald-400/20 bg-emerald-500/10 text-emerald-200",
+    glow: "bg-emerald-500/15",
   },
   amber: {
+    icon: "border-amber-400/20 bg-amber-500/10 text-amber-300",
     text: "text-amber-300",
-    dot: "bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]",
-    line: "from-amber-400/0 via-amber-300/60 to-amber-400/0",
-    glow: "bg-amber-500/15",
-    ring: "border-amber-400/20",
     badge: "border-amber-400/20 bg-amber-500/10 text-amber-200",
-  },
-  neutral: {
-    text: "text-white/55",
-    dot: "bg-white/60",
-    line: "from-white/0 via-white/40 to-white/0",
-    glow: "bg-white/10",
-    ring: "border-white/10",
-    badge: "border-white/10 bg-white/5 text-white/65",
+    glow: "bg-amber-500/15",
   },
 };
 
-const LEVEL_ACCENT: Record<CourseLevel["key"], BentoAccent> = {
-  basic: "blue",
-  confident: "violet",
-  engineer: "emerald",
-  profit: "amber",
-};
-
-/** Маркетинговый текст проблемы, которую решает уровень. */
-const LEVEL_PROBLEMS: Record<CourseLevel["key"], string> = {
-  basic: "Чтобы первая деталь не отклеилась и не превратилась в «спагетти».",
-  confident:
-    "Чтобы поддержки, модификаторы и детали больше стола печатались с первого раза.",
-  engineer: "Чтобы детали не ломались под нагрузкой.",
-  profit: "Чтобы считать себестоимость и цену, а не работать в убыток.",
-};
-
-const STATS = [
-  { value: LEVELS.length, label: "уровня" },
-  { value: TOTAL_LESSONS, label: "уроков" },
-  { value: TOTAL_VISUALS, label: "наглядных схем" },
-  { value: TOTAL_TESTS, label: "тестов модулей" },
-];
-
-/** Три боли, с которых начинается продающая воронка. */
-const PAIN_POINTS: { title: string; detail: string; accent: BentoAccent }[] = [
-  {
-    title: "Отклеивается стол",
-    detail:
-      "Первая деталь срывается, и непонятно, что менять: адгезию, температуру или поток.",
-    accent: "blue",
-  },
-  {
-    title: "Не знаете цен",
-    detail:
-      "Пластик, электричество, брак и время — считать нечем, поэтому цена берётся наугад.",
-    accent: "amber",
-  },
-  {
-    title: "Ломаются детали",
-    detail:
-      "Трещины под нагрузкой: ориентация, стенки и режим печати выбираются вслепую.",
-    accent: "violet",
-  },
-];
-
-const PROFILE_SETTING_FORMS: [string, string, string] = [
-  "настройка",
-  "настройки",
-  "настроек",
-];
-
-/** Методология: один и тот же цикл на каждом уровне. */
-const METHOD_STEPS = [
-  {
-    step: "01",
-    title: "Теория",
-    text: "Короткая физика процесса: почему деталь ведёт себя именно так.",
-    accent: "blue",
-  },
-  {
-    step: "02",
-    title: "Схемы",
-    text: "Визуальный разбор настроек, нагрузок и дефектов печати.",
-    accent: "violet",
-  },
-  {
-    step: "03",
-    title: "Тесты",
-    text: "Проверка понимания после каждого модуля, с пояснениями.",
-    accent: "emerald",
-  },
-  {
-    step: "04",
-    title: "Проект",
-    text: "Своя деталь в конце уровня — от расчёта до готовой печати.",
-    accent: "amber",
-  },
-] satisfies {
-  step: string;
-  title: string;
-  text: string;
-  accent: BentoAccent;
-}[];
-
-/** Три крупные схемы для блока методологии. */
-const GALLERY: {
-  code: string;
-  title: string;
-  caption: string;
-  accent: BentoAccent;
-}[] = [
-  {
-    code: "L1",
-    title: "Технологии",
-    caption:
-      "FDM, SLA и SLS: три источника тепла, три материала и три ниши применения.",
-    accent: "blue",
-  },
-  {
-    code: "C5",
-    title: "Поддержки",
-    caption:
-      "Решётка против дерева: расход пластика, следы на детали и надёжность опоры.",
-    accent: "violet",
-  },
-  {
-    code: "IN4",
-    title: "Симуляция",
-    caption:
-      "Нагрузка на деталь до печати: где слабее всего и зачем добавлять рёбра.",
-    accent: "emerald",
-  },
-];
-
-/**
- * Короткие ответы на вопросы, которые чаще всего задают перед оплатой.
- * Числа бесплатного уровня берём из LEVELS, а не пишем руками.
- */
-const FAQ: { question: string; answer: string }[] = [
-  {
-    question: "С чего начать?",
-    answer: `Зарегистрируйтесь и откройте уровень «Новичок»: ${LEVELS[0].lessons} ${pluralize(LEVELS[0].lessons, LESSON_FORMS)}, ${LEVELS[0].visuals} ${pluralize(LEVELS[0].visuals, VISUAL_FORMS)} и ${LEVELS[0].tests} ${pluralize(LEVELS[0].tests, TEST_FORMS)} модулей. Он открыт целиком и бесплатно, карта не нужна.`,
-  },
-  {
-    question: "Нужен ли принтер, чтобы начать?",
-    answer:
-      "Практика первых трёх уроков проходит без печати: в первом — три свои задачи на бумаге, во втором — разбор восьми узлов своего принтера или его фотографии, в третьем — таблица материалов. Дальше нужен слайсер (урок 4) и принтер с небольшим запасом пластика (с урока 5).",
-  },
-  {
-    question: "Как проходит оплата?",
-    answer:
-      "Курсы покупаются навсегда: каждый уровень отдельно. Пакет «Всё включено» больше не продаётся, но у тех, кто купил его раньше, доступ сохраняется. Инструменты платформы открывает подписка Pro. Чек НПД приходит на email, указанный при оплате.",
-  },
-  {
-    question: "Сколько времени нужно?",
-    answer: `Уроки бесплатного уровня идут по 20–55 минут. Весь уровень — ${LEVELS[0].hoursWithSplit}: это чтение, практика и два теста модулей. Доступ остаётся навсегда, так что учиться можно в своём темпе.`,
-  },
-];
-
-/** Декоративные столбики в bento-карточке уроков. */
-const CHART_BARS = [
-  "h-7",
-  "h-11",
-  "h-8",
-  "h-14",
-  "h-10",
-  "h-16",
-  "h-9",
-  "h-12",
-  "h-6",
-  "h-14",
-  "h-8",
-  "h-11",
-];
-
-/** Детерминированный QR-узор: не настоящий код, а визуальный акцент. */
-const QR_CELLS = Array.from({ length: 49 }, (_, index) => {
-  const row = Math.floor(index / 7);
-  const column = index % 7;
-  const finder =
-    (row < 2 && column < 2) ||
-    (row < 2 && column > 4) ||
-    (row > 4 && column < 2);
-
-  return finder || (index * 7 + row + column) % 3 === 0;
-});
 
 type CtaVariant = "light" | "outline" | "ghost" | "success";
 
@@ -296,8 +106,7 @@ function CtaLink({
       "bg-white text-black shadow-[0_10px_40px_-12px_rgba(255,255,255,0.55)] hover:scale-105 hover:bg-zinc-100 hover:shadow-[0_18px_60px_-12px_rgba(255,255,255,0.7)] active:scale-[0.99]",
     outline:
       "border border-white/12 bg-white/[0.035] text-white backdrop-blur-xl hover:border-white/25 hover:bg-white/[0.07] hover:scale-[1.02] active:scale-[0.99]",
-    ghost:
-      "text-white/60 hover:bg-white/[0.04] hover:text-white",
+    ghost: "text-white/60 hover:bg-white/[0.04] hover:text-white",
     success:
       "border border-emerald-400/25 bg-emerald-400/10 text-emerald-200 hover:border-emerald-300/40 hover:bg-emerald-400/15",
   };
@@ -323,7 +132,6 @@ function CtaLink({
   );
 }
 
-
 function Check({ className }: { className?: string }) {
   return (
     <svg
@@ -341,121 +149,174 @@ function Check({ className }: { className?: string }) {
   );
 }
 
-/** Тёмная техническая схема вместо цветной заглушки из старой витрины. */
-function MethodPreview({
-  code,
-  title,
-  caption,
-  accent,
+/** Иконки шагов и аудиторий: одна карта путей на всю страницу. */
+type FeatureIconName =
+  | "photo"
+  | "sliders"
+  | "download"
+  | "printer"
+  | "business"
+  | "hobby";
+
+const FEATURE_ICON_PATHS: Record<FeatureIconName, ReactNode> = {
+  photo: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <circle cx="9" cy="10" r="1.6" />
+      <path d="m5 17 4.5-4.5 3 3L16 12l3 3" />
+    </>
+  ),
+  sliders: (
+    <>
+      <path d="M5 4v6M5 14v6M12 4v3M12 11v9M19 4v9M19 17v3" />
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="9" r="2" />
+      <circle cx="19" cy="15" r="2" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v10" />
+      <path d="m8 11 4 4 4-4" />
+      <path d="M5 18h14" />
+    </>
+  ),
+  printer: (
+    <>
+      <path d="M7 8V4h10v4" />
+      <path d="M5 8h14a2 2 0 0 1 2 2v7h-4v3H7v-3H3v-7a2 2 0 0 1 2-2z" />
+      <path d="M7 14h10" />
+    </>
+  ),
+  business: (
+    <>
+      <rect x="3" y="7" width="18" height="13" rx="2" />
+      <path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" />
+      <path d="M3 12h18" />
+    </>
+  ),
+  hobby: (
+    <path d="m12 3 1.9 4.6L19 9.5l-3.8 3.2 1.1 4.8L12 15l-4.3 2.5 1.1-4.8L5 9.5l5.1-1.9z" />
+  ),
+};
+
+function FeatureIcon({
+  name,
   className,
 }: {
-  code: string;
-  title: string;
-  caption: string;
-  accent: BentoAccent;
+  name: FeatureIconName;
   className?: string;
 }) {
-  const colors = ACCENT_STYLES[accent];
-
   return (
-    <figure
-      className={cx(
-        "group relative overflow-hidden rounded-2xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-5",
-        "shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/20",
-        className,
-      )}
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={cx("h-5 w-5 sm:h-6 sm:w-6", className)}
     >
-      <div
-        aria-hidden
-        className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:32px_32px] opacity-60"
-      />
-      <div
-        aria-hidden
-        className={cx(
-          "absolute -top-16 -right-12 h-44 w-44 rounded-full blur-3xl",
-          colors.glow,
-        )}
-      />
-
-      <div className="relative flex items-center justify-between gap-3">
-        <span
-          className={cx(
-            "rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold tracking-[0.12em]",
-            colors.badge,
-          )}
-        >
-          {code}
-        </span>
-        <span className={cx("h-1.5 w-1.5 rounded-full", colors.dot)} />
-      </div>
-
-      <div className="relative flex aspect-[16/9] items-center justify-center">
-        <div
-          aria-hidden
-          className={cx(
-            "absolute h-36 w-36 rounded-full border sm:h-40 sm:w-40",
-            colors.ring,
-          )}
-        />
-        <div
-          aria-hidden
-          className={cx(
-            "absolute h-24 w-24 rounded-full border sm:h-28 sm:w-28",
-            colors.ring,
-          )}
-        />
-        <div
-          aria-hidden
-          className="absolute h-px w-3/4 bg-gradient-to-r from-transparent via-white/15 to-transparent"
-        />
-        <div
-          aria-hidden
-          className="absolute h-3/4 w-px bg-gradient-to-b from-transparent via-white/15 to-transparent"
-        />
-        <span
-          className={cx(
-            "relative font-mono text-[10px] font-semibold tracking-[0.24em] uppercase",
-            colors.text,
-          )}
-        >
-          {code}
-        </span>
-      </div>
-
-      <figcaption className="relative border-t border-white/[0.06] pt-4">
-        <h3 className="text-lg font-semibold tracking-tight text-white">
-          {title}
-        </h3>
-        <p className="mt-1.5 text-sm leading-6 text-white/45">{caption}</p>
-      </figcaption>
-    </figure>
+      {FEATURE_ICON_PATHS[name]}
+    </svg>
   );
 }
 
+/**
+ * Три шага: что делает пользователь, а не что умеет платформа.
+ * Формулировки — из ТЗ, пояснение под каждым шагом снимает страх «это сложно».
+ */
+const STEPS: {
+  number: string;
+  title: string;
+  text: string;
+  icon: FeatureIconName;
+  tone: Tone;
+}[] = [
+  {
+    number: "01",
+    title: "Загрузите фото или выберите модель",
+    text: "Генератор примет JPG или PNG. В Конструкторе уже готовы вазы, брелоки, литофаны и вывески.",
+    icon: "photo",
+    tone: "blue",
+  },
+  {
+    number: "02",
+    title: "Настройте параметры (размер, узор, текст)",
+    text: "Высота, диаметр, толщина стенки, узор и подпись — слайдерами, без CAD и Blender.",
+    icon: "sliders",
+    tone: "violet",
+  },
+  {
+    number: "03",
+    title: "Скачайте STL и отправьте на печать",
+    text: "Файл открывается в Cura, PrusaSlicer и Orca: проверьте модель в 3D и сохраните.",
+    icon: "download",
+    tone: "amber",
+  },
+];
+
+/** Шесть превью из галереи Конструктора: реальные PNG, а не заглушки. */
+const DEMO_MODELS = VASE_RECIPES.slice(0, 6);
+
+/** Три аудитории: печатник, бизнес и хобби. */
+const AUDIENCE: {
+  title: string;
+  text: string;
+  icon: FeatureIconName;
+  tone: Tone;
+}[] = [
+  {
+    title: "Для 3D-печатников",
+    text: "Быстрая подготовка моделей к печати: без часов на построение сетки и без платных CAD-подписок.",
+    icon: "printer",
+    tone: "blue",
+  },
+  {
+    title: "Для бизнеса",
+    text: "Логотипы, брелоки и сувениры: один проект превращается в партию персонализированных изделий.",
+    icon: "business",
+    tone: "emerald",
+  },
+  {
+    title: "Для хобби",
+    text: "Литофаны по фото, декор и игрушки: подарок, который можно напечатать в тот же вечер.",
+    icon: "hobby",
+    tone: "violet",
+  },
+];
+
+/** Возможности подписки Pro: лимиты берутся из тарифа, а не из текста. */
+const PRO_FEATURES = [
+  `Все ${MODEL_TYPES.length} моделей Конструктора`,
+  `${SUBSCRIPTION_PLAN.standardPerMonth} генерации Standard и ${SUBSCRIPTION_PLAN.ultraPerMonth} Ultra каждый месяц`,
+  "Безлимитный STL и библиотека профилей печати",
+  "Отмена в любой момент, курсы не продлеваются",
+];
+
+/** Возможности пакета токенов: разовая покупка без срока действия. */
+const PACK_FEATURES = [
+  `${TOKEN_PACKS.standard.quantity} генераций Standard`,
+  "Без подписки и без срока действия",
+  "Подходит для генератора по фото",
+  "Можно докупать сколько угодно",
+];
 
 /**
- * Главная отдаётся на каждый запрос: Header читает cookies, а карточки
- * тарифов — купленные курсы. force-dynamic также убирает зависимость сборки
- * от NEXT_PUBLIC_SUPABASE_* на этапе статической генерации.
+ * Главная отдаётся на каждый запрос: Header читает cookies, чтобы показать
+ * имя пользователя. force-dynamic также убирает зависимость сборки от
+ * NEXT_PUBLIC_SUPABASE_* на этапе статической генерации.
  */
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  const supabase = await createClient();
-  const userId = await resolveUserId(supabase);
-  const purchasedCourses = userId
-    ? await getPurchasedCourses(supabase, userId)
-    : { confident: false, engineer: false, profit: false };
-  const hasBundle = userId
-    ? await hasCourseAccess(supabase, userId, "pro")
-    : false;
-
+export default function Home() {
   return (
     <div className="relative min-h-screen text-white">
       <Header />
 
       <main>
-        {/* Hero: центр экрана, mesh-свечение, сетка и два действия. */}
+        {/* Hero: что получит пользователь, два входа в продукты и микро-факты. */}
         <section className="relative isolate overflow-hidden">
           <div
             aria-hidden
@@ -475,28 +336,28 @@ export default async function Home() {
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
               </span>
               <span className="text-center">
-                Платформа для 3D-печати нового поколения
+                Конструктор 3D и генератор по фото
               </span>
             </div>
 
             <h1 className="mx-auto mt-7 max-w-5xl text-balance text-5xl leading-[0.95] font-extrabold tracking-[-0.05em] sm:text-6xl md:text-7xl xl:text-[5.5rem]">
               <span className="block bg-gradient-to-b from-white via-white to-white/60 bg-clip-text text-transparent">
-                Освой 3D-печать
+                Создайте 3D-модель
               </span>{" "}
               <span className="mt-1 block bg-gradient-to-r from-blue-200 via-violet-200 to-white bg-clip-text pb-2 text-transparent">
-                от первой детали до бизнеса
-              </span>
+                из фото или параметров
+              </span>{" "}
+              <span className="block text-white/35">за 2 минуты</span>
             </h1>
 
             <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-7 text-white/55 sm:mt-7 sm:text-lg sm:leading-8">
-              {TOTAL_LESSONS} глубоких уроков, {TOTAL_VISUALS} наглядных
-              схем и именной сертификат. Структурированная теория + измеримая
-              практика с первого урока — без сломанных принтеров.
+              Загрузите фото, получите готовый STL для 3D-печати. Или настройте
+              вазу, брелок или литофан в нашем Конструкторе.
             </p>
 
             <div className="mt-9 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
-              <CtaLink href={START_FREE_HREF} size="lg" className="group">
-                Начать бесплатно
+              <CtaLink href="/3d-generator" size="lg" className="group">
+                Попробовать генератор
                 <span
                   aria-hidden
                   className="transition-transform duration-300 group-hover:translate-x-0.5"
@@ -504,18 +365,17 @@ export default async function Home() {
                   →
                 </span>
               </CtaLink>
-              <CtaLink href="/subscription" variant="outline" size="lg">
-                Смотреть тарифы
+              <CtaLink href="/constructor" variant="outline" size="lg">
+                Открыть Конструктор
               </CtaLink>
             </div>
 
-
             <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-white/40 sm:text-sm">
               {[
-                "Бесплатный старт",
+                "Первая генерация бесплатно",
+                "STL для 3D-печати",
+                "Без CAD и Blender",
                 "Карта не нужна",
-                "Доступ навсегда",
-                "Сертификат после тестов",
               ].map((item) => (
                 <li key={item} className="flex items-center gap-1.5">
                   <Check className="h-3.5 w-3.5 text-emerald-400/80" />
@@ -525,7 +385,12 @@ export default async function Home() {
             </ul>
 
             <dl className="mt-12 grid w-full max-w-3xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.06] shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)] sm:mt-14 sm:grid-cols-4">
-              {STATS.map((stat) => (
+              {[
+                { value: `${MODEL_TYPES.length}`, label: "моделей в Конструкторе" },
+                { value: "AI", label: "генерация по фото" },
+                { value: "STL", label: "формат для печати" },
+                { value: "2 мин", label: "до первой модели" },
+              ].map((stat) => (
                 <div
                   key={stat.label}
                   className="bg-[#070707]/95 px-3 py-4 backdrop-blur-xl sm:px-4 sm:py-5"
@@ -542,339 +407,303 @@ export default async function Home() {
           </div>
         </section>
 
-        {/* Технические дисциплины: тонкая полоса вместо ряда логотипов. */}
+        {/* Что можно собрать: названия моделей вместо абстрактных обещаний. */}
         <div className="border-y border-white/[0.06] bg-white/[0.01]">
           <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-7 gap-y-2 px-5 py-4 text-[10px] font-semibold tracking-[0.2em] text-white/30 uppercase sm:px-8">
-            {[
-              "FDM",
-              "SLA",
-              "SLS",
-              "Калибровка",
-              "Слайсеры",
-              "Материалы",
-              "Расчёт",
-            ].map((item) => (
-              <span key={item}>{item}</span>
+            {MODEL_TYPES.map((type) => (
+              <span key={type}>{MODEL_TYPE_LABELS[type]}</span>
             ))}
           </div>
         </div>
 
-
-        {/* Что внутри: bento-сетка с разными размерами блоков. */}
-        <section id="inside" className="relative scroll-mt-24">
+        {/* Как это работает: три видимых шага с крупными номерами. */}
+        <section
+          id="how"
+          className="relative scroll-mt-24 border-b border-white/[0.06]"
+        >
           <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="max-w-4xl">
+            <div className="max-w-3xl">
               <p className={cx(SECTION_LABEL, "text-blue-300/80")}>
-                Что внутри
+                Как это работает
               </p>
               <h2 className={SECTION_TITLE}>
-                Не набор уроков.{" "}
-                <span className="text-white/35">
-                  Система, которая доводит до результата.
-                </span>
+                Три шага от фото до печати.{" "}
+                <span className="text-white/35">Без моделирования вручную.</span>
               </h2>
               <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                Программа, схемы, проверка знаний и инструменты собраны в один
-                маршрут — от первой калибровки до собственного продукта.
+                Оба инструмента дают один результат — STL. Разница только в
+                том, откуда берётся форма: из фотографии или из параметров.
               </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-6 lg:mt-16">
-              <BentoCard
-                as="article"
-                padding="lg"
-                icon="route"
-                eyebrow="Программа"
-                title="Один маршрут. Четыре уровня."
-                titleClassName="max-w-sm text-2xl sm:text-3xl"
-                tone="blue"
-                className="md:col-span-3 md:row-span-2"
-              >
-                <p className="relative mt-3 max-w-md text-sm leading-6 text-white/45">
-                  От калибровки первого слоя до расчёта цены и продаж — без
-                  разрозненных уроков.
-                </p>
+            <ol className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-3 lg:mt-16">
+              {STEPS.map((step) => {
+                const tone = TONE_STYLES[step.tone];
 
-                <ol className="relative mt-7 border-t border-white/[0.06]">
-                  {LEVELS.map((level, index) => {
-                    const accent =
-                      ACCENT_STYLES[LEVEL_ACCENT[level.key]];
-
-                    return (
-                      <li
-                        key={level.key}
-                        className="flex items-center gap-3 border-b border-white/[0.06] py-4"
-                      >
-                        <span className="font-mono text-[10px] text-white/25">
-                          0{index + 1}
-                        </span>
-                        <span
-                          aria-hidden
-                          className={cx(
-                            "h-1.5 w-1.5 shrink-0 rounded-full",
-                            accent.dot,
-                          )}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-white">
-                            {level.shortTitle}
-                          </p>
-                          <p className="mt-0.5 truncate text-xs text-white/35">
-                            {level.audience}
-                          </p>
-                        </div>
-                        <span className="shrink-0 font-mono text-[10px] text-white/30">
-                          {level.lessons} ур.
-                        </span>
-                      </li>
-                    );
-                  })}
-                </ol>
-
-                <div className="relative mt-6 flex items-center gap-3 rounded-2xl border border-blue-400/15 bg-blue-500/[0.06] px-4 py-3">
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
-                    <Check className="h-3.5 w-3.5" />
-                  </span>
-                  <div>
-                    <p className="text-xs font-semibold text-white">
-                      Первый уровень — бесплатно
-                    </p>
-                    <p className="text-[11px] text-white/35">
-                      Карта не нужна, доступ сразу.
-                    </p>
-                  </div>
-                </div>
-              </BentoCard>
-
-              <BentoCard
-                as="article"
-                icon="book"
-                eyebrow="Контент"
-                title="Уроки, а не конспекты"
-                tone="violet"
-                className="md:col-span-3"
-              >
-                <p className="relative mt-3 max-w-sm text-sm leading-6 text-white/45">
-                  Каждый урок — одна задача, теория и практика. Всего{" "}
-                  {TOTAL_LESSONS} уроков.
-                </p>
-
-                <div
-                  aria-hidden
-                  className="relative mt-6 flex h-20 items-end gap-1.5"
-                >
-                  {CHART_BARS.map((height, index) => (
-                    <span
-                      key={`${height}-${index}`}
+                return (
+                  <li
+                    key={step.number}
+                    className="group relative overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_70px_-36px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-white/20 sm:p-8"
+                  >
+                    <div
+                      aria-hidden
                       className={cx(
-                        "flex-1 rounded-full bg-gradient-to-t",
-                        index % 3 === 0
-                          ? "from-blue-500/15 to-blue-300/60"
-                          : "from-white/[0.04] to-white/25",
-                        height,
+                        "pointer-events-none absolute -top-20 -right-16 h-44 w-44 rounded-full opacity-70 blur-3xl",
+                        tone.glow,
                       )}
                     />
-                  ))}
-                </div>
-                <div className="relative mt-3 flex items-center justify-between text-[9px] font-semibold tracking-[0.16em] text-white/25 uppercase">
-                  <span>Теория</span>
-                  <span>Практика</span>
-                  <span>Результат</span>
-                </div>
-              </BentoCard>
-
-
-              <BentoCard
-                as="article"
-                icon="printer"
-                eyebrow="Библиотека"
-                title={`${profileCount} ${pluralize(profileCount, PROFILE_SETTING_FORMS)} печати`}
-                tone="emerald"
-                className="md:col-span-3"
-              >
-                <p className="relative mt-3 max-w-sm text-sm leading-6 text-white/45">
-                  Готовые профили для Anycubic, Elegoo, Creality и других
-                  принтеров. Открываются в популярных слайсерах.
-                </p>
-
-                <div className="relative mt-6 flex flex-wrap gap-2">
-                  {["Anycubic", "Elegoo", "Creality", "и другие"].map(
-                    (brand) => (
-                      <span
-                        key={brand}
-                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] font-medium text-white/55"
-                      >
-                        {brand}
+                    <div className="relative flex items-start justify-between gap-4">
+                      <span className="font-mono text-5xl leading-none font-extrabold tracking-tight text-white/10 sm:text-6xl">
+                        {step.number}
                       </span>
-                    ),
-                  )}
-                  <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-3 py-1.5 font-mono text-[10px] font-semibold text-emerald-300">
-                    JSON / INI
-                  </span>
-                </div>
-              </BentoCard>
-
-              <BentoCard
-                as="article"
-                icon="check"
-                eyebrow="Контроль"
-                title="Тесты с разбором"
-                tone="blue"
-                className="md:col-span-2"
-              >
-                <p className="relative mt-3 text-sm leading-6 text-white/45">
-                  {TOTAL_TESTS} тестов модулей. Проверяем понимание и
-                  объясняем каждый неверный ответ.
-                </p>
-                <div className="relative mt-6 grid grid-cols-3 gap-2">
-                  {["Вопрос", "Ответ", "Разбор"].map((item, index) => (
-                    <div
-                      key={item}
-                      className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-2 py-2.5"
-                    >
-                      <span className="font-mono text-[9px] text-white/25">
-                        0{index + 1}
-                      </span>
-                      <p className="mt-1 text-[10px] font-medium text-white/55">
-                        {item}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </BentoCard>
-
-              <BentoCard
-                as="article"
-                icon="award"
-                eyebrow="Документ"
-                title="Сертификат с QR"
-                tone="amber"
-                className="md:col-span-2"
-              >
-                <p className="relative mt-3 text-sm leading-6 text-white/45">
-                  Именной документ после сдачи всех тестов уровня. QR-код
-                  ведёт на публичную страницу проверки.
-                </p>
-                <div className="relative mt-6 flex items-center gap-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
-                  <div
-                    aria-hidden
-                    className="grid shrink-0 grid-cols-7 gap-0.5 rounded-lg bg-white p-1.5"
-                  >
-                    {QR_CELLS.map((filled, index) => (
                       <span
-                        key={index}
                         className={cx(
-                          "h-1.5 w-1.5 rounded-[1px]",
-                          filled ? "bg-black" : "bg-transparent",
+                          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:h-12 sm:w-12",
+                          tone.icon,
                         )}
-                      />
-                    ))}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-semibold tracking-[0.12em] text-amber-300/80 uppercase">
-                      Публичная проверка
+                      >
+                        <FeatureIcon name={step.icon} />
+                      </span>
+                    </div>
+                    <h3 className="relative mt-6 text-xl font-extrabold tracking-tight text-white">
+                      {step.title}
+                    </h3>
+                    <p className="relative mt-3 text-sm leading-6 text-white/45">
+                      {step.text}
                     </p>
-                    <p className="mt-1 truncate font-mono text-[11px] text-white/45">
-                      tridi / verify
-                    </p>
-                  </div>
-                </div>
-              </BentoCard>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        </section>
 
-              <BentoCard
-                as="article"
-                icon="wrench"
-                eyebrow="Инструменты"
-                title="Диагностика дефектов"
-                tone="violet"
-                className="md:col-span-2"
-              >
-                <p className="relative mt-3 text-sm leading-6 text-white/45">
-                  Сопливит, отклеивается или ломается — справочник подскажет,
-                  что именно менять.
+        {/* Демонстрация: реальные модели Конструктора и ссылка в галерею. */}
+        <section
+          id="demo"
+          className="relative scroll-mt-24 border-b border-white/[0.06] bg-white/[0.012]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className={cx(SECTION_LABEL, "text-violet-300/80")}>
+                  Демонстрация
                 </p>
-                <div className="relative mt-6 flex flex-wrap gap-2">
-                  {["Адгезия", "Температура", "Поток"].map((item) => (
-                    <span
-                      key={item}
-                      className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/50"
-                    >
-                      {item}
+                <h2 className={SECTION_TITLE}>
+                  Модели, которые уже печатают.
+                </h2>
+                <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
+                  Более 10 параметрических моделей и безлимитные AI-генерации.
+                  Каждая карточка — готовый STL из Конструктора.
+                </p>
+              </div>
+              <CtaLink href="/gallery" variant="outline">
+                Смотреть всю галерею
+                <span aria-hidden>→</span>
+              </CtaLink>
+            </div>
+
+            <div className="mt-12 grid grid-cols-2 gap-3 lg:grid-cols-3 lg:mt-16">
+              {DEMO_MODELS.map((model) => (
+                <figure
+                  key={model.id}
+                  className="group relative overflow-hidden rounded-2xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/20"
+                >
+                  <div className="relative aspect-[4/5] overflow-hidden bg-[#0d0d0e]">
+                    <Image
+                      alt={`Модель «${model.name}» из Конструктора TriDi`}
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                      height={400}
+                      src={vaseRecipeImagePath(model.id)}
+                      unoptimized
+                      width={320}
+                    />
+                    <span className="absolute top-3 left-3 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] text-white/70 uppercase backdrop-blur">
+                      Конструктор
                     </span>
-                  ))}
-                </div>
-              </BentoCard>
+                  </div>
+                  <figcaption className="border-t border-white/[0.06] p-4">
+                    <p className="text-sm font-semibold text-white">
+                      {model.name}
+                    </p>
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/40">
+                      {model.description}
+                    </p>
+                  </figcaption>
+                </figure>
+              ))}
             </div>
           </div>
         </section>
 
 
-        {/* Боль: редакционный список вместо трёх одинаковых карточек. */}
-        <section className="relative border-b border-white/[0.06]">
-          <div className="mx-auto grid max-w-7xl gap-12 px-5 py-24 sm:px-8 sm:py-28 lg:grid-cols-[0.8fr_1.2fr] lg:items-start lg:gap-20 lg:py-32">
-            <div className="lg:sticky lg:top-28">
-              <p className={cx(SECTION_LABEL, "text-amber-300/80")}>
-                Знакомая боль
+        {/* Тарифы: подписка Pro и пакет токенов, полная витрина — на /pricing. */}
+        <section id="pricing" className="relative scroll-mt-24">
+          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
+            <div className="max-w-3xl">
+              <p className={cx(SECTION_LABEL, "text-emerald-300/80")}>
+                Тарифы
               </p>
-              <h2 className={cx(SECTION_TITLE, "sm:text-5xl")}>
-                Печать не должна быть лотереей.
+              <h2 className={SECTION_TITLE}>
+                Подписка на месяц{" "}
+                <span className="text-white/35">или пакет генераций.</span>
               </h2>
-              <p className="mt-5 max-w-md text-base leading-7 text-white/45 sm:text-lg">
-                Если хотя бы один пункт про вас — дело не в принтере. Дело в
-                системе, которой не хватает.
+              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
+                Подписка открывает оба инструмента и обновляет лимиты каждый
+                месяц. Пакет покупается один раз и не сгорает.
               </p>
-              <CtaLink
-                href="#path"
-                variant="ghost"
-                className="group mt-6 px-0"
-              >
-                Как это работает
-                <span
-                  aria-hidden
-                  className="transition-transform duration-300 group-hover:translate-y-0.5"
-                >
-                  ↓
-                </span>
-              </CtaLink>
             </div>
 
-            <div className="border-y border-white/[0.07]">
-              {PAIN_POINTS.map((pain, index) => {
-                const accent = ACCENT_STYLES[pain.accent];
+            <div className="mt-12 grid items-stretch gap-3 lg:grid-cols-[1.15fr_0.85fr]">
+              <article className="relative flex flex-col overflow-hidden rounded-3xl border border-amber-300/25 border-t-amber-200/40 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_30px_90px_-60px_rgba(0,0,0,1)] sm:p-9">
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute -top-24 -right-16 h-52 w-52 rounded-full bg-amber-500/15 blur-3xl"
+                />
+                <div className="relative flex flex-wrap items-center justify-between gap-3">
+                  <span className={cx("rounded-full border px-3 py-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase", TONE_STYLES.amber.badge)}>
+                    Подписка
+                  </span>
+                  <span className="text-[10px] font-semibold tracking-[0.12em] text-white/30 uppercase">
+                    оба инструмента
+                  </span>
+                </div>
+
+                <h3 className="relative mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                  {SUBSCRIPTION_PLAN.title}
+                </h3>
+                <p className="relative mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
+                    {formatPrice(subscriptionPrice)} ₽
+                  </span>
+                  <span className="text-sm text-white/40">за 30 дней</span>
+                </p>
+
+                <ul className="relative mt-6 space-y-2.5 text-sm leading-6 text-white/55">
+                  {PRO_FEATURES.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 h-4 w-4 text-amber-300" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="relative mt-auto pt-8">
+                  <CtaLink href="/pricing" fullWidth size="lg">
+                    Выбрать тариф
+                    <span aria-hidden>→</span>
+                  </CtaLink>
+                </div>
+              </article>
+
+              <article className="relative flex flex-col overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-9">
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute -top-24 -left-16 h-44 w-44 rounded-full bg-blue-500/10 blur-3xl"
+                />
+                <div className="relative flex flex-wrap items-center justify-between gap-3">
+                  <span className={cx("rounded-full border px-3 py-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase", TONE_STYLES.blue.badge)}>
+                    {TOKEN_PACKS.standard.title}
+                  </span>
+                  <span className="text-[10px] font-semibold tracking-[0.12em] text-white/30 uppercase">
+                    разовая покупка
+                  </span>
+                </div>
+
+                <h3 className="relative mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                  Пакет токенов
+                </h3>
+                <p className="relative mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                  <span className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
+                    {formatPrice(TOKEN_PACKS.standard.price)} ₽
+                  </span>
+                  <span className="text-sm text-white/40">
+                    за {TOKEN_PACKS.standard.quantity} генераций
+                  </span>
+                </p>
+
+                <ul className="relative mt-6 space-y-2.5 text-sm leading-6 text-white/55">
+                  {PACK_FEATURES.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2.5">
+                      <Check className="mt-0.5 h-4 w-4 text-blue-300" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="relative mt-auto pt-8">
+                  <CtaLink href="/pricing" variant="outline" fullWidth size="lg">
+                    Выбрать тариф
+                  </CtaLink>
+                </div>
+              </article>
+            </div>
+
+            <p className="mt-6 text-sm leading-6 text-white/35">
+              Первая генерация Standard — бесплатно после регистрации. Полный
+              список возможностей, лимитов и пакетов — на странице{" "}
+              <Link
+                className="font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition-colors hover:text-white"
+                href="/pricing"
+              >
+                тарифов
+              </Link>
+              .
+            </p>
+          </div>
+        </section>
+
+
+        {/* Для кого: самоидентификация до финального CTA. */}
+        <section
+          id="audience"
+          className="relative scroll-mt-24 border-y border-white/[0.06] bg-white/[0.012]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
+            <div className="max-w-3xl">
+              <p className={cx(SECTION_LABEL, "text-blue-300/80")}>
+                Для кого
+              </p>
+              <h2 className={SECTION_TITLE}>
+                Печатникам, бизнесу{" "}
+                <span className="text-white/35">и хобби.</span>
+              </h2>
+              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
+                Модель нужна трём разным людям с одной проблемой: без CAD её не
+                сделать за вечер.
+              </p>
+            </div>
+
+            <div className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-3 lg:mt-16">
+              {AUDIENCE.map((item) => {
+                const tone = TONE_STYLES[item.tone];
 
                 return (
                   <article
-                    key={pain.title}
-                    className="group grid gap-3 border-b border-white/[0.06] py-7 last:border-b-0 sm:grid-cols-[auto_1fr] sm:gap-8 sm:py-8"
+                    key={item.title}
+                    className="group relative overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/20 sm:p-8"
                   >
-                    <div className="flex items-center gap-3 sm:block">
-                      <span className="font-mono text-[10px] text-white/25">
-                        0{index + 1}
-                      </span>
-                      <span
-                        aria-hidden
-                        className={cx(
-                          "h-1.5 w-1.5 rounded-full sm:mt-4 sm:block",
-                          accent.dot,
-                        )}
-                      />
-                    </div>
-                    <div>
-                      <h3 className="text-xl font-semibold tracking-tight text-white sm:text-2xl">
-                        {pain.title}
-                      </h3>
-                      <p className="mt-2 max-w-xl text-sm leading-7 text-white/45 sm:text-base">
-                        {pain.detail}
-                      </p>
-                      <p
-                        className={cx(
-                          "mt-3 text-[10px] font-semibold tracking-[0.18em] uppercase",
-                          accent.text,
-                        )}
-                      >
-                        Решается внутри курса
-                      </p>
-                    </div>
+                    <div
+                      aria-hidden
+                      className={cx(
+                        "pointer-events-none absolute -top-20 -right-16 h-44 w-44 rounded-full opacity-70 blur-3xl",
+                        tone.glow,
+                      )}
+                    />
+                    <span
+                      className={cx(
+                        "relative flex h-11 w-11 items-center justify-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:h-12 sm:w-12",
+                        tone.icon,
+                      )}
+                    >
+                      <FeatureIcon name={item.icon} />
+                    </span>
+                    <h3 className="relative mt-6 text-xl font-extrabold tracking-tight text-white">
+                      {item.title}
+                    </h3>
+                    <p className="relative mt-3 text-sm leading-6 text-white/45">
+                      {item.text}
+                    </p>
                   </article>
                 );
               })}
@@ -882,467 +711,27 @@ export default async function Home() {
           </div>
         </section>
 
-
-        {/* Путь: бесплатный старт и следующий уровень. */}
-        <section id="path" className="scroll-mt-24">
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="max-w-3xl">
-              <p className={cx(SECTION_LABEL, "text-blue-300/80")}>
-                Маршрут
-              </p>
-              <h2 className={SECTION_TITLE}>
-                Начните бесплатно. Продолжите, когда увидите результат.
+        {/* Мостик к курсам: они не потеряны, но больше не занимают первый экран. */}
+        <section className="relative">
+          <div className="mx-auto flex max-w-7xl flex-col gap-6 px-5 py-12 sm:px-8 lg:flex-row lg:items-center lg:justify-between lg:py-14">
+            <div className="max-w-2xl">
+              <p className={cx(SECTION_LABEL, "text-white/35")}>Обучение</p>
+              <h2 className="mt-3 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                Хотите не только генерировать, но и печатать осознанно?
               </h2>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                Сначала — первая деталь и понимание процесса. Потом — глубина,
-                инструменты и собственный продукт.
+              <p className="mt-3 text-sm leading-6 text-white/45">
+                Курсы по 3D-печати — отдельно и навсегда: {LEVELS.length} уровня,{" "}
+                {TOTAL_LESSONS} уроков и сертификат после тестов.
               </p>
             </div>
-
-            <div className="mt-12 grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr]">
-              <BentoCard
-                as="article"
-                padding="lg"
-                tone="blue"
-                className="flex h-full flex-col"
-              >
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-blue-300/60 to-transparent"
-                />
-                <div className="relative flex items-center justify-between gap-3">
-                  <span className="rounded-full border border-blue-400/20 bg-blue-500/10 px-3 py-1.5 font-mono text-[10px] font-semibold tracking-[0.12em] text-blue-200 uppercase">
-                    01 / Старт
-                  </span>
-                  <span className="text-sm font-extrabold text-blue-300">
-                    0 ₽
-                  </span>
-                </div>
-                <h3 className="relative mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                  Бесплатный «Новичок»
-                </h3>
-                <p className="relative mt-3 text-sm leading-7 text-white/45 sm:text-base">
-                  {LEVELS[0].lessons}{" "}
-                  {pluralize(LEVELS[0].lessons, LESSON_FORMS)}, калибровка и
-                  первая готовая деталь — без карты и обязательств.
-                </p>
-                <ul className="relative mt-6 space-y-2.5 text-sm text-white/55">
-                  {[
-                    "Доступ сразу после регистрации",
-                    "Без карты и обязательств",
-                    "Первая деталь на первом уровне",
-                  ].map((item) => (
-                    <li key={item} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 h-4 w-4 text-blue-300" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-                <div className="relative mt-auto pt-7">
-                  <CtaLink href={START_FREE_HREF} fullWidth>
-                    Начать бесплатно
-                    <span aria-hidden>→</span>
-                  </CtaLink>
-                  <p className="mt-3 text-center text-[11px] text-white/30">
-                    Доступ сразу после регистрации
-                  </p>
-                </div>
-              </BentoCard>
-
-              <div
-                aria-hidden
-                className="flex items-center justify-center py-1 lg:px-5 lg:py-0"
-              >
-                <span className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.08] bg-[#0a0a0a] text-sm font-bold text-blue-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] lg:h-12 lg:w-12">
-                  <span className="lg:hidden">↓</span>
-                  <span className="hidden lg:inline">→</span>
-                </span>
-              </div>
-
-              <BentoCard
-                as="article"
-                padding="lg"
-                tone="amber"
-                className="flex h-full flex-col"
-              >
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent"
-                />
-                <div className="relative flex items-center justify-between gap-3">
-                  <span className="rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1.5 font-mono text-[10px] font-semibold tracking-[0.12em] text-amber-200 uppercase">
-                    02 / Продолжение
-                  </span>
-                  <span className="text-[10px] font-semibold tracking-[0.12em] text-white/25 uppercase">
-                    когда готовы
-                  </span>
-                </div>
-                <h3 className="relative mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                  Следующий уровень
-                </h3>
-                <p className="relative mt-3 text-sm leading-7 text-white/45 sm:text-base">
-                  Купите конкретный курс навсегда. Пакет «Всё включено» больше
-                  не продаётся — доступ купивших сохранён.
-                </p>
-                <ul className="relative mt-6 space-y-2.5 text-sm text-white/55">
-                  {[
-                    "Три платных уровня на выбор",
-                    "Курсы остаются навсегда",
-                    "Сертификат после тестов",
-                  ].map((item) => (
-                    <li key={item} className="flex items-start gap-2.5">
-                      <Check className="mt-0.5 h-4 w-4 text-amber-300" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-                <div className="relative mt-auto grid gap-2.5 pt-7 sm:grid-cols-2">
-                  <CtaLink href="#levels" variant="light">
-                    Выбрать курс
-                  </CtaLink>
-                  <CtaLink href="/courses/pro" variant="outline">
-                    Все три курса
-                  </CtaLink>
-                </div>
-              </BentoCard>
-            </div>
-          </div>
-        </section>
-
-
-        {/* Тарифы: те же bento-поверхности, пакет занимает две колонки. */}
-        <section
-          id="levels"
-          className="scroll-mt-24 border-y border-white/[0.06] bg-white/[0.012]"
-        >
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl">
-                <p className={cx(SECTION_LABEL, "text-violet-300/80")}>
-                  Тарифы
-                </p>
-                <h2 className={SECTION_TITLE}>
-                  Выберите глубину.
-                  <span className="text-white/35">
-                    {" "}
-                    Доступ остаётся навсегда.
-                  </span>
-                </h2>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                  Курсы покупаются по отдельности и остаются навсегда. Для
-                  инструментов платформы есть отдельная подписка Pro — без
-                  скрытых условий и платы за продление курсов.
-                </p>
-              </div>
-
-              <p className="inline-flex w-fit shrink-0 items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/[0.06] px-4 py-2.5 text-xs font-semibold text-amber-200">
-                <span aria-hidden className="text-amber-300">
-                  ◆
-                </span>
-                Курсы навсегда · инструменты по подписке
-              </p>
-            </div>
-
-            <div className="mt-12 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {LEVELS.map((level) => {
-                const style = ACCENT_STYLES[LEVEL_ACCENT[level.key]];
-                const isPurchased =
-                  level.key !== "basic" && purchasedCourses[level.key];
-
-                return (
-                  <BentoCard
-                    as="article"
-                    key={level.key}
-                    padding="none"
-                    className={cx(
-                      "flex h-full flex-col p-6 sm:p-7",
-                      level.isFree && "ring-1 ring-blue-400/15",
-                    )}
-                  >
-                    <div
-                      aria-hidden
-                      className={cx(
-                        "pointer-events-none absolute inset-x-12 top-0 h-px bg-gradient-to-r",
-                        style.line,
-                      )}
-                    />
-
-                    <div className="relative flex items-center justify-between gap-3">
-                      <span
-                        className={cx(
-                          "font-mono text-[10px] font-semibold tracking-[0.18em] uppercase",
-                          style.text,
-                        )}
-                      >
-                        {level.code}
-                      </span>
-                      {level.isFree ? (
-                        <span
-                          className={cx(
-                            "rounded-full border px-2.5 py-1 text-[10px] font-semibold",
-                            style.badge,
-                          )}
-                        >
-                          Бесплатно
-                        </span>
-                      ) : isPurchased ? (
-                        <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[10px] font-semibold text-emerald-200">
-                          Открыт
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-semibold tracking-[0.12em] text-white/25 uppercase">
-                          Навсегда
-                        </span>
-                      )}
-                    </div>
-
-                    <h3 className="relative mt-5 text-2xl font-extrabold tracking-tight text-white">
-                      {level.shortTitle}
-                    </h3>
-                    <p className="relative mt-1 text-sm text-white/35">
-                      {level.title}
-                    </p>
-
-                    <p className="relative mt-5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <span className="text-3xl font-extrabold tracking-tight text-white">
-                        {formatPrice(level.price)} ₽
-                      </span>
-                      <span className="text-xs text-white/35">
-                        {level.isFree ? "без карты" : "навсегда"}
-                      </span>
-                    </p>
-
-                    <div className="relative mt-5 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
-                      <p
-                        className={cx(
-                          "text-[9px] font-semibold tracking-[0.18em] uppercase",
-                          style.text,
-                        )}
-                      >
-                        Проблема, которую решает
-                      </p>
-                      <p className="mt-2 text-sm leading-6 font-medium text-white/60">
-                        {LEVEL_PROBLEMS[level.key]}
-                      </p>
-                    </div>
-
-
-                    <dl className="relative mt-5 grid grid-cols-3 gap-2 border-y border-white/[0.06] py-4 text-center">
-                      {[
-                        {
-                          value: level.lessons,
-                          label: pluralize(level.lessons, LESSON_FORMS),
-                        },
-                        {
-                          value: level.visuals,
-                          label: pluralize(level.visuals, VISUAL_FORMS),
-                        },
-                        {
-                          value: level.tests,
-                          label: pluralize(level.tests, TEST_FORMS),
-                        },
-                      ].map((stat) => (
-                        <div key={stat.label}>
-                          <dt className="text-lg font-bold text-white">
-                            {stat.value}
-                          </dt>
-                          <dd className="text-[10px] text-white/35">
-                            {stat.label}
-                          </dd>
-                        </div>
-                      ))}
-                    </dl>
-
-                    <p className="relative mt-3 text-sm text-white/35">
-                      <span className="font-semibold text-white/70">
-                        {level.hours}
-                      </span>{" "}
-                      ({level.hoursSplit})
-                    </p>
-
-                    <ul className="relative mt-5 space-y-2.5 text-sm leading-6 text-white/50">
-                      {level.outcomes.map((outcome) => (
-                        <li key={outcome} className="flex items-start gap-2.5">
-                          <Check
-                            className={cx("mt-0.5 h-3.5 w-3.5", style.text)}
-                          />
-                          {outcome}
-                        </li>
-                      ))}
-                    </ul>
-
-                    {!level.isFree ? (
-                      <p className="relative mt-4 flex items-center gap-2 text-[11px] font-semibold text-emerald-300/80">
-                        <Check className="h-3.5 w-3.5" />
-                        Именной сертификат
-                      </p>
-                    ) : null}
-
-                    {level.artifacts.length > 0 ? (
-                      <p className="relative mt-2 flex items-center gap-2 text-[11px] font-semibold text-emerald-300/80">
-                        <Check className="h-3.5 w-3.5" />
-                        {level.artifacts.length}{" "}
-                        {pluralize(level.artifacts.length, FILE_FORMS)} к урокам
-                        — скачиваются внутри курса
-                      </p>
-                    ) : null}
-
-                    <div className="relative mt-auto pt-7">
-                      {isPurchased ? (
-                        <>
-                          <p className="flex items-center justify-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-4 py-2.5 text-xs font-semibold text-emerald-200">
-                            <Check className="h-3.5 w-3.5" />
-                            Доступ открыт
-                          </p>
-                          <CtaLink
-                            href={`/course/${level.key}`}
-                            variant="success"
-                            fullWidth
-                            className="mt-3"
-                          >
-                            Продолжить обучение
-                            <span aria-hidden>→</span>
-                          </CtaLink>
-                        </>
-                      ) : (
-                        <CtaLink
-                          href={level.isFree ? START_FREE_HREF : level.href}
-                          variant={level.isFree ? "light" : "outline"}
-                          fullWidth
-                        >
-                          {level.isFree
-                            ? "Начать бесплатно"
-                            : "Подробнее о курсе"}
-                          <span aria-hidden>→</span>
-                        </CtaLink>
-                      )}
-                    </div>
-                  </BentoCard>
-                );
-              })}
-
-              <ProBundleCard
-                hasBundle={hasBundle}
-                className="sm:col-span-2"
-              />
-            </div>
-          </div>
-        </section>
-
-
-        {/* Методология: цикл обучения и тёмные технические схемы. */}
-        <section id="methodology" className="scroll-mt-24">
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="grid gap-12 lg:grid-cols-[0.85fr_1.15fr] lg:items-start lg:gap-16">
-              <div className="lg:sticky lg:top-28">
-                <p className={cx(SECTION_LABEL, "text-emerald-300/80")}>
-                  Методология
-                </p>
-                <h2 className={cx(SECTION_TITLE, "sm:text-5xl")}>
-                  Один цикл. Четыре уровня. Навык, а не конспект.
-                </h2>
-                <p className="mt-5 max-w-md text-base leading-7 text-white/45 sm:text-lg">
-                  На каждом уровне повторяется один и тот же цикл: понять
-                  физику, разобрать схему, проверить себя и сделать проект.
-                </p>
-
-                <ol className="mt-9 border-y border-white/[0.07]">
-                  {METHOD_STEPS.map((item) => {
-                    const accent = ACCENT_STYLES[item.accent];
-
-                    return (
-                      <li
-                        key={item.step}
-                        className="group flex items-start gap-4 border-b border-white/[0.06] py-5 last:border-b-0"
-                      >
-                        <span className="mt-0.5 font-mono text-[10px] text-white/25">
-                          {item.step}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-base font-semibold text-white">
-                            {item.title}
-                          </h3>
-                          <p className="mt-1 text-sm leading-6 text-white/40">
-                            {item.text}
-                          </p>
-                        </div>
-                        <span
-                          aria-hidden
-                          className={cx(
-                            "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full opacity-60 transition-opacity duration-300 group-hover:opacity-100",
-                            accent.dot,
-                          )}
-                        />
-                      </li>
-                    );
-                  })}
-                </ol>
-              </div>
-
-              <div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {GALLERY.map((item, index) => (
-                    <MethodPreview
-                      key={item.code}
-                      code={item.code}
-                      title={item.title}
-                      caption={item.caption}
-                      accent={item.accent}
-                      className={index === 0 ? "sm:col-span-2" : ""}
-                    />
-                  ))}
-                </div>
-                <p className="mt-4 text-sm leading-6 text-white/35">
-                  Три из {TOTAL_VISUALS} схем. Остальные открываются внутри
-                  уроков вместе с пояснениями.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* FAQ: тонкие строки, крупный вопрос и плюс, который поворачивается. */}
-        <section
-          id="faq"
-          className="scroll-mt-24 border-y border-white/[0.06] bg-white/[0.012]"
-        >
-          <div className="mx-auto max-w-4xl px-5 py-24 sm:px-8 sm:py-28">
-            <div className="text-center">
-              <p className={cx(SECTION_LABEL, "text-white/35")}>FAQ</p>
-              <h2 className={cx(SECTION_TITLE, "text-4xl sm:text-5xl")}>
-                Коротко о главном
-              </h2>
-              <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-white/45">
-                Оплата, старт без карты и время на курс — без мелкого шрифта и
-                скрытых условий.
-              </p>
-            </div>
-
-            <div className="mt-10 border-y border-white/[0.07]">
-              {FAQ.map((item, index) => (
-                <details
-                  key={item.question}
-                  className="group border-b border-white/[0.06] last:border-b-0"
-                >
-                  <summary className="flex cursor-pointer list-none items-center gap-4 py-5 text-left [&::-webkit-details-marker]:hidden">
-                    <span className="font-mono text-[10px] text-white/25">
-                      0{index + 1}
-                    </span>
-                    <span className="flex-1 text-base font-semibold text-white sm:text-lg">
-                      {item.question}
-                    </span>
-                    <span
-                      aria-hidden
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/[0.08] bg-white/[0.02] text-lg font-light text-white/50 transition-transform duration-300 group-open:rotate-45"
-                    >
-                      +
-                    </span>
-                  </summary>
-                  <p className="pr-0 pb-6 text-sm leading-7 text-white/45 sm:pr-12 sm:pl-10">
-                    {item.answer}
-                  </p>
-                </details>
-              ))}
+            <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+              <CtaLink href="/start" variant="outline">
+                Перейти к обучению
+                <span aria-hidden>→</span>
+              </CtaLink>
+              <CtaLink href="/subscription" variant="ghost">
+                Тарифы курсов
+              </CtaLink>
             </div>
           </div>
         </section>
@@ -1350,7 +739,7 @@ export default async function Home() {
 
         {/* Финальный CTA: тёмная панель со свечением и крупным заголовком. */}
         <section className="relative overflow-hidden">
-          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+          <div className="mx-auto max-w-7xl px-5 pt-8 pb-20 sm:px-8 sm:pt-10 sm:pb-24 lg:pb-28">
             <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.08] bg-[#080808] px-6 py-16 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_40px_120px_-60px_rgba(0,0,0,1)] sm:px-12 sm:py-20 lg:py-24">
               <div
                 aria-hidden
@@ -1371,21 +760,17 @@ export default async function Home() {
                 </p>
                 <h2 className="mx-auto mt-4 max-w-3xl text-balance text-4xl font-extrabold leading-[0.98] tracking-[-0.045em] sm:text-5xl md:text-6xl">
                   <span className="bg-gradient-to-b from-white to-white/55 bg-clip-text text-transparent">
-                    Первая деталь — уже сегодня.
+                    Первый STL — за две минуты.
                   </span>
                 </h2>
                 <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-white/45 sm:text-lg">
-                  Зарегистрируйтесь, откройте бесплатный уровень и напечатайте
-                  первую деталь. Карта не понадобится.
+                  Загрузите фото или откройте Конструктор. Первая генерация
+                  бесплатно, карта не нужна.
                 </p>
 
                 <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-                  <CtaLink
-                    href={START_FREE_HREF}
-                    size="lg"
-                    className="group"
-                  >
-                    Начать бесплатно
+                  <CtaLink href="/3d-generator" size="lg" className="group">
+                    Попробовать генератор
                     <span
                       aria-hidden
                       className="transition-transform duration-300 group-hover:translate-x-0.5"
@@ -1393,14 +778,14 @@ export default async function Home() {
                       →
                     </span>
                   </CtaLink>
-                  <CtaLink href="#levels" variant="outline" size="lg">
-                    Сравнить тарифы
+                  <CtaLink href="/constructor" variant="outline" size="lg">
+                    Открыть Конструктор
                   </CtaLink>
                 </div>
 
                 <p className="mt-6 text-[11px] leading-5 text-white/30">
-                  Первый уровень бесплатно · Без карты · Сертификат после
-                  тестов
+                  Первая генерация бесплатно · STL для печати · Без CAD и
+                  Blender
                 </p>
               </div>
             </div>
@@ -1410,3 +795,4 @@ export default async function Home() {
     </div>
   );
 }
+
