@@ -125,6 +125,7 @@
 | `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (193 файла в трёх категориях, включая 86 принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без пакета «Всё включено» карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активным пакетом |
 | `/tools` | `app/tools/page.tsx` | Центр инструментов: четыре карточки — конструктор 3D-моделей, библиотека профилей, диагностика дефектов и мастерская (CRM для 3D-фермы) — и призыв задать вопрос на форуме. Конструктор открывается сразу после входа (гость уходит на `/auth/login?next=/constructor`), диагностика — всем и без регистрации, профили и мастерскую открывает пакет «Всё включено»: карточка мастерской проверяет сессию и подписку и потому ведёт гостя на `/auth/login?next=/dashboard/workshop`, ученика без пакета — на `/subscription`, а без пакета показывает бейдж «Требуется Pro» и кнопку «Оформить подписку». `force-dynamic` из-за кнопки авторизации в шапке; canonical `/tools`, OpenGraph и Twitter с общей картинкой `OG_IMAGE` |
 | `/tools/defects` | `app/tools/defects/page.tsx`, `components/tools/DefectsExplorer.tsx` | Справочник дефектов FDM-печати: шесть карточек (`lib/defects.ts`) с причинами и пошаговыми решениями в модальном окне, поиск по названию, описанию и причинам, вкладки-фильтры по трём группам («Проблемы со столом», «Проблемы с экструзией», «Механика») и заголовки групп с пояснением, что проверять; закрытие по Escape, ловушка фокуса, каталог читается и без JavaScript. Canonical `/tools/defects`, OpenGraph/Twitter и JSON-LD `FAQPage`: вопрос — дефект, ответ — нумерованные шаги решений |
+| `/gallery` | `app/gallery/page.tsx`, `components/generator/GenerationCard.tsx` | Галерея 3D-моделей: работы, которые авторы сами опубликовали из «Моих моделей». Превью — подписанная на час ссылка на STL из закрытого бакета `generated-models`, поэтому сетку можно крутить без входа. Скачивание открыто только вошедшему: гостю карточка показывает «Войти, чтобы скачать» (`/auth/login?next=%2Fgallery`), а роут `/api/generations/<id>/stl` отвечает 401 и на прямой запрос. Пустое состояние объясняет, как модель сюда попадает, и ведёт в `/3d-generator`; `force-dynamic` из-за подписанных ссылок и меняющейся ленты, `noindex`. Схема — `supabase/generations.sql` |
 | `/blog` | `app/blog/page.tsx`, `app/blog/[slug]/page.tsx`, `lib/blog.ts`, `components/blog/Markdown.tsx` | Блог: список статей из `content/blog/*.md` (дата, время чтения, описание, свежие сверху) и страница статьи с markdown-рендером `react-markdown`, хлебными крошками, CTA на `/start` и ссылкой на форум. JSON-LD `Article` + `BreadcrumbList`, canonical и OpenGraph типа `article`; неизвестный слаг — 404. `force-dynamic` из-за шапки, которая читает cookies |
 | `/forum` | `app/forum/page.tsx` | Публичный форум: кликабельные карточки категорий, счётчики и последние одобренные темы. Читать может гость и поисковый робот; pending-материалы RLS не отдаёт |
 | `/forum/category/[slug]` | `app/forum/category/[slug]/page.tsx` | Раздел форума: approved-темы с автором, датой и числом ответов, пустое состояние и кнопка создания темы с предвыбранной категорией. `generateMetadata`, canonical и JSON-LD |
@@ -189,6 +190,7 @@
 | `/course/<уровень>/complete` | `app/course/[id]/complete/page.tsx` | «Центр выпускника»: прогресс уроков и тестов, дата завершения, ссылка на сертификат, библиотека профилей, форум, отзывы и следующий уровень. `force-dynamic`, без сессии — редирект на вход, при ошибке чтения прогресса — честная заглушка вместо нулей |
 | `/certificate/[courseId]` | `app/certificate/[courseId]/page.tsx` + `CertificateActions.tsx` | Печатный сертификат A4: имя, курс, дата, номер, QR и подпись; проверяет сессию и завершение курса на сервере, кнопки печати/PDF и копирования ссылки проверки |
 | `/constructor` | `app/constructor/page.tsx` | **Открыт вошедшим (6.11.2026):** путь снова в `SESSION_PATH_PREFIXES` (`middleware.ts`) и в `PROTECTED_PATH_PREFIXES` (`lib/supabase/middleware.ts`), гость уходит на вход с возвратом, список скрытых разделов `lib/hidden-routes.ts` пуст; `noindex`. Что внутри: конструктор 3D-моделей — ваза с восемью силуэтами и математическими узорами, брелок с именем из кириллицы, модульная вывеска из блоков с полыми буквами и задними крышками под светодиодную ленту, коробка-органайзер с перегородками и крышкой, литофан из фотографии — плоская панель с рамкой, круглый плафон из двух-четырёх панелей и калейдоскоп из четырёх граней, кашпо с дренажными отверстиями и поддоном, подставка под кружку с рельефным узором и бортиком и стойка для украшений с кольцами или ожерельями, органайзер для ручек с перегородками, термопринт логотипа из PNG или SVG с зеркалом и толщиной в слоях, 3D-предпросмотр на three.js; скачивание STL собирается на сервере, доступно с пакетом «Всё включено» без ограничений и по бесплатному лимиту 3 файла в месяц, детали, блоки вывески, крышки и части литофана скачиваются отдельными файлами; проект из кабинета открывался ссылкой `?project=<id>` — размеры и узор подставлялись в панель, а гость после входа возвращался к тому же проекту (`next` сохранял адрес) |
+| `/my-models` | `app/my-models/page.tsx` + `components/generator/GenerationCard.tsx` | «Мои 3D-модели» — история генераций по фото: middleware закрывает адрес сессией, страница повторно проверяет пользователя и уводит гостя на `/auth/login?next=%2Fmy-models`. Сетка последних `GENERATIONS_LIMIT` (24) моделей: превью во вьювере `GeneratedModelViewer` по подписанной ссылке, дата, сеть (Tripo3D/Meshy), кнопка «Скачать STL» через `/api/generations/<id>/stl` и переключатель «Показывать в галерее» — Server Action `setGenerationVisibility` меняет `is_public` только своей строки и обновляет обе страницы. Скрытые модели видит только владелец, опубликованные — все. Пустое состояние ведёт в `/3d-generator`; `force-dynamic`, `noindex` |
 | `/forum/new` | `app/forum/new/page.tsx` + `components/forum/CreateThreadForm.tsx` | Создание темы: middleware закрывает от гостя, страница повторно проверяет сессию и бан. Категории читаются из `forum_categories`, тема уходит в `pending` |
 | `/admin/forum` | `app/admin/forum/page.tsx` | Модерация: очередь pending-тем, последние опубликованные ответы с удалением, одобрение/отклонение старых ответов, бан автора и снятие бана. Доступ — только email из `ADMIN_EMAIL`, данные — service_role |
 | `/admin/promo` | `app/admin/promo/page.tsx` | Промокоды на курсы: выпуск партии (курс, количество, партия, срок), сводка «свободно из всего» по каждому курсу, последние 30 кодов со статусом и форма выгрузки CSV для Ozon. Доступ — только email из `ADMIN_EMAIL`; при отсутствии таблицы `promo_codes` страница показывает инструкцию, а не падает |
@@ -203,7 +205,8 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) запускает
 скрытые разделы (`lib/hidden-routes.ts`; с 6 ноября 2026 список пуст, механизм оставлен для
 разделов, которые ещё не готовы): такой адрес получает редирект на `/tools` ещё до чтения
 сессии — инструмент закрыт и для гостя, и для владельца пакета. Сессию он трогает только на
-`/dashboard/*`, `/course/*`, `/forum/new`, `/admin/*`, `/auth/*`, `/3d-generator` и `/constructor`:
+`/dashboard/*`, `/course/*`, `/forum/new`, `/admin/*`, `/auth/*`, `/3d-generator`,
+`/constructor` и `/my-models`:
 продлевает её, отправляет гостя на вход с
 запоминанием адреса (`next=`), не пускает в курсы, кабинет и создание темы пользователя
 с **неподтверждённой почтой** (`email_confirmed_at`), а авторизованного уводит со страниц входа.
@@ -241,6 +244,15 @@ Middleware (`middleware.ts` → `lib/supabase/middleware.ts`) запускает
 всегда, иначе файлы одной модели получали бы в папке загрузок «(1)». Имя фотографии в имя файла не
 попадает: оно бывает кириллицей и ломает заголовок `Content-Disposition`, а надпись вывески
 переводится в латиницу транслитерацией.
+Скачивание из истории — `GET /api/generations/[id]/stl` (`app/api/generations/[id]/stl/route.ts`) —
+единственный путь к готовой модели из «Моих моделей» и галереи: бакет `generated-models` закрыт,
+прямой ссылки на файл нет. Порядок проверок: `id` — UUID (иначе 404 без запроса к базе), сессия
+(401 «Скачивание STL доступно только после входа»), затем право — владелец получает свою модель,
+остальные только опубликованную; на «нет строки», «чужая скрытая» и «файла нет» ответ один и тот
+же 404, чтобы перебором нельзя было узнать о существовании моделей. Файл читается `service_role`
+уже после проверки и отдаётся как `model/stl` с именем `tridi-{id}.stl` и `cache-control: no-store`.
+`runtime = "nodejs"` — Storage работает через Node-клиент Supabase.
+
 Публичные страницы (главная, тарифы, `/legal`, `/forum`, темы форума и правила) middleware не
 трогает — им сессия не нужна, а форум должен быстро отдаваться поисковым роботам.
 
@@ -3578,6 +3590,8 @@ FlashForge и Elegoo
 | `lib/constructor/projects.ts` | Общие правила сохранённых проектов: `SAVED_PROJECT_TITLE_MIN`/`MAX` (1–60), `SAVED_PROJECTS_LIMIT` (12), `FEEDBACK_RATING_MIN`/`MAX` и `FEEDBACK_TEXT_MAX`, типы `SavedProjectSummary`/`SavedProject`/`SavedProjectNotice`; `isProjectId` (UUID из `?project=` до запроса к базе), `savedProjectModelLabel`, `formatSavedProjectDate`, `normalizeProjectTitle`, `suggestProjectTitle`, `normalizeSavedProjectParams` (JSONB → состояние конструктора) и `isMissingTableSchema` (реэкспорт из `lib/supabase/schema-errors.ts`: 42P01/PGRST204/PGRST205 — «миграция ещё не применена», а не поломка страницы) |
 | `lib/constructor/project-store.ts` | Чтение сохранённых проектов из Supabase: `getSavedProjects(supabase, userId, limit)` — до 12 последних без `params_json` для блока кабинета, ошибку не пробрасывает и возвращает `[]`; `getSavedProject(supabase, userId, projectId)` — один проект с параметрами, фильтр по `user_id` дублирует RLS, незнакомый id не уходит в запрос |
 | `lib/analytics/visits.ts` | Счётчик посещений публичных страниц: `isTrackedPath` отбрасывает `/api`, `/admin`, `/dashboard`, `/auth`, `/_next` и файлы с расширением, `shouldTrackVisit` — не-GET, предзагрузку ссылок и RSC-запросы (иначе один переход считался бы дважды), `recordSiteVisit` пишет путь без query-строки в `site_visits` и не мешает отдаче страницы: ошибки только логируются, отсутствие таблицы — ожидаемое состояние |
+| `lib/generator/generations.ts` | Общие правила истории генераций без запросов к Supabase — модуль читают клиентская карточка, Server Actions, страницы и роут: `GENERATIONS_TABLE`, `GENERATED_MODELS_BUCKET` (закрытый `generated-models`), `GENERATIONS_LIMIT` 24, `GENERATION_PREVIEW_TTL_SECONDS` (час), подписи сетей `GENERATION_SERVICE_LABELS` (`tripo` → Tripo3D, `meshy` → Meshy), `isGenerationId` (UUID из адреса до запроса; PostgREST на мусор ответил бы 22P02), `parseGenerationService`, `generationServiceLabel`, `formatGenerationDate` (ru-RU в UTC, невалидная дата — «Дата неизвестна») и `generationStlHref` на `/api/generations/<id>/stl` |
+| `lib/generator/generation-store.ts` | Хранилище истории: `rememberGenerationTask` вставляет строку задачи (`23505` — повтор не ошибка), `saveGenerationStl` читает строку по `task_id`, один раз проверяет бакет (`ensureModelsBucket`: закрытый, 50 МБ, MIME `model/stl`/`application/sla`/`application/octet-stream`), грузит файл в `{user_id}/{имя}` и пишет `stl_url`, а при ошибке записи удаляет осиротевший файл; повторный опрос с готовым `stl_url` ничего не делает. Чтение: `getMyGenerations` (свои строки), `getPublicGenerations` (только `is_public`), обе с `stl_url is not null` и лимитом 24; `attachGenerationPreviews` подписывает ссылки на час (без `service_role` карточки рисуются с заглушкой); `getGenerationForDownload` и `downloadGenerationStl` отдают данные роуту, который сам решает о праве. Любая ошибка записи — `console.warn` с префиксом `[generations]`, генерация продолжается |
 | `lib/analytics/generations.ts` | `recordConstructorGeneration(userId, modelType)` пишет успешную выдачу STL в `constructor_generations` (`model_type` обрезается до 64 символов, третий необязательный аргумент — плоские подробности модели в колонку `details`; значение — скаляр, и только композиция слоёв приходит массивом строк, её читают через `->`, а не `->>`; если колонки в базе ещё нет, запись повторяется без неё, чтобы строка журнала не терялась). Вызывается из `/api/constructor/stl` до ответа: serverless-функцию могут заморозить сразу после отправки, и `void promise` потерялся бы. Никогда не бросает исключение — аналитика не должна ломать экспорт |
 | `lib/constructor/feedback.ts` | Счётчик скачиваний для опроса: `CONSTRUCTOR_DOWNLOADS_STORAGE_KEY` (`tridi-constructor-downloads`), `FEEDBACK_FIRST_DOWNLOAD` (3), `FEEDBACK_EVERY_DOWNLOADS` (10) и `FEEDBACK_OPEN_DELAY_MS` (1500); `registerConstructorDownload` пишет в `localStorage`, а при запрете хранилища считает в памяти вкладки; `shouldAskForConstructorFeedback` отвечает, пора ли открывать окно |
 | `lib/workshop/settings.ts` | Настройки калькулятора Мастерской: `WorkshopSettings` (тариф ₽/кВт·ч, мощность Вт, амортизация и час работы в ₽/час), `WORKSHOP_SETTINGS_DEFAULTS` (5.5 / 150 / 10 / 300), `WORKSHOP_FIELDS` (подпись, имя в `FormData`, колонка в базе, пределы, признак `integer`), `WORKSHOP_SETTINGS_COLUMNS`, `parseWorkshopNumber` («5,5» из формы и «5.50» из PostgREST → 5.5), `normalizeWorkshopSettings` (строка базы → числа, незнакомое значение заменяется значением по умолчанию) и `readWorkshopSettingsForm` (форма → числа или ошибки по полям) |
@@ -3632,6 +3646,7 @@ FlashForge и Elegoo
 | `createCourseReview` | `app/actions/reviews.ts` | Отзыв о курсе: проверка ключа, оценки 1–5 и текста 10–1000 символов, honeypot, реальная сессия, повторная проверка завершения курса, `insert` от своего имени и `revalidatePath('/course/<курс>/complete')`; повтор ловит уникальный индекс |
 | `createPromoCodes` | `app/actions/promo-admin.ts` | Выпуск партии промокодов: проверка `ADMIN_EMAIL`, курс из `PROMO_COURSE_IDS`, количество 1–500, партия, срок; коды генерируются на сервере, вставка — service_role, `revalidatePath('/admin/promo')`. Отдельные тексты для неприменённой миграции и коллизии |
 | `saveConstructorProject`, `loadConstructorProject`, `submitConstructorFeedback` | `app/actions/projects.ts` | Сохранённые проекты и опрос конструктора. Сохранение: пользователь из сессии (не из запроса), название 1–60 символов после нормализации пробелов, известная модель, параметры через `normalizeConstructorParams`, `insert` в `saved_projects` с `user_id = user.id` и `revalidatePath('/dashboard')`. Загрузка: `isProjectId` до запроса, проект читается с фильтром по `user_id`, параметры нормализуются. Оценка: целое 1–5, известная модель, комментарий до 1000 символов (пустой — `null`), `insert` в `constructor_feedback`. При отсутствии таблицы действия отвечают «временно недоступно», а не ошибкой базы |
+| `setGenerationVisibility` | `app/actions/generations.ts` | Переключатель «Показывать в галерее» в «Моих моделях»: `id` проверяется как UUID (иначе «Модель не найдена»), поле `isPublic` — булево, затем реальная сессия (`getUser()`), `update is_public` с фильтрами `id` и `user_id` и `.not("stl_url", "is", null)` — публиковать нечего, пока файла нет; `.select("id")` отличает «строки нет» от успешного `update`, `revalidatePath` обновляет `/my-models` и `/gallery`. Отдельные ответы для истёкшей сессии (42501), неприменённой миграции (`isMissingTableSchema`) и прочих ошибок базы. Типы результата — в `app/actions/generations-state.ts`, чтобы клиентская карточка не тянула серверный модуль |
 | `activatePromoCode` | `app/actions/promo.ts` | Активация кода: реальная сессия, нормализация и формат, поиск кода service_role, проверка срока и `used_at`, отказ без сжигания кода, если курс уже открыт, атомарный `update ... where used_at is null` и `revalidatePath` курсов/кабинета |
 | `saveWorkshopSettings` | `app/actions/workshop.ts` | Настройки калькулятора Мастерской: разбор формы (`readWorkshopSettingsForm`) → реальная сессия → повторная проверка `hasActiveSubscription` → `upsert` по `user_id` и `revalidatePath('/dashboard/workshop')`. Отдельные ответы для истёкшей сессии, отсутствия пакета и неприменённой миграции (таблицы `workshop_settings` нет). Состояние формы — `WorkshopSettingsFormState` из `app/actions/workshop-state.ts` |
 | `ensureAgentToken` | `app/actions/workshop.ts` | Токен локального агента печати для карточки «Локальный агент (Печать)»: сессия → `hasActiveSubscription` → чтение `workshop_settings.agent_token` по `user_id`; если токен уже есть, он возвращается без записи (обновление страницы не меняет `agent/.env`), если колонка пустая или строки нет — сервер генерирует `randomUUID()` и делает `upsert` с `onConflict: "user_id"`, затем `revalidatePath('/dashboard/workshop')`. Браузер токен не присылает; ответ — `WorkshopAgentTokenState` (`token` или `error`) из `app/actions/workshop-state.ts`, при отсутствии колонки вместо общей ошибки приходит текст «примените `supabase/workshop_farm_and_shop.sql`». Вызывается из клиентской вкладки один раз при монтировании, если проп `agentToken` пуст |
@@ -3675,8 +3690,8 @@ Next.js, а не теряют историю браузера и prefetch. Гл�
 | `components/landing/BentoCard.tsx` | общий | Премиальная bento-поверхность главной: фон `#0a0a0a`, верхняя грань `border-t-white/20`, внутренняя тень, подсветка рамки при наведении, пять цветовых акцентов, крупные инлайновые SVG-иконки, отступы `sm`/`md`/`lg` и семантические теги |
 | `components/ui/Input.tsx` | общий | Поле ввода `bg-black/40` с обводкой `border-white/10`, синим кольцом фокуса, красной рамкой при `aria-invalid` и `forwardRef` для форм |
 | `components/ui/Select.tsx` | общий | Нативный `<select>` с тёмным фоном, собственной SVG-стрелкой и тем же кольцом фокуса; клавиатура и мобильный выбор остаются системными |
-| `components/navigation/ToolsDropdown.tsx` | клиентский | Выпадающее меню «Инструменты»: «Мастерская (Pro)» с иконкой принтера (ссылка и подпись приходят из шапки — в мастерскую, на тарифы или на вход), библиотека профилей и диагностика дефектов, у каждого пункта иконка; закрывается по Escape (фокус возвращается на кнопку) и клику вне панели |
-| `components/navigation/MobileMenu.tsx` | клиентский | Бургер-меню для экранов уже `xl`: основные разделы и три ссылки инструментов, включая «Мастерскую (Pro)», а у авторизованного — пункт «Выйти» (форма POST на `/logout`), потому что в шапке кнопка скрыта до 400 px; панель растянута по ширине окна, закрывается по Escape и переходу |
+| `components/navigation/ToolsDropdown.tsx` | клиентский | Выпадающее меню «Инструменты»: «Мастерская (Pro)» с иконкой принтера (ссылка и подпись приходят из шапки — в мастерскую, на тарифы или на вход), конструктор 3D-моделей, галерея 3D-моделей, «Мои 3D-модели», библиотека профилей и диагностика дефектов, у каждого пункта своя иконка; «Мои модели» видны и гостю — страница сама уведёт на вход с возвратом; закрывается по Escape (фокус возвращается на кнопку) и клику вне панели |
+| `components/navigation/MobileMenu.tsx` | клиентский | Бургер-меню для экранов уже `xl`: основные разделы и ссылки инструментов — центр инструментов, конструктор, галерея 3D-моделей, «Мастерская (Pro)» и диагностика дефектов; «Мои 3D-модели» показываются только вошедшему, а у авторизованного есть пункт «Выйти» (форма POST на `/logout`), потому что в шапке кнопка скрыта до 400 px; панель растянута по ширине окна, закрывается по Escape и переходу |
 | `components/tools/DefectsExplorer.tsx` | клиентский | Каталог дефектов печати: поиск по названию, описанию и причинам (без учёта регистра, «ё» и лишних пробелов), вкладки-фильтры по группам со счётчиками, заголовки групп с пояснениями и сетка карточек; счётчик результатов с `aria-live`, пустое состояние со сбросом фильтров, модальное окно с причинами и шагами решения, Escape, клик по фону, ловушка фокуса и возврат фокуса на карточку |
 | `components/promo/PromoCodeForm.tsx` | клиентский | Форма выпуска партии в `/admin/promo`: курс, количество, название партии, срок и примечание; `useActionState` вокруг `createPromoCodes`, результат и свёрнутый список созданных кодов |
 | `components/promo/ActivatePromoForm.tsx` | клиентский | Форма активации на `/activate`: поле кода с подстановкой из ссылки, `useActionState` вокруг `activatePromoCode`, сообщения об ошибках и после успеха — кнопки «Перейти к курсу» и «В личный кабинет» |
@@ -3694,7 +3709,8 @@ Next.js, а не теряют историю браузера и prefetch. Гл�
 | `components/constructor/SaveProjectDialog.tsx` | клиентский | Кнопка «Сохранить проект» и окно с названием: поле до 60 символов, подсказка «название видите только вы», `useTransition` вокруг `saveConstructorProject`, ошибки сервера, Escape и клик по фону, блокировка прокрутки страницы, возврат фокуса на кнопку; после успеха — подтверждение на четыре секунды и очистка таймера при размонтировании |
 | `components/constructor/FeedbackDialog.tsx` | клиентский | Опрос после скачивания STL: пять звёзд (по умолчанию 5), подпись «X из 5», необязательный комментарий до 1000 символов, `useTransition` вокруг `submitConstructorFeedback`, «Пропустить»/Escape/клик по фону закрывают без записи, после «Спасибо» окно закрывается само через 1.8 секунды |
 | `components/constructor/ParameterPanel.tsx` | клиентский | Панель конструктора: тип модели и варианты вынесены в выпадающие списки — двенадцать силуэтов и десять узоров вазы, силуэт брелока, наклон и ширина подставки, шрифт и канал под ленту вывески, монорельс с кареткой и патроном E14/E27, форму литофана (плоская, круглый плафон, калейдоскоп); слайдеры размеров и подсказки к выбранному варианту, блок «Декор»: кнопки «Добавить текст» (пустая карточка с полем до 10 символов, смещением по X и Y и толщиной рельефа) и «Добавить картинку» (до трёх рельефов, пустой список подсказывает, что брелок выйдет чистым силуэтом, а отказ «нет места» называет грань) и надписи вывески, загрузка фото с немедленным сжатием через canvas до 150 × 150, превью, яркость, толщины и флаг рамки литофана, крышка коробки; кнопки скачивания главного файла и отдельных деталей, сводка, сброс, плашка «Осталось бесплатных скачиваний: X из 3» и кнопка пакета при нуле; у вазы первый экран — силуэт, узор (тип, амплитуда, частота) и три размера, а грани, цоколь, обод, слои узора, деформации и сид спрятаны в свёрнутое «Дополнительно» нативным `<details>`, подсказки раскрываются кнопкой «?», а кнопка «Сгенерировать случайную вазу» ставит случайный силуэт, один-два узора, амплитуду, частоту и сид через `normalizeConstructorParams` |
-| `components/generator/Image3DGenerator.tsx` | клиентский | Генератор 3D по фото на странице `/3d-generator`: загрузка 1–4 фото кнопкой и drag-and-drop, превью-сетка, переключатель качества «Стандарт»/«Ультра», POST в `/api/generate-3d`, опрос `/api/check-3d-status` каждые 3 секунды, прогресс-бар с процентами из поля `progress`, 3D-предпросмотр готового STL и кнопка «Скачать STL»; ошибки сети и провайдера — в `role="alert"`, после успеха `router.refresh()` перечитывает баланс кредитов |
+| `components/generator/Image3DGenerator.tsx` | клиентский | Генератор 3D по фото на странице `/3d-generator`: загрузка 1–4 фото кнопкой и drag-and-drop, превью-сетка, переключатель качества «Стандарт»/«Ультра», POST в `/api/generate-3d`, опрос `/api/check-3d-status` каждые 3 секунды, прогресс-бар с процентами из поля `progress`, 3D-предпросмотр готового STL и кнопка «Скачать STL»; ошибки сети и провайдера — в `role="alert"`, после успеха `router.refresh()` перечитывает баланс кредитов. Над кнопкой — чекбокс «Показать модель в галерее» (по умолчанию включён), то есть согласие на публикацию: модель увидят все посетители `/gallery`, а STL скачает любой вошедший; флаг уходит в `/api/generate-3d` полем `isPublic` и потом меняется в «Моих моделях». После успеха под вьювером появляется ссылка «Модель сохранена в истории» на `/my-models` |
+| `components/generator/GenerationCard.tsx` | клиентский | Карточка модели для «Моих моделей» и галереи: превью — `GeneratedModelViewer` через `next/dynamic` (`ssr: false`) по подписанной ссылке, подпись сети и даты, кнопка «Скачать STL» на `/api/generations/<id>/stl`. Гостю галереи (`locked`) вместо ссылки показывается «Войти, чтобы скачать» с `loginHref`; в «Моих моделях» (`manage`) — чекбокс «Показывать в галерее»: `useTransition` вокруг `setGenerationVisibility`, при ошибке флажок возвращается назад, чтобы экран не расходился с базой. Если превью не подписалось, рисуется заглушка с объяснением, а скачивание остаётся рабочим |
 | `components/generator/GeneratedModelViewer.tsx` | клиентский, только браузер | Предпросмотр готового STL: `fetch` ссылки, `STLLoader.parse`, центрирование сетки, камера и свет по радиусу bounding sphere, `OrbitControls` с автоповоротом без панорамы; грузится через `next/dynamic` с `ssr: false` |
 
 | `components/constructor/ParameterSelect.tsx` | клиентский | Выпадающий список параметра: подпись, пункты со строковыми и числовыми значениями, подсказка за кнопкой «?», тёмное поле `bg-slate-800` с рамкой, нативная стрелка скрыта ради единого вида; наружу возвращает исходное значение из `options` |
@@ -3788,6 +3804,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `constructor_feedback` | `id uuid`, `user_id uuid`, `model_type text`, `rating integer`, `feedback_text text`, `created_at timestamptz` | Оценки конструктора после скачивания STL: `rating` 1–5, комментарий до 1000 символов или `null`, модель — из списка генераторов. RLS: только `select` и `insert` своих строк, правок и удаления через API нет; сводку владелец смотрит service-role клиентом или в SQL Editor. Схема — `supabase/constructor_feedback.sql` |
 | `site_visits` | `id uuid`, `path text`, `created_at timestamptz` | Обезличенный счётчик просмотров публичных страниц: путь без query-строки (1–512 символов) и время, без IP и `user_id`. Политик RLS нет вовсе, у `anon` и `authenticated` отозваны гранты — пишет и читает только `service_role` из middleware и ежедневного отчёта. Схема — `supabase/site_visits.sql` |
 | `constructor_generations` | `id uuid`, `user_id uuid not null`, `model_type text`, `details jsonb`, `created_at timestamptz` | Журнал успешных выдач STL (бесплатные и с активным доступом): тип модели и время, `user_id` с `on delete cascade` — удаление аккаунта удаляет и его генерации, обезличенной истории не остаётся. В отличие от `constructor_downloads` это не лимит, а аналитика: ошибка записи не мешает отдать файл. Доступ только у `service_role`. Схема — `supabase/constructor_generations.sql`. Колонка `details` — параметры модели на момент генерации (у вазы силуэт, узор, деформации и сид): по ней видно, какие формы реально качают, а `null` означает старую запись или базу без применённого `alter table` |
+| `generations` | `id uuid`, `user_id uuid not null`, `task_id text unique`, `service text`, `stl_url text`, `is_public boolean not null default false`, `created_at timestamptz` | История генераций 3D по фото: строка появляется в `/api/generate-3d` ещё до ответа сети, `task_id` — номер задачи Tripo или Meshy (по нему `/api/check-3d-status` находит строку и после постобработки дописывает `stl_url` — путь в закрытом бакете `generated-models`, `null` пока модель не готова), `service` — `tripo`/`meshy`. `is_public = false` по умолчанию: модель видит только владелец, публикацию включает он сам в «Моих моделях». RLS: владелец `select`/`insert`/`update`/`delete` только своих строк, `anon` и `authenticated` дополнительно читают строки `is_public and stl_url is not null` — публичную ленту; запись идёт `service_role`. Индексы `(user_id, created_at desc)` и частичный `(created_at desc) where is_public and stl_url is not null`; `user_id` — `on delete cascade`. Бакет создаёт тот же файл (`insert ... on conflict`). Схема — `supabase/generations.sql` |
 | `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
 | `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
@@ -3865,6 +3882,13 @@ Self-hosted Supabase на сервере в РФ: используются то�
   `service_role`. Фильтр по `user_id` в Server Action и `lib/constructor/project-store.ts`
   дублирует RLS: чужой `?project=<id>` не открывается даже при ошибке в политике. Публичных
   представлений, как у отзывов о курсах, нет — это личные проекты и внутренняя метрика.
+- **История генераций и галерея**: `generations` — владелец читает, создаёт, правит и удаляет
+  свои строки (`auth.uid() = user_id`), а публичную ленту дополнительно читают `anon` и
+  `authenticated` — но только строки с `is_public and stl_url is not null`. Сам STL лежит в
+  закрытом бакете `generated-models`, поэтому даже знание пути не даёт файла: его отдаёт лишь
+  роут `/api/generations/<id>/stl` после проверки сессии и права (владелец или публичная модель),
+  а читает файл `service_role`. Публикация — это осознанное действие владельца: чекбокс в
+  генераторе и переключатель в «Моих моделях».
 - **SQL лежит в `supabase/*.sql`** — это справочные копии того, что применено вручную в
   Supabase → SQL Editor: `grants_and_policies.sql` (гранты и RLS), `pro_course_access.sql`
   (колонка `course_type`, уникальный индекс, инструкция как выдать себе trial и как отключить
@@ -3882,7 +3906,9 @@ Self-hosted Supabase на сервере в РФ: используются то�
   `site_visits.sql` (обезличенный счётчик просмотров: RLS без политик, гранты только
   `service_role`, индекс по `created_at`), `constructor_generations.sql` (журнал выдач
   STL с разбивкой по моделям, `user_id` с `on delete cascade`, доступ только у
-  `service_role`), `workshop_settings.sql` (настройки калькулятора Мастерской: одна строка на
+  `service_role`), `generations.sql` (история генераций по фото: `task_id` задачи сети,
+  путь STL, флаг публикации, частичный индекс публичной ленты, RLS «свои строки плюс
+  опубликованные всем» и закрытый бакет `generated-models`), `workshop_settings.sql` (настройки калькулятора Мастерской: одна строка на
   пользователя, check-пределы повторяют форму, RLS на свои строки, триггер `updated_at` и
   `notify pgrst, 'reload schema'`) и `workshop_filaments.sql` (склад пластика: катушки с весом,
   остатком, порогом и ссылкой на товар, check-пределы повторяют форму, индекс по `user_id` и
@@ -12359,4 +12385,68 @@ Meshy `meshy-7.1`; по умолчанию выбрана ультра, пото
 `/api/generate-3d` без cookie отвечает 401, `/constructor` больше не содержит секции
 генератора.
 
+
+
+**История генераций, галерея и «Мои модели» (16 ноября 2026).** Готовая модель больше не
+живёт только во временной папке «мясорубки»: строка `generations` появляется в момент
+создания задачи, STL копируется в закрытый бакет `generated-models`, а посмотреть и скачать
+его можно в «Моих моделях» и — если автор разрешил — в публичной галерее.
+
+- **Таблица и бакет.** `supabase/generations.sql` — справочная копия для SQL Editor:
+  `generations` (`user_id` с `on delete cascade`, `task_id` уникальный, `service` только
+  `tripo`/`meshy`, `stl_url` — путь в бакете, `is_public` по умолчанию `false`), индекс
+  `(user_id, created_at desc)`, частичный индекс публичной ленты, RLS «владелец видит свои
+  строки, все — только опубликованные и готовые» и закрытый бакет `generated-models`
+  (50 МБ, три MIME-типа STL). Как и остальные файлы `supabase/`, применяется вручную.
+- **Запись.** `/api/generate-3d` разбирает необязательное поле `isPublic` (`true` только при
+  явном `true`: старый клиент без галочки ничего не публикует) и после ответа сети зовёт
+  `rememberGenerationTask` — ошибка записи только логируется, `{ taskId }` уходит клиенту в
+  любом случае. `/api/check-3d-status` на первом успешном опросе ставит
+  `after(saveGenerationStl({ taskId, filePath }))`: файл читается из временной папки,
+  загружается в `{user_id}/{имя}` с `upsert`, путь пишется в `stl_url`, а если запись не
+  удалась — осиротевший объект удаляется. Бакет проверяется один раз на процесс: закрытый,
+  50 МБ, MIME `model/stl`/`application/sla`/`application/octet-stream`; `after()` не
+  задерживает последний ответ опроса.
+- **Чтение.** `lib/generator/generation-store.ts`: `getMyGenerations` (свои строки) и
+  `getPublicGenerations` (`is_public = true`) — обе с `stl_url is not null`, свежие сверху,
+  лимит `GENERATIONS_LIMIT` 24, списки читаются клиентом пользователя, поэтому RLS решает,
+  что видно. `attachGenerationPreviews` подписывает ссылку на час для вьювера; без
+  `service_role` карточки рисуются с заглушкой. Общие подписи, UUID-проверка и
+  `generationStlHref` — в `lib/generator/generations.ts`; ошибки истории пишутся
+  `console.warn '[generations] …'` и не ломают ни генерацию, ни страницы.
+- **Страницы.** `/my-models` (`app/my-models/page.tsx`) — история под входом: сетка карточек
+  `GenerationCard` с превью, датой, сетью, скачиванием и переключателем «Показывать в
+  галерее»; пустое состояние ведёт в `/3d-generator`. `/gallery`
+  (`app/gallery/page.tsx`) — публичная лента: превью открыто всем, гость видит «Войти, чтобы
+  скачать» и плашку «Просмотр открыт всем, скачивание STL — после входа». Обе страницы
+  `force-dynamic` и `noindex`.
+- **Публикация.** Server Action `setGenerationVisibility` (`app/actions/generations.ts`,
+  типы — в `app/actions/generations-state.ts`) принимает `{ id, isPublic }`, проверяет UUID и
+  булево значение, берёт пользователя из сессии, обновляет строку с фильтрами `id` и
+  `user_id` и `.not("stl_url", "is", null)`, по `.select("id")` отличает «строки нет» от
+  успеха и вызывает `revalidatePath('/my-models')` и `/gallery`. Отдельные ответы — для
+  истёкшей сессии, неприменённой миграции и прочих ошибок; при ошибке карточка возвращает
+  флажок назад.
+- **Скачивание.** `GET /api/generations/[id]/stl` (`app/api/generations/[id]/stl/route.ts`) —
+  единственный путь к файлу: UUID → 404, сессия → 401, право (владелец или `is_public`) →
+  иначе 404, и только затем `service_role` читает бакет. Ответ — `model/stl` с именем
+  `tridi-{id}.stl` и `cache-control: no-store`; одинаковые 404 на «нет строки», «чужая
+  скрытая» и «файла нет» не дают перебором узнать о существовании моделей.
+- **Согласие в генераторе.** Над кнопкой «Сгенерировать 3D» — чекбокс «Показать модель в
+  галерее» (включён по умолчанию) с объяснением и ссылками на `/gallery` и `/my-models`;
+  флаг уходит в `/api/generate-3d` и потом меняется в «Моих моделях». После успеха под
+  вьювером появляется ссылка «Модель сохранена в истории».
+- **Навигация.** В `ToolsDropdown` добавлены «Галерея 3D-моделей» (иконка картины) и «Мои
+  3D-модели» (иконка плиток), в `MobileMenu` — те же ссылки, причём «Мои модели» только
+  вошедшему. `/my-models` добавлен и в `SESSION_PATH_PREFIXES` (`middleware.ts`), и в
+  `PROTECTED_PATH_PREFIXES` (`lib/supabase/middleware.ts`): до второй правки middleware
+  пропускал адрес как публичный, и гостя уводила только собственная проверка страницы, а
+  неподтверждённая почта доступа не закрывала.
+- **Проверки.** `npx tsc --noEmit`, `npm run lint`, `npm run build` (`/gallery` и `/my-models`
+  в сборке), `npm run check:docs` и `npm run check:imports` — зелёные. Дымовой прогон
+  `npm run start`: `/gallery` — 200, `/my-models` — 307 на вход, `/api/generations/<uuid>/stl`
+  без сессии — 401, `/api/generations/not-a-uuid/stl` — 404. В локальной базе миграция ещё не
+  применена, поэтому галерея отрисовалась пустой и записала в лог
+  `PGRST205: Could not find the table 'public.generations'` — страница не падает; после
+  применения `supabase/generations.sql` лента и «Мои модели» заработают без изменений кода.
 

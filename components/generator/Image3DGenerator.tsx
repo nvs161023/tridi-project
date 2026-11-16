@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   useEffect,
@@ -30,11 +31,14 @@ import {
  * проверяет сессию и кредиты, создаёт задачу у сети и сразу отдаёт `taskId`,
  * а дальше компонент сам опрашивает `/api/check-3d-status` раз в три секунды.
  * На `success` роут уже вернул ссылку на печатный STL — его показывает
- * `GeneratedModelViewer` и отдаёт кнопка «Скачать STL».
+ * `GeneratedModelViewer` и отдаёт кнопка «Скачать STL». Копия файла к этому
+ * моменту лежит в закрытом бакете, поэтому модель остаётся в «Моих моделях» и
+ * после перезапуска сервера.
  *
- * Слева — карточка «Фото»: загрузка, качество и кнопка запуска. Справа —
- * карточка «Модель»: ожидание с прогресс-баром, вьювер и скачивание. На
- * мобильном карточки идут друг под другом.
+ * Слева — карточка «Фото»: загрузка, качество, согласие на публикацию в
+ * галерее и кнопка запуска. Справа — карточка «Модель»: ожидание с
+ * прогресс-баром, вьювер и скачивание. На мобильном карточки идут друг под
+ * другом.
  */
 
 /** Просмотрщик подключается только в браузере: WebGL не нужен на сервере. */
@@ -210,6 +214,10 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
   const hintId = useId();
   const [photos, setPhotos] = useState<GeneratorPhoto[]>([]);
   const [quality, setQuality] = useState<GeneratorQuality>("ultra");
+  // Галерея предвключена, но это осознанный выбор: галочку можно снять здесь
+  // или позже в «Моих моделях». Значение уходит в `/api/generate-3d` вместе
+  // с фото и записывается в строку истории.
+  const [isPublic, setIsPublic] = useState(true);
   const [phase, setPhase] = useState<GeneratorPhase>("idle");
   const [progress, setProgress] = useState(0);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
@@ -352,6 +360,7 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
         body: JSON.stringify({
           images: sentPhotos.map((photo) => photo.base64),
           quality: sentQuality,
+          isPublic,
         }),
         headers: { "content-type": "application/json" },
         method: "POST",
@@ -667,6 +676,38 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
           </div>
         </div>
 
+        <label className="mt-5 flex cursor-pointer items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5">
+          <input
+            checked={isPublic}
+            className="mt-0.5 size-4 accent-emerald-400"
+            disabled={isBusy}
+            onChange={(event) => setIsPublic(event.target.checked)}
+            type="checkbox"
+          />
+          <span className="min-w-0">
+            <span className="block text-xs font-semibold text-zinc-200">
+              Показать модель в галерее
+            </span>
+            <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">
+              Согласен(на) на публикацию: модель увидят все посетители{" "}
+              <Link
+                className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
+                href="/gallery"
+              >
+                галереи
+              </Link>
+              , а STL сможет скачать любой вошедший. Передумать можно в{" "}
+              <Link
+                className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
+                href="/my-models"
+              >
+                «Моих моделях»
+              </Link>
+              .
+            </span>
+          </span>
+        </label>
+
         <button
           className="mt-5 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-500 to-blue-500 px-5 text-sm font-extrabold text-white shadow-lg shadow-fuchsia-500/25 transition-transform hover:scale-[1.01] hover:from-fuchsia-400 hover:to-blue-400 focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 focus-visible:outline-none active:scale-100 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:scale-100"
           disabled={!canGenerate}
@@ -795,6 +836,18 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
               <span aria-hidden>⬇</span>
               Скачать STL
             </a>
+
+            <p className="mt-2 text-center text-xs leading-relaxed text-zinc-500">
+              Модель сохранена в истории. Включить или скрыть публикацию в
+              галерее можно в{" "}
+              <Link
+                className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
+                href="/my-models"
+              >
+                «Моих моделях»
+              </Link>
+              .
+            </p>
           </div>
         ) : (
           <div

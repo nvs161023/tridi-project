@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 
 import { deductCredit, getUserCredits, refundCredit } from "@/lib/credits";
+import { rememberGenerationTask } from "@/lib/generator/generation-store";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -13,6 +14,10 @@ import { createClient } from "@/lib/supabase/server";
  *   несколько фото            → Tripo `multiview-to-model` (по видам);
  *   одно фото + quality=ultra → Meshy `image-to-3d` (модель `meshy-7.1`);
  *   одно фото + standard      → Tripo `image-to-model` (дешевле всего).
+ *
+ * Созданная задача сразу попадает в `generations` вместе с флагом публикации:
+ * по этому номеру опрос статуса найдёт строку и сохранит готовый STL в
+ * закрытый бакет. Ошибка записи историю не блокирует — генерация важнее.
  *
  * Обе сети вызываются без текстуры: для печати нужна геометрия, а карты
  * материалов только удорожают задачу. У Tripo `texture: false` работает лишь
@@ -548,13 +553,16 @@ async function createMeshyTask(
  *
  * Порядок проверок:
  *   1. сессия — без неё 401, тело даже не разбирается;
- *   2. тело — JSON с массивом `images` (base64 или data URL) и `quality`;
+ *   2. тело — JSON с массивом `images` (base64 или data URL), `quality` и
+ *      необязательным `isPublic`;
  *   3. каждый кадр — настоящий JPEG, PNG или WebP до 20 МБ;
  *   4. ключ выбранной сети — без него 503, платный запрос не отправляется;
  *   5. кредиты `user_credits` — 0 даёт 402, недоступный счётчик — 503; кредит
  *      списывается здесь же, до вызова сети;
- *   6. создание задачи — и сразу ответ `{ taskId }`, без ожидания модели.
- *      Отказ сети возвращает кредит и отвечает 502.
+ *   6. создание задачи — и сразу ответ `{ taskId }`, без ожидания модели;
+ *      отказ сети возвращает кредит и отвечает 502;
+ *   7. запись задачи в `generations` — уже после успеха сети, чтобы строка
+ *      без задачи не висела в истории.
  */
 export async function POST(request: Request): Promise<Response> {
   // Сессия — первая проверка: без неё платный запрос не должен даже
@@ -612,6 +620,10 @@ export async function POST(request: Request): Promise<Response> {
       "Параметр quality принимает только standard или ultra.",
     );
   }
+
+  // Публикация — осознанный выбор пользователя: отсутствие поля считается
+  // «скрыто», чтобы старый клиент без галочки не опубликовал модель молча.
+  const isPublic = payload.isPublic === true;
 
   const rawImages = payload.images;
 
@@ -709,6 +721,15 @@ export async function POST(request: Request): Promise<Response> {
       "фото",
       taskId,
     );
+
+    // Строка нужна опросу статуса, чтобы сохранить готовый STL. Функция сама
+    // глушит ошибки: без истории модель всё равно должна дойти до клиента.
+    await rememberGenerationTask({
+      userId: user.id,
+      taskId,
+      service: provider,
+      isPublic,
+    });
 
     return taskResponse(taskId);
   } catch (error) {

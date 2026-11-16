@@ -15,7 +15,13 @@ export type WorkshopLink = {
   note: string;
 };
 
-type ToolIconName = "profiles" | "defects" | "workshop" | "constructor";
+type ToolIconName =
+  | "profiles"
+  | "defects"
+  | "workshop"
+  | "constructor"
+  | "gallery"
+  | "models";
 
 type ToolLink = {
   href: string;
@@ -25,12 +31,14 @@ type ToolLink = {
 };
 
 /**
- * Инструменты, открытые всем: конструктор моделей, библиотека профилей и
- * диагностика дефектов.
+ * Инструменты, открытые всем: конструктор моделей, галерея генераций,
+ * библиотека профилей и диагностика дефектов.
  *
  * Конструктор стоит первым: это единственный инструмент с 3D-предпросмотром, и
  * ради него в меню заходят чаще всего. Сам он открывается только вошедшему —
- * гость уйдёт на вход уже со страницы, шапке про сессию знать не нужно.
+ * гость уйдёт на вход уже со страницы, шапке про сессию знать не нужно. Так же
+ * ведёт себя «Мои 3D-модели»: это история под входом, но пункт виден всем,
+ * чтобы человек знал, где искать свои генерации.
  */
 const OPEN_TOOL_LINKS: ToolLink[] = [
   {
@@ -38,6 +46,18 @@ const OPEN_TOOL_LINKS: ToolLink[] = [
     title: "Конструктор 3D-моделей",
     description: "9 пресетов брелоков, QR и NFC-карман",
     icon: "constructor",
+  },
+  {
+    href: "/gallery",
+    title: "Галерея 3D-моделей",
+    description: "Работы сообщества, STL после входа",
+    icon: "gallery",
+  },
+  {
+    href: "/my-models",
+    title: "Мои 3D-модели",
+    description: "История генераций по фото",
+    icon: "models",
   },
   {
     href: "/profiles",
@@ -147,6 +167,60 @@ function ToolIcon({
         />
         <path
           d="M12 12v8.5"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "gallery") {
+    // Картина: галерея показывает работы сообщества.
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        focusable="false"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M4.2 5.6h15.6v12.8H4.2z"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <circle
+          cx="8.8"
+          cy="9.8"
+          r="1.4"
+          stroke="currentColor"
+          strokeWidth="1.4"
+        />
+        <path
+          d="m4.6 16.4 4.4-4.2 3.3 3.1 2.6-2.4 4.5 4.3"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+      </svg>
+    );
+  }
+
+  if (name === "models") {
+    // Четыре плитки: история генераций — это коллекция моделей.
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        focusable="false"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M4.6 4.6h5.6v5.6H4.6zM13.8 4.6h5.6v5.6h-5.6zM4.6 13.8h5.6v5.6H4.6zM13.8 13.8h5.6v5.6h-5.6z"
           stroke="currentColor"
           strokeLinejoin="round"
           strokeWidth="1.5"

@@ -1,9 +1,12 @@
 import path from "node:path";
 
+import { after } from "next/server";
+
 import {
   MeshFixerError,
   processGeneratedMesh,
 } from "@/lib/constructor/mesh-fixer";
+import { saveGenerationStl } from "@/lib/generator/generation-store";
 
 /**
  * Опрос задачи генерации 3D и постобработка готовой модели.
@@ -23,6 +26,12 @@ import {
  * модель скачивается и проходит «мясорубку» (`processGeneratedMesh`) — сварка
  * вершин, децимация до ~100 000 треугольников и масштаб 120 мм по самому
  * большому габариту. Ссылка отдаётся роутом `/api/generated-stl/[file]`.
+ *
+ * Собранный файл сразу копируется в закрытый бакет `generated-models`, а путь
+ * записывается в строку задачи (`saveGenerationStl`). Делается это через
+ * `after()`: загрузка не задерживает ответ, а временная папка «мясорубки»
+ * после перезапуска контейнера пустеет — без копии модель пропала бы из
+ * истории.
  *
  * Tripo отвечает конвертом `{ code, data }` (статус и прогресс внутри `data`),
  * Meshy — плоским объектом, где ссылка на GLB лежит в `model_urls.glb`.
@@ -434,6 +443,11 @@ export async function GET(request: Request): Promise<Response> {
       "→",
       path.basename(stlPath),
     );
+
+    // Файл лежит во временной папке до перезапуска контейнера: копируем его в
+    // бакет после ответа, чтобы загрузка не задерживала последний опрос.
+    // Внутри ошибки только логируются — история не должна ломать генерацию.
+    after(saveGenerationStl({ taskId, filePath: stlPath }));
 
     return statusResponse({
       status: "success",
