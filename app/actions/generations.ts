@@ -3,18 +3,26 @@
 import { revalidatePath } from "next/cache";
 
 import type {
+  UpdateGenerationCategoryInput,
+  UpdateGenerationCategoryResult,
   UpdateGenerationVisibilityInput,
   UpdateGenerationVisibilityResult,
 } from "@/app/actions/generations-state";
+import { isGenerationCategory } from "@/lib/generator/categories";
 import {
   GENERATIONS_TABLE,
   isGenerationId,
 } from "@/lib/generator/generations";
-import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
+import {
+  isMissingColumnSchema,
+  isMissingTableSchema,
+} from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 
 const GENERATIONS_UNAVAILABLE =
   "История генераций временно недоступна. Попробуйте позже.";
+const CATEGORY_UNAVAILABLE =
+  "Смена категории пока недоступна: поле ещё не добавлено в базу.";
 const SESSION_EXPIRED = "Сессия истекла. Войдите в аккаунт заново.";
 const MODEL_NOT_FOUND = "Модель не найдена или недоступна.";
 
@@ -79,6 +87,77 @@ export async function setGenerationVisibility(
   }
 
   // Обе страницы собираются на сервере: после переключения их кэш устарел.
+  revalidatePath("/my-models");
+  revalidatePath("/gallery");
+
+  return { ok: true };
+}
+
+/**
+ * Меняет категорию уже сгенерированной модели.
+ *
+ * Нужно на случай ошибки при выборе в генераторе: модель могла уехать не в ту
+ * вкладку галереи. Проверки те же, что у публикации — UUID, значение из списка,
+ * сессия и `user_id` в фильтре, чтобы чужую модель нельзя было переписать,
+ * зная только её id.
+ */
+export async function setGenerationCategory(
+  input: UpdateGenerationCategoryInput,
+): Promise<UpdateGenerationCategoryResult> {
+  if (!isGenerationId(input?.id) || !isGenerationCategory(input?.category)) {
+    return { ok: false, error: MODEL_NOT_FOUND };
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return { ok: false, error: SESSION_EXPIRED };
+  }
+
+  const { data, error } = await supabase
+    .from(GENERATIONS_TABLE)
+    .update({ category: input.category })
+    .eq("id", input.id)
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.warn(
+      "Категория модели не изменена:",
+      error.code ?? "нет ответа",
+      error.message,
+    );
+
+    // Колонку добавляют вручную: пока её нет, честнее сказать об этом, чем
+    // молча вернуть флажок на прежнее значение.
+    if (isMissingColumnSchema(error.code, error.message, "category")) {
+      return { ok: false, error: CATEGORY_UNAVAILABLE };
+    }
+
+    if (isMissingTableSchema(error.code, error.message)) {
+      return { ok: false, error: GENERATIONS_UNAVAILABLE };
+    }
+
+    if (error.code === "42501") {
+      return { ok: false, error: SESSION_EXPIRED };
+    }
+
+    return {
+      ok: false,
+      error: "Не удалось сохранить категорию. Попробуйте ещё раз.",
+    };
+  }
+
+  if (!data) {
+    return { ok: false, error: MODEL_NOT_FOUND };
+  }
+
+  // Категория — фильтр галереи и подпись карточки на обеих страницах.
   revalidatePath("/my-models");
   revalidatePath("/gallery");
 

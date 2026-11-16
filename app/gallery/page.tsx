@@ -2,9 +2,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
+import { GalleryCategoryFilter } from "@/components/gallery/GalleryCategoryFilter";
 import { GenerationCard } from "@/components/generator/GenerationCard";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
+import {
+  generationCategoryLabel,
+  parseGenerationCategory,
+} from "@/lib/generator/categories";
 import {
   attachGenerationPreviews,
   getPublicGenerations,
@@ -20,11 +25,20 @@ import { createClient } from "@/lib/supabase/server";
  * `/api/generations/<id>/stl` проверяет сессию ещё раз, поэтому прямой запрос
  * мимо интерфейса тоже не отдаст файл.
  *
+ * Категория — параметр адреса (`?category=toy`), а не состояние клиента:
+ * фильтр применяется в запросе к базе (`.eq('category', …)`), поэтому лента не
+ * тянет из Supabase модели других категорий, а ссылку можно сохранить.
+ *
  * Страница собирается на каждый запрос: лента меняется после публикации, а
  * подписанные ссылки нельзя кэшировать дольше часа.
  */
 
 const PAGE_PATH = "/gallery";
+
+type GalleryPageProps = {
+  /** Категория из адреса: `?category=toy`. Приходит промисом в Next 15. */
+  searchParams: Promise<{ category?: string }>;
+};
 
 export const metadata: Metadata = {
   title: "Галерея 3D-моделей",
@@ -71,13 +85,55 @@ function EmptyState({ signedIn }: { signedIn: boolean }) {
   );
 }
 
-export default async function GalleryPage() {
+/**
+ * Пустая категория: лента есть, но в этой вкладке моделей нет.
+ *
+ * Отдельный текст нужен, чтобы не пугать посетителя «пустой галереей»: другие
+ * категории могут быть заполнены, и ссылка возвращает к общей ленте.
+ */
+function EmptyCategoryState({ category }: { category: string }) {
+  return (
+    <section className="mt-6 rounded-[1.75rem] border border-white/[0.07] bg-[#0a0a0a]/70 p-6 text-center backdrop-blur-xl sm:p-10">
+      <p aria-hidden className="text-3xl">
+        🔎
+      </p>
+      <h2 className="mt-3 text-lg font-extrabold tracking-tight text-white sm:text-xl">
+        В категории «{generationCategoryLabel(category)}» пока пусто
+      </h2>
+      <p className="mx-auto mt-2 max-w-lg text-sm leading-relaxed text-zinc-400">
+        Модели других категорий никуда не делись — вернитесь к общей ленте или
+        сгенерируйте свою и выберите эту категорию в генераторе.
+      </p>
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+        <Link
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 text-sm font-semibold text-white transition-colors hover:border-white/30 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+          href="/gallery"
+        >
+          Показать все модели
+        </Link>
+        <Link
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-fuchsia-500 to-blue-500 px-5 text-sm font-extrabold text-white shadow-lg shadow-fuchsia-500/20 transition-colors hover:from-fuchsia-400 hover:to-blue-400 focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+          href="/3d-generator"
+        >
+          Сгенерировать 3D из фото
+          <span aria-hidden>→</span>
+        </Link>
+      </div>
+    </section>
+  );
+}
+
+export default async function GalleryPage({ searchParams }: GalleryPageProps) {
   const supabase = await createClient();
   const userId = await resolveUserId(supabase);
   const signedIn = Boolean(userId);
 
+  // Незнакомое значение в адресе читается как «Все»: чужую ссылку с опечаткой
+  // страница не должна превращать в пустую ленту.
+  const category = parseGenerationCategory((await searchParams).category);
+
   const generations = await attachGenerationPreviews(
-    await getPublicGenerations(supabase),
+    await getPublicGenerations(supabase, category),
   );
 
   const loginHref = authHref("/auth/login", PAGE_PATH);
@@ -140,8 +196,14 @@ export default async function GalleryPage() {
           )}
         </header>
 
+        <GalleryCategoryFilter active={category} />
+
         {generations.length === 0 ? (
-          <EmptyState signedIn={signedIn} />
+          category ? (
+            <EmptyCategoryState category={category} />
+          ) : (
+            <EmptyState signedIn={signedIn} />
+          )
         ) : (
           <ul className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {generations.map((generation) => (

@@ -4,6 +4,10 @@ import {
   deductGenerationCredit,
   refundGenerationCredit,
 } from "@/lib/credits";
+import {
+  DEFAULT_GENERATION_CATEGORY,
+  parseGenerationCategory,
+} from "@/lib/generator/categories";
 import { rememberGenerationTask } from "@/lib/generator/generation-store";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
@@ -558,8 +562,8 @@ async function createMeshyTask(
  *
  * Порядок проверок:
  *   1. сессия — без неё 401, тело даже не разбирается;
- *   2. тело — JSON с массивом `images` (base64 или data URL), `quality` и
- *      необязательным `isPublic`;
+ *   2. тело — JSON с массивом `images` (base64 или data URL), `quality`,
+ *      категорией `category` и необязательным `isPublic`;
  *   3. каждый кадр — настоящий JPEG, PNG или WebP до 20 МБ;
  *   4. ключ выбранной сети — без него 503, платный запрос не отправляется;
  *   5. баланс `user_credits`: списывается месячный лимит подписки, бесплатная
@@ -630,6 +634,22 @@ export async function POST(request: Request): Promise<Response> {
   // Публикация — осознанный выбор пользователя: отсутствие поля считается
   // «скрыто», чтобы старый клиент без галочки не опубликовал модель молча.
   const isPublic = payload.isPublic === true;
+
+  // Категория — подсказка для фильтров галереи. Старый клиент её не шлёт:
+  // тогда модель попадает в «Другое», как и default колонки. Незнакомую строку
+  // не угадываем — иначе «Игрушки» тихо станут «Другим».
+  const rawCategory = payload.category;
+  const category =
+    rawCategory === undefined || rawCategory === null
+      ? DEFAULT_GENERATION_CATEGORY
+      : parseGenerationCategory(rawCategory);
+
+  if (!category) {
+    return errorResponse(
+      400,
+      "Параметр category принимает только toy, figure, decor, functional или other.",
+    );
+  }
 
   const rawImages = payload.images;
 
@@ -737,6 +757,7 @@ export async function POST(request: Request): Promise<Response> {
       userId: user.id,
       taskId,
       service: provider,
+      category,
       isPublic,
     });
 

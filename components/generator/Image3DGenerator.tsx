@@ -13,6 +13,12 @@ import {
 } from "react";
 
 import {
+  DEFAULT_GENERATION_CATEGORY,
+  GENERATION_CATEGORIES,
+  parseGenerationCategory,
+  type GenerationCategory,
+} from "@/lib/generator/categories";
+import {
   chooseCreditSource,
   describeCreditSource,
   type GenerationCreditBalance,
@@ -40,8 +46,8 @@ import {
  * моменту лежит в закрытом бакете, поэтому модель остаётся в «Моих моделях» и
  * после перезапуска сервера.
  *
- * Слева — карточка «Фото»: загрузка, качество, согласие на публикацию в
- * галерее и кнопка запуска. Справа — карточка «Модель»: ожидание с
+ * Слева — карточка «Фото»: загрузка, качество, категория модели, согласие на
+ * публикацию в галерее и кнопка запуска. Справа — карточка «Модель»: ожидание с
  * прогресс-баром, вьювер и скачивание. На мобильном карточки идут друг под
  * другом.
  */
@@ -228,6 +234,12 @@ export function Image3DGenerator({
   // или позже в «Моих моделях». Значение уходит в `/api/generate-3d` вместе
   // с фото и записывается в строку истории.
   const [isPublic, setIsPublic] = useState(true);
+  // Категория нужна фильтрам галереи: по умолчанию «Другое», чтобы модель
+  // никогда не оставалась без подписи. Значение уходит в `/api/generate-3d`
+  // вместе с фото и записывается в строку истории.
+  const [category, setCategory] = useState<GenerationCategory>(
+    DEFAULT_GENERATION_CATEGORY,
+  );
   const [phase, setPhase] = useState<GeneratorPhase>("idle");
   const [progress, setProgress] = useState(0);
   const [modelUrl, setModelUrl] = useState<string | null>(null);
@@ -365,6 +377,7 @@ export function Image3DGenerator({
     // опроса обязана совпасть с той, что получила ровно эти кадры.
     const sentPhotos = photos;
     const sentQuality = quality;
+    const sentCategory = category;
 
     setError(null);
     setModelUrl(null);
@@ -377,6 +390,7 @@ export function Image3DGenerator({
         body: JSON.stringify({
           images: sentPhotos.map((photo) => photo.base64),
           quality: sentQuality,
+          category: sentCategory,
           isPublic,
         }),
         headers: { "content-type": "application/json" },
@@ -725,6 +739,37 @@ export function Image3DGenerator({
               </Link>
               .
             </span>
+          </span>
+        </label>
+
+        <label className="mt-5 block">
+          <span className="block text-xs font-semibold tracking-wide text-zinc-400 uppercase">
+            Категория модели
+          </span>
+          <select
+            className="mt-2 min-h-11 w-full rounded-xl border border-white/15 bg-white/5 px-3 text-sm font-semibold text-white transition-colors hover:border-white/30 focus-visible:border-fuchsia-400/70 focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isBusy}
+            onChange={(event) =>
+              setCategory(
+                parseGenerationCategory(event.target.value) ??
+                  DEFAULT_GENERATION_CATEGORY,
+              )
+            }
+            value={category}
+          >
+            {GENERATION_CATEGORIES.map((option) => (
+              <option
+                className="bg-slate-900 text-white"
+                key={option.value}
+                value={option.value}
+              >
+                {option.hint ? `${option.label} (${option.hint})` : option.label}
+              </option>
+            ))}
+          </select>
+          <span className="mt-2 block text-[11px] leading-relaxed text-zinc-500">
+            По категории модели фильтруется галерея. Если ошиблись — сменить её
+            можно в «Моих моделях».
           </span>
         </label>
 

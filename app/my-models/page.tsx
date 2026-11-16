@@ -113,6 +113,10 @@ export default async function MyModelsPage() {
             Показаны последние {GENERATIONS_LIMIT} моделей. Файлы хранятся в
             закрытом бакете и отдаются только после проверки сессии.
           </p>
+          <p className="mt-1 text-xs leading-relaxed text-zinc-500">
+            Категорию можно сменить на карточке — по ней модель фильтруется в
+            галерее.
+          </p>
         </header>
 
         {generations.length === 0 ? (

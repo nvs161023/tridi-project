@@ -15,6 +15,11 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
+  DEFAULT_GENERATION_CATEGORY,
+  parseGenerationCategory,
+  type GenerationCategory,
+} from "@/lib/generator/categories";
+import {
   GENERATED_MODELS_BUCKET,
   GENERATIONS_LIMIT,
   GENERATIONS_TABLE,
@@ -25,6 +30,7 @@ import {
   type StoredGeneration,
 } from "@/lib/generator/generations";
 import type { GeneratorService } from "@/lib/generator/photo-generator";
+import { isMissingColumnSchema } from "@/lib/supabase/schema-errors";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -42,7 +48,18 @@ const STL_MIME_TYPES = [
 ];
 
 /** Колонки списка: путь к файлу отдельно, чтобы не читать лишнего. */
-const LIST_COLUMNS = "id, service, stl_url, is_public, created_at";
+const LIST_COLUMNS = "id, service, stl_url, is_public, category, created_at";
+
+/**
+ * Те же колонки без `category`.
+ *
+ * Колонку добавляют вручную (`supabase/generations_category.sql`), поэтому
+ * живая база может быть на schema-шаг назад. Тогда списки читаются без неё,
+ * а карточки показывают «Другое» — терять всю историю из-за необязательного
+ * поля нельзя.
+ */
+const LIST_COLUMNS_WITHOUT_CATEGORY =
+  "id, service, stl_url, is_public, created_at";
 
 /** Строка таблицы в том виде, в каком её вернул PostgREST. */
 type GenerationRow = {
@@ -52,6 +69,7 @@ type GenerationRow = {
   service?: string | null;
   stl_url?: string | null;
   is_public?: boolean | null;
+  category?: string | null;
   created_at?: string | null;
 };
 
@@ -132,29 +150,58 @@ function warnAboutHistory(message: string, cause: unknown): void {
  * Вызывается из `/api/generate-3d` после ответа сети: без строки успешный
  * опрос не найдёт, куда положить STL. Ошибка не мешает ответу `{ taskId }`:
  * пользователь получит модель, даже если история временно недоступна.
+ *
+ * Категория пишется вместе с задачей: фильтр галереи работает по строке, а не
+ * по модели, и догонять её отдельным запросом значило бы терять значение, пока
+ * модель считается.
  */
 export async function rememberGenerationTask(input: {
   userId: string;
   taskId: string;
   service: GeneratorService;
+  category: GenerationCategory;
   isPublic: boolean;
 }): Promise<void> {
+  const row = {
+    user_id: input.userId,
+    task_id: input.taskId,
+    service: input.service,
+    is_public: input.isPublic,
+  };
+
   try {
     const admin = createAdminClient();
-    const { error } = await admin.from(GENERATIONS_TABLE).insert({
-      user_id: input.userId,
-      task_id: input.taskId,
-      service: input.service,
-      is_public: input.isPublic,
-    });
+    const { error } = await admin
+      .from(GENERATIONS_TABLE)
+      .insert({ ...row, category: input.category });
+
+    if (!error) {
+      return;
+    }
 
     // 23505 — сеть вернула уже известный номер: строка есть, повтор не нужен.
-    if (error && error.code !== "23505") {
-      warnAboutHistory(
-        `задача ${input.taskId} не записана (${error.code ?? "без кода"})`,
-        error.message,
-      );
+    if (error.code === "23505") {
+      return;
     }
+
+    // Колонку добавляют вручную: без неё нельзя потерять всю строку истории.
+    if (isMissingColumnSchema(error.code, error.message, "category")) {
+      const retry = await admin.from(GENERATIONS_TABLE).insert(row);
+
+      if (retry.error && retry.error.code !== "23505") {
+        warnAboutHistory(
+          `задача ${input.taskId} не записана без категории (${retry.error.code ?? "без кода"})`,
+          retry.error.message,
+        );
+      }
+
+      return;
+    }
+
+    warnAboutHistory(
+      `задача ${input.taskId} не записана (${error.code ?? "без кода"})`,
+      error.message,
+    );
   } catch (error) {
     warnAboutHistory("история недоступна", error);
   }
@@ -266,6 +313,9 @@ function toStoredGeneration(row: GenerationRow): StoredGeneration | null {
   return {
     id: row.id,
     service,
+    // Старая строка или неприменённая миграция читаются как «Другое»: без
+    // категории карточка не должна исчезать из истории.
+    category: parseGenerationCategory(row.category) ?? DEFAULT_GENERATION_CATEGORY,
     isPublic: row.is_public === true,
     createdAtLabel: formatGenerationDate(row.created_at ?? ""),
     stlPath: row.stl_url,
@@ -277,33 +327,67 @@ function toStoredGeneration(row: GenerationRow): StoredGeneration | null {
  *
  * `stl_url is not null` — обязательный фильтр: строка появляется раньше, чем
  * готова модель, и карточке без файла нечего показывать и нечего скачивать.
+ *
+ * `category` — фильтр галереи; в «Моих моделях» не передаётся, там видны все
+ * модели. Если колонки в живой базе ещё нет, лента без фильтра читается без
+ * неё, а фильтр по категории честно отдаёт пусто: подписывать модели чужой
+ * категорией нельзя.
  */
 async function listGenerations(
   supabase: Supabase,
-  filter: { userId: string | null },
+  filter: { userId: string | null; category?: GenerationCategory | null },
 ): Promise<StoredGeneration[]> {
-  let query = supabase
-    .from(GENERATIONS_TABLE)
-    .select(LIST_COLUMNS)
-    .not("stl_url", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(GENERATIONS_LIMIT);
+  const build = (columns: string) => {
+    let query = supabase
+      .from(GENERATIONS_TABLE)
+      .select(columns)
+      .not("stl_url", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(GENERATIONS_LIMIT);
 
-  query = filter.userId
-    ? query.eq("user_id", filter.userId)
-    : query.eq("is_public", true);
+    query = filter.userId
+      ? query.eq("user_id", filter.userId)
+      : query.eq("is_public", true);
 
-  const { data, error } = await query;
+    if (filter.category) {
+      query = query.eq("category", filter.category);
+    }
+
+    return query;
+  };
+
+  const { data, error } = await build(LIST_COLUMNS);
+  let rows = (data ?? []) as GenerationRow[];
 
   if (error) {
-    warnAboutHistory(
-      `список не прочитан (${error.code ?? "без кода"})`,
-      error.message,
-    );
-    return [];
+    if (!isMissingColumnSchema(error.code, error.message, "category")) {
+      warnAboutHistory(
+        `список не прочитан (${error.code ?? "без кода"})`,
+        error.message,
+      );
+      return [];
+    }
+
+    // Фильтра по категории без колонки не существует: пустая лента честнее
+    // списка, в котором «Игрушки» показывают что угодно.
+    if (filter.category) {
+      return [];
+    }
+
+    const fallback = await build(LIST_COLUMNS_WITHOUT_CATEGORY);
+
+    if (fallback.error) {
+      warnAboutHistory(
+        `список не прочитан (${fallback.error.code ?? "без кода"})`,
+        fallback.error.message,
+      );
+      return [];
+    }
+
+    rows = (fallback.data ?? []) as GenerationRow[];
   }
 
-  return ((data ?? []) as GenerationRow[])
+  return rows
     .map(toStoredGeneration)
     .filter((item): item is StoredGeneration => item !== null);
 }
@@ -316,11 +400,17 @@ export async function getMyGenerations(
   return listGenerations(supabase, { userId });
 }
 
-/** Галерея: только опубликованные модели всех пользователей. */
+/**
+ * Галерея: только опубликованные модели всех пользователей.
+ *
+ * `category` приходит из адреса (`?category=toy`) и уже проверена вызывающим
+ * кодом; `null` — вкладка «Все».
+ */
 export async function getPublicGenerations(
   supabase: Supabase,
+  category: GenerationCategory | null = null,
 ): Promise<StoredGeneration[]> {
-  return listGenerations(supabase, { userId: null });
+  return listGenerations(supabase, { userId: null, category });
 }
 
 /** Подписанная ссылка на один STL: живёт час и только для чтения файла. */
@@ -368,6 +458,7 @@ export async function attachGenerationPreviews(
     return items.map((item) => ({
       id: item.id,
       service: item.service,
+      category: item.category,
       isPublic: item.isPublic,
       createdAtLabel: item.createdAtLabel,
       previewUrl: null,
@@ -378,6 +469,7 @@ export async function attachGenerationPreviews(
     items.map(async (item) => ({
       id: item.id,
       service: item.service,
+      category: item.category,
       isPublic: item.isPublic,
       createdAtLabel: item.createdAtLabel,
       previewUrl: await signPreview(admin, item.stlPath),

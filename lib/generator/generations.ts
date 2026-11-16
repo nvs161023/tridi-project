@@ -6,6 +6,7 @@
  * разбор того, что вернула база, — поэтому одни и те же подписи и проверки
  * работают в браузере и на сервере.
  */
+import { type GenerationCategory } from "@/lib/generator/categories";
 import type { GeneratorService } from "@/lib/generator/photo-generator";
 
 /** Таблица истории — она же в supabase/generations.sql. */
@@ -36,6 +37,8 @@ export type GenerationSummary = {
   id: string;
   /** Сеть, которая считала задачу. */
   service: GeneratorService;
+  /** Категория модели: выбирается в генераторе, меняется в «Моих моделях». */
+  category: GenerationCategory;
   /** Показывать в галерее: переключает владелец. */
   isPublic: boolean;
   /** Готовая подпись даты: её считает сервер, чтобы не было расхождения. */
