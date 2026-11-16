@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import {
+  visibleToolLinks,
+  type ToolIconName,
+  type ToolLink,
+} from "@/components/navigation/tool-links";
+
 /**
  * Пункт «Мастерская (Pro)»: ссылка и подпись под ним.
  *
@@ -14,64 +20,6 @@ export type WorkshopLink = {
   href: string;
   note: string;
 };
-
-type ToolIconName =
-  | "profiles"
-  | "defects"
-  | "workshop"
-  | "constructor"
-  | "gallery"
-  | "models";
-
-type ToolLink = {
-  href: string;
-  title: string;
-  description: string;
-  icon: ToolIconName;
-};
-
-/**
- * Инструменты, открытые всем: конструктор моделей, галерея генераций,
- * библиотека профилей и диагностика дефектов.
- *
- * Конструктор стоит первым: это единственный инструмент с 3D-предпросмотром, и
- * ради него в меню заходят чаще всего. Сам он открывается только вошедшему —
- * гость уйдёт на вход уже со страницы, шапке про сессию знать не нужно. Так же
- * ведёт себя «Мои 3D-модели»: это история под входом, но пункт виден всем,
- * чтобы человек знал, где искать свои генерации.
- */
-const OPEN_TOOL_LINKS: ToolLink[] = [
-  {
-    href: "/constructor",
-    title: "Конструктор 3D-моделей",
-    description: "9 пресетов брелоков, QR и NFC-карман",
-    icon: "constructor",
-  },
-  {
-    href: "/gallery",
-    title: "Галерея 3D-моделей",
-    description: "Работы сообщества, STL после входа",
-    icon: "gallery",
-  },
-  {
-    href: "/my-models",
-    title: "Мои 3D-модели",
-    description: "История генераций по фото",
-    icon: "models",
-  },
-  {
-    href: "/profiles",
-    title: "Библиотека профилей",
-    description: "Настройки слайсеров и материалов",
-    icon: "profiles",
-  },
-  {
-    href: "/tools/defects",
-    title: "Диагностика дефектов",
-    description: "Причины и пошаговые решения",
-    icon: "defects",
-  },
-];
 
 /** Маленькая стрелка вниз: поворачивается, когда меню открыто. */
 function ChevronIcon({ className }: { className?: string }) {
@@ -229,6 +177,33 @@ function ToolIcon({
     );
   }
 
+  if (name === "generate") {
+    // Камера: генератор собирает 3D-модель по одному снимку.
+    return (
+      <svg
+        aria-hidden="true"
+        className={className}
+        fill="none"
+        focusable="false"
+        viewBox="0 0 24 24"
+      >
+        <path
+          d="M4.2 8.4h3.1l1.3-2.1h6.8l1.3 2.1h3.1v10.2H4.2z"
+          stroke="currentColor"
+          strokeLinejoin="round"
+          strokeWidth="1.5"
+        />
+        <circle
+          cx="12"
+          cy="13.3"
+          r="3"
+          stroke="currentColor"
+          strokeWidth="1.5"
+        />
+      </svg>
+    );
+  }
+
   if (name === "profiles") {
     return (
       <svg
@@ -288,23 +263,31 @@ function ToolIcon({
  * `<ul>`, а не `role="menu"`: так ссылки работают привычными Tab/Enter без
  * собственной реализации клавиатурного меню.
  *
- * «Мастерская (Pro)» стоит первой и подписана по доступу: новому пользователю
- * она нужна больше всего, а подпись «Требуется подписка Pro» объясняет, почему
- * пункт ведёт на тарифы.
+ * Инструменты идут в общем порядке (`TOOL_LINKS`), «Мастерская (Pro)» — последней
+ * и подписана по доступу: подпись «Требуется подписка Pro» объясняет, почему
+ * пункт ведёт на тарифы. «Мои модели» гость не видит: шапка передаёт
+ * `isAuthorized`, а фильтр списка общий с бургер-меню.
  */
-export function ToolsDropdown({ workshop }: { workshop: WorkshopLink }) {
+export function ToolsDropdown({
+  workshop,
+  isAuthorized,
+}: {
+  workshop: WorkshopLink;
+  isAuthorized: boolean;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   const toolLinks: ToolLink[] = [
+    ...visibleToolLinks(isAuthorized),
     {
       href: workshop.href,
       title: "Мастерская (Pro)",
       description: workshop.note,
       icon: "workshop",
+      badge: "Pro",
     },
-    ...OPEN_TOOL_LINKS,
   ];
 
   useEffect(() => {
@@ -377,8 +360,13 @@ export function ToolsDropdown({ workshop }: { workshop: WorkshopLink }) {
                     <ToolIcon name={tool.icon} className="h-4 w-4" />
                   </span>
                   <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-sm font-semibold text-slate-100">
+                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-100">
                       {tool.title}
+                      {tool.badge ? (
+                        <span className="rounded-full border border-blue-400/30 bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-bold tracking-[0.1em] text-blue-300 uppercase">
+                          {tool.badge}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="text-xs leading-relaxed text-slate-300">
                       {tool.description}
@@ -388,6 +376,19 @@ export function ToolsDropdown({ workshop }: { workshop: WorkshopLink }) {
               </li>
             ))}
           </ul>
+          {/*
+            Подвал меню: каталог со всеми разделами (`/tools`). Там диагностика
+            дефектов и остальные страницы, которые в список инструментов не
+            входят, поэтому ссылка стоит после `<ul>`, а не пунктом списка.
+          */}
+          <Link
+            href="/tools"
+            onClick={() => setIsOpen(false)}
+            className="mt-1 flex items-center justify-between gap-2 rounded-xl border-t border-white/10 px-3 pt-3 pb-2 text-xs font-semibold text-slate-300 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none"
+          >
+            Все инструменты
+            <span aria-hidden="true">→</span>
+          </Link>
         </div>
       ) : null}
     </div>

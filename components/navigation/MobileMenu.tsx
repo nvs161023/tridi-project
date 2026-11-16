@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
+import { visibleToolLinks } from "@/components/navigation/tool-links";
+
 type MobileMenuProps = {
   isAuthorized: boolean;
   lessonsHref: string;
@@ -13,6 +15,8 @@ type MobileMenuProps = {
 type MenuLink = {
   href: string;
   label: string;
+  /** Бейдж справа от пункта: «NEW» у генератора по фото, «Pro» у мастерской. */
+  badge?: string;
 };
 
 /** Основные разделы сайта. */
@@ -121,20 +125,18 @@ export function MobileMenu({
 
   const closeMenu = () => setIsOpen(false);
 
-  // «Инструменты» — те же ссылки, что в десктопном меню, включая конструктор,
-  // галерею и «Мастерскую (Pro)». Мастерская стоит сразу после них: это
-  // единственный пункт раздела, ради которого нужен пакет, и на телефоне его
-  // иначе не найти. «Мои модели» показываем только вошедшему: гостю этот пункт
-  // всё равно ответил бы редиректом на вход.
+  // «Инструменты» — общий список с десктопным меню (`components/navigation/
+  // tool-links.ts`), поэтому составы не разъезжаются. «Мои модели» фильтр
+  // прячет от гостя: страница сама уведёт на вход с возвратом, но пункт без
+  // сессии только шумит. Мастерская получает готовую ссылку из шапки: с
+  // пакетом — в мастерскую, без пакета — на тарифы, гостю — на вход.
   const toolLinks: MenuLink[] = [
-    { href: "/tools", label: "Центр инструментов" },
-    { href: "/constructor", label: "Конструктор 3D-моделей" },
-    { href: "/gallery", label: "Галерея 3D-моделей" },
-    ...(isAuthorized
-      ? [{ href: "/my-models", label: "Мои 3D-модели" }]
-      : []),
-    { href: workshopHref, label: "Мастерская (Pro)" },
-    { href: "/tools/defects", label: "Диагностика дефектов" },
+    ...visibleToolLinks(isAuthorized).map((link) => ({
+      href: link.href,
+      label: link.title,
+      badge: link.badge,
+    })),
+    { href: workshopHref, label: "Мастерская (Pro)", badge: "Pro" },
   ];
 
   return (
@@ -188,12 +190,29 @@ export function MobileMenu({
                     onClick={closeMenu}
                     className={MOBILE_LINK_CLASS}
                   >
-                    {link.label}
+                    <span className="min-w-0">{link.label}</span>
+                    {link.badge ? (
+                      <span className="ml-auto rounded-full border border-blue-400/30 bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold tracking-[0.1em] text-blue-300 uppercase">
+                        {link.badge}
+                      </span>
+                    ) : null}
                   </Link>
                 </li>
               ))}
 
             </ul>
+
+            {/*
+              Подвал раздела: каталог `/tools` со всеми страницами, которых нет
+              в списке инструментов, — там же диагностика дефектов.
+            */}
+            <Link
+              href="/tools"
+              onClick={closeMenu}
+              className="mt-1 flex min-h-11 items-center rounded-xl px-3 text-sm font-medium text-slate-400 transition-colors hover:bg-white/5 hover:text-white focus-visible:bg-white/5 focus-visible:text-white focus-visible:outline-none"
+            >
+              Все инструменты →
+            </Link>
 
             <div className="mt-4 space-y-1 border-t border-white/10 pt-4">
               {/*
@@ -216,13 +235,6 @@ export function MobileMenu({
                     className={MOBILE_LINK_CLASS}
                   >
                     Мои уроки
-                  </Link>
-                  <Link
-                    href="/profiles"
-                    onClick={closeMenu}
-                    className={MOBILE_LINK_CLASS}
-                  >
-                    Профили печати
                   </Link>
                   <Link
                     href="/dashboard"
