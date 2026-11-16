@@ -6,6 +6,11 @@ import {
   type KeychainPresetId,
 } from "@/lib/constructor/keychain-presets";
 import {
+  MODEL_TYPES,
+  MODEL_TYPE_LABELS,
+  type ModelType,
+} from "@/lib/constructor/model-types";
+import {
   DEFAULT_QR_CARD_SPEC,
   QR_CARD_CONTENT_MAX_LENGTH,
   QR_CARD_NAME_MAX_LENGTH,
@@ -347,35 +352,12 @@ export const CONSTRUCTOR_LIMITS = {
   },
 } as const satisfies Record<string, NumericLimit>;
 
-/** Типы моделей, которые умеет собирать конструктор. */
-export const MODEL_TYPES = [
-  "vase",
-  "keychain",
-  "sign",
-  "box",
-  "lithophane",
-  "planter",
-  "coaster",
-  "jewelry_stand",
-  "pen_holder",
-  "heat_transfer",
-] as const;
-
-export type ModelType = (typeof MODEL_TYPES)[number];
-
-/** Подписи моделей для вкладок панели параметров. */
-export const MODEL_TYPE_LABELS = {
-  vase: "Ваза",
-  keychain: "Брелок",
-  sign: "Вывеска",
-  box: "Коробки",
-  lithophane: "Литофан",
-  planter: "Кашпо",
-  coaster: "Подставка под кружку",
-  jewelry_stand: "Подставка для украшений",
-  pen_holder: "Органайзер для ручек",
-  heat_transfer: "Термопринт",
-} as const satisfies Record<ModelType, string>;
+/**
+ * Список моделей и их подписи живут в `model-types.ts`: их читает витрина
+ * тарифов, которой не нужен three.js из `qr-card-geometry.ts`. Реэкспорт
+ * сохраняет прежний адрес импорта для панели, API и проверочных скриптов.
+ */
+export { MODEL_TYPES, MODEL_TYPE_LABELS, type ModelType };
 
 /** Инструмент конструктора в витринах: идентификатор, название и описание. */
 export type ConstructorTool = {

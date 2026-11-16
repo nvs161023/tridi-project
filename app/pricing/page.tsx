@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 
 import { PlanButton } from "@/app/subscription/PlanButton";
 import { Header } from "@/components/Header";
+import { MODEL_TYPES, MODEL_TYPE_LABELS } from "@/lib/constructor/model-types";
 import { SUBSCRIPTION_PLAN, TOKEN_PACKS } from "@/lib/generation-plans";
 import { getPaymentAmount } from "@/lib/payments";
 import { OG_IMAGE } from "@/lib/seo";
@@ -22,18 +23,30 @@ import { OG_IMAGE } from "@/lib/seo";
 export const metadata: Metadata = {
   title: "Тарифы генератора 3D",
   description:
-    "Подписка Pro с 3 генерациями Standard и 1 Ultra каждый месяц, пакеты Standard и Ultra без срока действия. Одна бесплатная генерация Standard — после регистрации.",
+    "Подписка Pro: все модели Конструктора, 3 генерации Standard и 1 Ultra каждый месяц, безлимитный STL и библиотека профилей печати. Пакеты Standard и Ultra без срока действия, одна бесплатная генерация после регистрации.",
   alternates: { canonical: "/pricing" },
   openGraph: {
     title: "Тарифы генератора 3D",
     description:
-      "Подписка Pro, пакеты Standard и Ultra: выберите, сколько 3D-моделей нужно в месяц.",
+      "Подписка Pro, пакеты Standard и Ultra: Конструктор, безлимитный STL, профили печати и генерации по фото — выберите, сколько 3D-моделей нужно в месяц.",
     images: [OG_IMAGE],
   },
 };
 
 /** Цена в рублях с разделителями разрядов: 500 → «500», 1 500 → «1 500». */
 const formatPrice = (price: number) => price.toLocaleString("ru-RU");
+
+/**
+ * Названия моделей Конструктора для списка возможностей подписки.
+ *
+ * Состав и порядок берутся из `MODEL_TYPES`: новый генератор появится в
+ * карточке сам, а удалённый — исчезнет, и витрина не пообещает инструмент,
+ * которого нет. Сам массив живёт в `lib/constructor/model-types.ts`, а не в
+ * `params.ts`: странице тарифов не нужен three.js из геометрии QR-визитки.
+ */
+const CONSTRUCTOR_MODEL_NAMES: readonly string[] = MODEL_TYPES.map(
+  (type) => MODEL_TYPE_LABELS[type],
+);
 
 /** Строка списка возможностей: галочка и текст. */
 function PlanFeature({
@@ -73,9 +86,10 @@ export default function PricingPage() {
           </h1>
           <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
             После регистрации доступна одна бесплатная генерация Standard.
-            Подписка Pro добавляет 3 Standard и 1 Ultra каждый месяц, а пакеты
-            токенов покупаются разово и не сгорают — их можно брать сколько
-            угодно.
+            Подписка Pro открывает все модели Конструктора, безлимитный экспорт
+            STL и библиотеку профилей печати, а генератор по фото получает 3
+            Standard и 1 Ultra каждый месяц. Пакеты токенов покупаются разово и
+            не сгорают — их можно брать сколько угодно.
           </p>
         </section>
 
@@ -102,17 +116,24 @@ export default function PricingPage() {
             </p>
             <ul className="mt-4 space-y-2 border-t border-white/10 pt-4 text-xs leading-relaxed text-slate-300">
               <PlanFeature accent="text-amber-300">
-                Доступ ко всем моделям и инструментам платформы
+                Доступ ко всем {MODEL_TYPES.length} параметрическим моделям
+                Конструктора: {CONSTRUCTOR_MODEL_NAMES.join(", ")}
               </PlanFeature>
               <PlanFeature accent="text-amber-300">
-                {SUBSCRIPTION_PLAN.standardPerMonth} генерации Standard каждый
-                месяц
+                Генератор по фото: {SUBSCRIPTION_PLAN.standardPerMonth} Standard
+                и {SUBSCRIPTION_PLAN.ultraPerMonth} Ultra каждый месяц, лимиты
+                обновляются 1-го числа
               </PlanFeature>
               <PlanFeature accent="text-amber-300">
-                {SUBSCRIPTION_PLAN.ultraPerMonth} генерация Ultra каждый месяц
+                Скачивание STL из Конструктора без месячного лимита и водяных
+                знаков
               </PlanFeature>
               <PlanFeature accent="text-amber-300">
-                Лимиты обновляются 1-го числа, остаток виден в генераторе
+                Закрытая библиотека профилей печати и моделей — раздел
+                «Профили»
+              </PlanFeature>
+              <PlanFeature accent="text-amber-300">
+                Коммерческая лицензия: печать и продажа изделий по своим моделям
               </PlanFeature>
             </ul>
             <div className="mt-auto pt-5">
