@@ -7,6 +7,14 @@ import { Image3DGenerator } from "@/components/generator/Image3DGenerator";
 import { authHref } from "@/lib/auth-redirect";
 import { getUserCredits } from "@/lib/credits";
 import { resolveUserId } from "@/lib/current-user";
+import {
+  MONTHLY_STANDARD_GENERATIONS,
+  MONTHLY_ULTRA_GENERATIONS,
+  hasFreeStandard,
+  monthlyStandardLeft,
+  monthlyUltraLeft,
+} from "@/lib/generator/generation-credits";
+import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -18,8 +26,13 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Доступ: middleware закрывает адрес сессией, страница повторно проверяет вход
  * (гость уходит на `/auth/login?next=%2F3d-generator`). Пакет здесь больше не
- * проверяется — генерацию оплачивают кредиты `user_credits`, и решает это
- * `/api/generate-3d`: гость получает 401, нулевой баланс — 402.
+ * проверяется — генерацию оплачивают лимиты и токены `user_credits`, и решает
+ * это `/api/generate-3d`: гость получает 401, пустой баланс — 402.
+ *
+ * Плашка справа показывает то же, что спишет роут: бесплатную генерацию у
+ * Free, остаток месячных лимитов у подписки и купленные токены у всех. Числа
+ * считает `lib/generator/generation-credits.ts`, поэтому приоритет списания не
+ * дублируется в разметке.
  *
  * `noindex`: инструмент под входом, в поиске ему делать нечего.
  */
@@ -64,10 +77,13 @@ export default async function ThreeDGeneratorPage() {
     redirect(authHref("/auth/login", PAGE_PATH));
   }
 
-  // `null` — счётчик недоступен, и это не «0 кредитов»: показываем прочерк,
-  // а не приглашение пополнить баланс из-за сбоя базы. Генерацию всё равно
+  // `null` — баланс недоступен, и это не «0 генераций»: показываем прочерк, а
+  // не приглашение покупать пакет из-за сбоя базы. Генерацию всё равно
   // проверит `/api/generate-3d`.
-  const credits = await getUserCredits(userId);
+  const [credits, hasSubscription] = await Promise.all([
+    getUserCredits(userId),
+    hasActiveSubscription(supabase, userId),
+  ]);
 
   return (
     <div className="min-h-screen text-zinc-100">
@@ -133,22 +149,62 @@ export default async function ThreeDGeneratorPage() {
               </ul>
             </div>
 
-            <div className="shrink-0 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4">
+            <div className="w-full shrink-0 rounded-2xl border border-white/10 bg-white/[0.03] px-5 py-4 lg:w-72">
               <p className="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
-                Осталось генераций
+                Баланс генераций
               </p>
-              <p className="mt-1 text-3xl leading-none font-bold text-white tabular-nums">
-                {credits === null ? "—" : credits}
+
+              {credits === null ? (
+                <p className="mt-2 text-sm leading-relaxed text-zinc-400">
+                  Баланс временно недоступен — проверим его при запуске
+                  генерации.
+                </p>
+              ) : hasSubscription ? (
+                <>
+                  <p className="mt-2 text-xs font-semibold text-zinc-300">
+                    Лимит подписки
+                  </p>
+                  <p className="mt-1 text-2xl leading-none font-bold text-white tabular-nums">
+                    Standard {monthlyStandardLeft(credits)}/
+                    {MONTHLY_STANDARD_GENERATIONS}
+                    <span className="mx-1.5 text-zinc-600">·</span>
+                    Ultra {monthlyUltraLeft(credits)}/
+                    {MONTHLY_ULTRA_GENERATIONS}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm leading-relaxed font-semibold text-white">
+                  {hasFreeStandard(credits)
+                    ? "Доступна 1 бесплатная генерация Standard"
+                    : "Бесплатная генерация использована"}
+                </p>
+              )}
+
+              <p className="mt-3 text-xs leading-relaxed text-zinc-300">
+                Токены: Standard{" "}
+                {credits === null ? "—" : credits.standardTokens}, Ultra{" "}
+                {credits === null ? "—" : credits.ultraTokens}
               </p>
-              <p className="mt-2 max-w-52 text-[11px] leading-relaxed text-zinc-500">
-                Одна генерация — один кредит. Если сеть отказала, кредит
-                возвращается.
+
+              <Link
+                className="mt-3 inline-flex min-h-8 items-center gap-1.5 text-xs font-semibold text-fuchsia-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                href="/pricing"
+              >
+                Тарифы и пакеты
+                <span aria-hidden>→</span>
+              </Link>
+
+              <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+                Если сеть отказала, списание возвращается.
               </p>
             </div>
           </div>
         </section>
 
-        <Image3DGenerator credits={credits} />
+        <Image3DGenerator
+          balance={credits}
+          hasSubscription={hasSubscription}
+        />
 
         <section
           aria-labelledby="generator-steps-title"

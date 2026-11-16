@@ -1,7 +1,11 @@
 import { Buffer } from "node:buffer";
 
-import { deductCredit, getUserCredits, refundCredit } from "@/lib/credits";
+import {
+  deductGenerationCredit,
+  refundGenerationCredit,
+} from "@/lib/credits";
 import { rememberGenerationTask } from "@/lib/generator/generation-store";
+import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -32,11 +36,12 @@ import { createClient } from "@/lib/supabase/server";
  * 500 роут не отдаёт никогда, чтобы клиент отличал наш сбой от отказа сети.
  *
  * Роут платный, поэтому порядок проверок строгий: сессия (`getUser()`, гость —
- * 401) → тело и фото (400/413) → ключ сети (503) → кредиты `user_credits`
- * (0 — 402, недоступный счётчик — 503). Кредит списывается до платного запроса,
- * чтобы две вкладки не создали две задачи по одному балансу, и возвращается
- * (`refundCredit`), если сеть отказала: 502 не должен стоить пользователю
- * денег.
+ * 401) → тело и фото (400/413) → ключ сети (503) → баланс генераций
+ * `user_credits` (0 — 402, недоступный счётчик — 503). Что списать — месячный
+ * лимит подписки, бесплатную или токен — решает `lib/generator/generation-credits.ts`;
+ * списание идёт до платного запроса, чтобы две вкладки не создали две задачи
+ * по одному балансу, и возвращается (`refundGenerationCredit`), если сеть
+ * отказала: 502 не должен стоить пользователю денег.
  */
 
 /** Buffer, Blob и FormData для загрузки фото в Tripo нужны только в Node.js. */
@@ -557,8 +562,9 @@ async function createMeshyTask(
  *      необязательным `isPublic`;
  *   3. каждый кадр — настоящий JPEG, PNG или WebP до 20 МБ;
  *   4. ключ выбранной сети — без него 503, платный запрос не отправляется;
- *   5. кредиты `user_credits` — 0 даёт 402, недоступный счётчик — 503; кредит
- *      списывается здесь же, до вызова сети;
+ *   5. баланс `user_credits`: списывается месячный лимит подписки, бесплатная
+ *      генерация или токен; платить нечем — 402, недоступный счётчик — 503;
+ *      списание идёт здесь же, до вызова сети;
  *   6. создание задачи — и сразу ответ `{ taskId }`, без ожидания модели;
  *      отказ сети возвращает кредит и отвечает 502;
  *   7. запись задачи в `generations` — уже после успеха сети, чтобы строка
@@ -678,32 +684,35 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const credits = await getUserCredits(user.id);
+  // Подписка решает, что списать первым: её месячный лимит сгорает 1-го
+  // числа, поэтому он дешевле бесплатной и токенов. Ошибка проверки подписки
+  // не открывает платный доступ: это просто «подписки нет».
+  const hasSubscription = await hasActiveSubscription(supabase, user.id);
+  const deduction = await deductGenerationCredit(
+    user.id,
+    quality,
+    hasSubscription,
+  );
 
-  // `null` — счётчик недоступен, а не «0 кредитов»: 402 из-за сбоя базы
-  // отправил бы человека пополнять баланс, который на самом деле есть.
-  if (credits === null) {
-    return errorResponse(
-      503,
-      "Не удалось проверить кредиты. Попробуйте позже.",
-    );
-  }
+  // `unavailable` — счётчик недоступен, а не «0 генераций»: 402 из-за сбоя
+  // базы отправил бы человека покупать пакет, который ему не нужен.
+  if (!deduction.ok) {
+    if (deduction.reason === "unavailable") {
+      return errorResponse(
+        503,
+        "Не удалось проверить баланс генераций. Попробуйте позже.",
+      );
+    }
 
-  if (credits <= 0) {
     return errorResponse(
       402,
-      "Кредиты закончились. Одна генерация списывает один кредит.",
+      quality === "ultra"
+        ? "Ультра-генерации закончились: месячный лимит подписки исчерпан, Ultra-токенов нет. Купите пакет Ultra в тарифах."
+        : "Генерации Standard закончились: бесплатная использована, месячный лимит подписки исчерпан, токенов нет. Купите пакет в тарифах.",
     );
   }
 
-  // Списываем до платного запроса: иначе две вкладки успели бы создать две
-  // задачи, а баланс остался бы прежним. Отказ сети вернёт кредит ниже.
-  if (!(await deductCredit(user.id))) {
-    return errorResponse(
-      402,
-      "Кредиты закончились. Одна генерация списывает один кредит.",
-    );
-  }
+  const creditSource = deduction.source;
 
   try {
     const taskId =
@@ -733,11 +742,11 @@ export async function POST(request: Request): Promise<Response> {
 
     return taskResponse(taskId);
   } catch (error) {
-    // Задача не создана — платного запроса не было, значит и кредита быть не
+    // Задача не создана — платного запроса не было, значит и списания быть не
     // должно. Возврат пишем в лог: он не должен скрыть исходную ошибку.
-    if (!(await refundCredit(user.id))) {
+    if (!(await refundGenerationCredit(user.id, creditSource))) {
       console.error(
-        "[generate-3d] Не удалось вернуть кредит после отказа сети.",
+        "[generate-3d] Не удалось вернуть списание после отказа сети.",
       );
     }
 

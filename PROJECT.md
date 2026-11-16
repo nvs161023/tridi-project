@@ -122,6 +122,7 @@
 | `/` | `app/page.tsx` | Витрина: герой с цифрами, четыре уровня, галерея схем, «Как учим», программа, тарифы, «О проекте». `force-dynamic` из-за кнопки авторизации в шапке |
 | `/start` | `app/start/page.tsx`, `app/start/layout.tsx`, `app/start/start.module.css` | Лендинг бесплатного уровня «Новичок» в премиальном SaaS/EdTech-оформлении: aurora-градиенты и стеклянные карточки, bento-сетка из четырёх болей новичка, вертикальный таймлайн программы из 8 уроков с длительностью, числом схем и меткой практики, CTA после программы, истории учеников с тегами и честной пометкой об отзывах, блок «почему бесплатно», сравнение «сам или с курсом», сертификат, аккордеон FAQ, финальный CTA и липкая кнопка на телефоне; все кнопки ведут на `/auth/sign-up`. Страница серверная: числа и названия уроков считаются из `data/lessons.json` и `data/course-*.json` через `lib/course-levels.ts`, поэтому лендинг не обещает уроков и схем, которых нет в курсе; таймера и ложного дедлайна нет. `title`, `description` и canonical `/start` живут в `app/start/layout.tsx`. Стили — CSS-модуль, все правила ограничены обёрткой `.pageWrapper`, поэтому шапка, футер и другие страницы сайта не меняются; адаптив на 1024 и 768 px; пока открыт cookie-баннер, мобильная липкая CTA скрыта |
 | `/subscription` | `app/subscription/page.tsx` | Сравнение четырёх уровней (таблица и мобильные карточки), пять карточек тарифов (Free, три уровня навсегда и широкая карточка пакета «Всё включено» с библиотекой профилей печати), как оплатить и FAQ. Отдельного блока подписки больше нет, Конструктор в каталоге не показывается: из инструментов продаётся только библиотека профилей, и только пакетом |
+| `/pricing` | `app/pricing/page.tsx` | Витрина генератора 3D: три карточки — подписка Pro (`pro-subscription`, цена из `data/courses.json`, 3 Standard + 1 Ultra в месяц), пакет Standard (10 генераций за 500 ₽) и пакет Ultra (5 генераций за 600 ₽) из `data/generation-plans.json` — и блок «Как списываются генерации» с порядком лимит подписки → бесплатная Standard → токены. Кнопки `PlanButton` создают платёж Robokassa на сервере, гость после входа возвращается сюда (`loginHref="/pricing"`). Страница публичная, индексируется и есть в `app/sitemap.ts` (сам `/3d-generator` закрыт входом и `noindex`) |
 | `/profiles` | `app/profiles/page.tsx` | Библиотека профилей печати (193 файла в трёх категориях, включая 86 принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi) с каскадным фильтром «бренд → модель → материал» (`components/profiles/ProfilesClient.tsx`). Открыта всем, но без пакета «Всё включено» карточки размыты и ведут на `/subscription#tools`; скачивание — через `/api/profiles/download` только с активным пакетом |
 | `/tools` | `app/tools/page.tsx` | Центр инструментов: четыре карточки — конструктор 3D-моделей, библиотека профилей, диагностика дефектов и мастерская (CRM для 3D-фермы) — и призыв задать вопрос на форуме. Конструктор открывается сразу после входа (гость уходит на `/auth/login?next=/constructor`), диагностика — всем и без регистрации, профили и мастерскую открывает пакет «Всё включено»: карточка мастерской проверяет сессию и подписку и потому ведёт гостя на `/auth/login?next=/dashboard/workshop`, ученика без пакета — на `/subscription`, а без пакета показывает бейдж «Требуется Pro» и кнопку «Оформить подписку». `force-dynamic` из-за кнопки авторизации в шапке; canonical `/tools`, OpenGraph и Twitter с общей картинкой `OG_IMAGE` |
 | `/tools/defects` | `app/tools/defects/page.tsx`, `components/tools/DefectsExplorer.tsx` | Справочник дефектов FDM-печати: шесть карточек (`lib/defects.ts`) с причинами и пошаговыми решениями в модальном окне, поиск по названию, описанию и причинам, вкладки-фильтры по трём группам («Проблемы со столом», «Проблемы с экструзией», «Механика») и заголовки групп с пояснением, что проверять; закрытие по Escape, ловушка фокуса, каталог читается и без JavaScript. Canonical `/tools/defects`, OpenGraph/Twitter и JSON-LD `FAQPage`: вопрос — дефект, ответ — нумерованные шаги решений |
@@ -171,7 +172,7 @@
 | `/api/workshop/export` | `app/api/workshop/export/route.ts` | CSV-выгрузка каталога Мастерской для одной из пяти площадок (`?platform=ozon`, `wb`, `yandex`, `avito` или `megamarket`). Проверяет сессию и `hasActiveSubscription` (403), неизвестную площадку отклоняет с 400, читает только товары текущего `user_id` порциями по 1000. Ответ — `text/csv; charset=utf-8` с BOM, `;`, CRLF и именем `tridi_export_{platform}.csv`; пустой каталог даёт файл только с заголовками |
 
 | `/dashboard/workshop` | `app/dashboard/workshop/page.tsx` + `components/workshop/*` | Мастерская — Pro-инструмент: гостя уводит на вход, без пакета — замок с объяснением и кнопкой `/courses/pro`. С пакетом — CRM-каркас: hero «Мастерская» с кнопкой «Создать заказ», четыре glass-карточки статистики (заказы в работе, выручка месяца, катушки, принтеры), сайдбар на десктопе и горизонтальные табы на мобильном. Шесть вкладок: «Заказы» (Kanban со статусами, drag-and-drop и меню смены статуса), «Склад» (катушки с бейджами «Складской»/«Заказной», остатки, порог, «Купить» только для складских, списание), «Принтеры» (наработка сопла и смазки, справочник моделей, сброс обслуживания), «Товары» (каркас каталога: пустое состояние и визуальная форма добавления), «Клиенты» (база контактов и адресов, выбор готового клиента в окне заказа) и «Калькулятор» (настройки, G-code, себестоимость, рекомендованная цена и прибыль). `noindex` |
-| `/3d-generator` | `app/3d-generator/page.tsx` | 3D-генератор по фото — отдельная страница: middleware закрывает адрес сессией, страница повторно проверяет вход (гость уходит на `/auth/login?next=%2F3d-generator`) и читает баланс `getUserCredits()` (счётчик недоступен — прочерк, а не ноль). Hero «Создать 3D из фото» с бейджами и плашкой «Осталось генераций», ниже — `Image3DGenerator` из двух glass-карточек `#0a0a0a`: слева загрузка 1–4 фото (кнопка и drag-and-drop, превью-сетка по четыре квадратика, крестик у каждого кадра, сжатие в браузере до 1600 px и JPEG 0.9), переключатель качества «Стандарт»/«Ультра» и кнопка «Сгенерировать 3D» (гаснет при нуле кредитов), справа — ожидание с прогресс-баром `role="progressbar"`, вьювер готового STL, кнопка «Скачать STL» и `role="alert"` с текстом ошибки; после успеха `router.refresh()` перечитывает баланс. Блок «Как это работает» из четырёх шагов. Пакет «Всё включено» здесь больше не проверяется: доступ дают вход и кредиты, а решает `/api/generate-3d` (401 без сессии, 402 при нуле). На 390 px карточки идут друг под другом без горизонтальной прокрутки. `noindex` |
+| `/3d-generator` | `app/3d-generator/page.tsx` | 3D-генератор по фото — отдельная страница: middleware закрывает адрес сессией, страница повторно проверяет вход (гость уходит на `/auth/login?next=%2F3d-generator`) и читает баланс `getUserCredits()` (счётчик недоступен — прочерк, а не ноль). Hero «Создать 3D из фото» с бейджами и плашкой «Осталось генераций», ниже — `Image3DGenerator` из двух glass-карточек `#0a0a0a`: слева загрузка 1–4 фото (кнопка и drag-and-drop, превью-сетка по четыре квадратика, крестик у каждого кадра, сжатие в браузере до 1600 px и JPEG 0.9), переключатель качества «Стандарт»/«Ультра» и кнопка «Сгенерировать 3D» (гаснет, когда `canGenerateWith` не нашёл источник — исчерпаны бесплатная, лимит подписки и токены), справа — ожидание с прогресс-баром `role="progressbar"`, вьювер готового STL, кнопка «Скачать STL» и `role="alert"` с текстом ошибки; после успеха `router.refresh()` перечитывает баланс. Блок «Как это работает» из четырёх шагов. Пакет «Всё включено» здесь больше не проверяется: доступ дают вход и генерации, а решает `/api/generate-3d` (401 без сессии, 402 когда источники исчерпаны, 503 когда счётчик недоступен). На 390 px карточки идут друг под другом без горизонтальной прокрутки. `noindex` |
 | `/dashboard/workshop/integrations/help` | `app/dashboard/workshop/integrations/help/page.tsx` | Инструкция по подключению интеграций: четыре раздела с нумерованными шагами — «Ozon» (Seller API → Client-Id → ключ с ролью `Posting FBS read-only` или `Admin` → ввод ключей на вкладке «Интеграции» → URL вебхука → уведомления `TYPE_NEW_POSTING`), «Wildberries (WB)» (URL вебхука → Настройки → Интеграции → Уведомления), «Яндекс.Маркет» (URL → Настройки → API и модули → API-уведомления → событие `ORDER_CREATED`) и «Локальный агент (Печать)» (токен из карточки вкладки «Интеграции» → Python 3.8+ → `pip install -r requirements.txt` → `.env` с `AGENT_TOKEN` и `CRM_URL` → `python main.py`); навигация по якорям `#ozon`, `#wb`, `#yandex`, `#agent` и предупреждение «URL вебхука содержит секретный токен. Не публикуйте его в открытом доступе». Страница статическая — без запросов к базе и без персональных адресов, на неё ведёт ссылка «Как подключить?» из вкладки «Интеграции» и кнопка «Как установить агент» из карточки агента (сразу на якорь `#agent`). Заголовок страницы — «Как подключить интеграции». `noindex` |
 | `/workshop/orders/[id]/specification` | `app/workshop/orders/[id]/specification/page.tsx` + `SpecificationPrintButton.tsx` | Печатная спецификация к заказу: проверяет сессию и пакет «Всё включено», читает заказ по id с `user_id` (гость — на вход, чужой или битый id — 404), показывает исполнителя из реквизитов Мастерской (тип и название, ИНН; без реквизитов — `LEGAL_OPERATOR` и экранная подсказка), дату создания, клиента, срок, материал и вес; выбранная катушка подставляется как «бренд тип цвет», без катушки — пустая строка `[ ]` для ручного заполнения. На экране шапка, «← К заказам» и «Печать» (`window.print()`), в печати через `@media print` остаётся только белый лист A4. `noindex` |
 | `/workshop/orders/[id]/waybill` | `app/workshop/orders/[id]/waybill/page.tsx` + `WaybillPrintButton.tsx` | Накладная на отгрузку: те же проверки сессии и пакета, заказ читается по id и `user_id` (гость — на вход, битый или чужой id — 404). Заголовок «Накладная на отгрузку № …», дата создания и полный номер заказа, отправитель из `LEGAL_OPERATOR` (имя, ИНН, телефон, email), получатель — `client_name`; телефона и адреса в `workshop_orders` нет, поэтому для них оставлены строки `[ ]` под ручное заполнение. Таблица «Наименование / Кол-во / Цена / Сумма» на одну позицию, «Итого к оплате», подписи отправителя и получателя. `@page A4 portrait`, в печати остаётся только `.waybill-sheet`. `noindex` |
@@ -3531,7 +3532,10 @@ FlashForge и Elegoo
 | `lib/reviews.ts` | Отзывы о курсах: `REVIEW_COURSE_IDS`, проверка оценки и длины текста, `getCourseReviews` (свежие сверху, имена из `course_review_authors`), `hasUserReviewedCourse`, `getCourseReviewStats`, `formatReviewDate`, `pluralizeReviews` |
 | `lib/defects.ts` | Справочник дефектов FDM-печати: тип `Defect` (название, описание, причины, решения), три группы `DEFECT_CATEGORIES` («Проблемы со столом», «Проблемы с экструзией», «Механика») с подписями `DEFECT_CATEGORY_LABELS` и пояснениями `DEFECT_CATEGORY_HINTS`; массив `defects` — общий источник карточек, фильтров и JSON-LD `FAQPage` |
 | `lib/course-levels.ts` | Четыре уровня витрины (`LEVELS`): названия, `goal` и разовая цена `price` из `data/courses.json`, уроки, `totalLessons`, `estimatedHours`, схемы, тесты — из файлов курсов, а `hours` («~15 часов») — из `estimated_hours` через `formatAcademicHours`, чтобы карточка и сертификат показывали одно число; `getCertificateProgram` собирает строку уровня или пакета и объём для сертификата; `PAID_LEVELS`, `PAID_LESSONS`, `PAID_VISUALS`, `PAID_TESTS`, `TOTAL_LESSONS`, `TOTAL_VISUALS`, `TOTAL_TESTS` — те же числа для главной и `/subscription` |
-| `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId`, чеком `Receipt` (54-ФЗ) и `Shp_*`, проверяет сумму по `data/courses.json`; `buildReceipt` описывает позицию чека, `isRecurringEnabled` включает `Recurring=true` только при `ROBOKASSA_RECURRING=true` и только для подписки; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
+| `lib/payments.ts` | Robokassa: `initializePayment` собирает подписанную ссылку с `InvId`, чеком `Receipt` (54-ФЗ) и `Shp_*`, проверяет сумму по каталогу — курсы и подписка из `data/courses.json`, пакеты токенов из `data/generation-plans.json`; `PAYMENT_PLANS` знает `pro-subscription`, `standard-pack` и `ultra-pack`; `buildReceipt` описывает позицию чека, `isRecurringEnabled` включает `Recurring=true` только при `ROBOKASSA_RECURRING=true` и только для подписки; `verifyResultSignature` проверяет MD5 уведомления с паролем №2 |
+| `lib/credits.ts` | Счётчики генераций в `user_credits` (`supabase/user_credits.sql`): `getUserCredits` читает баланс и лениво сбрасывает месячные лимиты по `last_monthly_reset`, `deductGenerationCredit(userId, quality, hasSubscription)` списывает по правилам `chooseCreditSource` до платного запроса и отвечает `empty`/`unavailable`, `refundGenerationCredit` возвращает ровно тот счётчик, который уменьшился. Обновления — CAS по прочитанному значению (3 попытки), `null` — «счётчик недоступен», а не «0 кредитов» |
+| `lib/generation-plans.ts` | Каталог генератора: `SUBSCRIPTION_PLAN` (`pro-subscription`, 3 Standard и 1 Ultra в месяц, лимиты из правил списания), `TOKEN_PACKS` (`standard-pack` — 10 за 500 ₽, `ultra-pack` — 5 за 600 ₽ из `data/generation-plans.json`), `getTokenPack(courseId)` для вебхука оплаты; цена подписки остаётся в `data/courses.json` |
+| `lib/generator/generation-credits.ts` | Чистые правила списания без базы и `service_role`, общие для страницы, клиента и API: константы `FREE_STANDARD_GENERATIONS` (1), `MONTHLY_STANDARD_GENERATIONS` (3), `MONTHLY_ULTRA_GENERATIONS` (1), `chooseCreditSource` (Standard: месячный лимит → бесплатная → токен; Ultra: месячный лимит → токен), `canGenerateWith`, `monthlyStandardLeft`, `monthlyUltraLeft`, `hasFreeStandard`, `createEmptyCreditBalance`, `describeCreditSource`. Проверки — `npm run check:credits` |
 | `lib/module-test.ts` | Правила тестов: пороги сдачи (7 из 10 на всех уровнях) и «отлично» (8), типы записей (`basic-test`, `confident-test`, `engineer-test`, `pro-test`), проверки `isModuleTestPassed`, `isModuleTestCompleted`, `isModuleTestCompletedByOrder` |
 | `lib/subscription.ts` | `hasCourseAccess` проверяет покупку уровня или пакета `pro`, а если покупки нет — активированный промокод этого уровня (`promo_codes`, RLS отдаёт только свои активации); `hasActiveSubscription` — доступ к инструментам: бессрочный `pro` или `pro-subscription` в `purchases` либо `active`/действующий `trial` в `subscriptions` с учётом `expires_at`; если колонки `expires_at` ещё нет, читается старая схема |
 | `lib/promo-codes.ts` | Промокоды Ozon: `PROMO_COURSE_IDS` и `PROMO_COURSE_LABELS` (три уровня), `generatePromoCode` (`TRIDI-ABCD-1234`, алфавит без I/O/0/1, `crypto.getRandomValues`), `normalizePromoCode` (нижний регистр и код без дефисов), `isPromoCourseId`, `isPromoCodeFormat`, `buildActivationUrl` и `buildOzonCsv` (BOM, `;`, CRLF, экранирование) |
@@ -12449,4 +12453,99 @@ Meshy `meshy-7.1`; по умолчанию выбрана ультра, пото
   применена, поэтому галерея отрисовалась пустой и записала в лог
   `PGRST205: Could not find the table 'public.generations'` — страница не падает; после
   применения `supabase/generations.sql` лента и «Мои модели» заработают без изменений кода.
+
+## 16 ноября 2026: платная модель генератора — бесплатная, подписка и токены
+
+Платность генератора 3D переписана под новую бизнес-модель: одна бесплатная
+Standard-генерация зарегистрированному, 3 Standard и 1 Ultra в месяц по подписке Pro и
+докупаемые пакеты токенов без срока действия. Старое правило «один кредит на генерацию,
+кредиты только в пакете `pro`» удалено — вместе с чтением колонки `credits` в коде.
+
+**Правила списания — `lib/generator/generation-credits.ts`.** Чистый модуль без базы и
+`service_role`: константы `FREE_STANDARD_GENERATIONS = 1`, `MONTHLY_STANDARD_GENERATIONS = 3`,
+`MONTHLY_ULTRA_GENERATIONS = 1`, тип `GenerationCreditSource` (`monthly-standard`,
+`free-standard`, `standard-token`, `monthly-ultra`, `ultra-token`) и функция
+`chooseCreditSource(balance, quality, hasSubscription)`. Приоритет: для Standard — месячный
+лимит подписки → бесплатная → токен; для Ultra — месячный лимит подписки → токен (бесплатных
+Ultra нет). Порядок именно такой, потому что месячный лимит сгорает 1-го числа, бесплатная
+не сгорает, а токены — самый долгий ресурс. Тот же модуль импортирует страница
+`/3d-generator` и клиентский `Image3DGenerator`: подпись под кнопкой и состояние кнопки
+считает `chooseCreditSource`, а не отдельная копия правил в разметке. Проверки —
+`npm run check:credits` (`scripts/test-generation-credits.ts`): 28 кейсов на Free, подписку,
+Ultra, окончание подписки, перерасход счётчиков, совпадение `canGenerateWith` с
+`chooseCreditSource` и чистоту функции.
+
+**Счётчики — `lib/credits.ts`.** `getUserCredits(userId)` читает строку `user_credits` и
+возвращает `GenerationCreditBalance` (`freeStandardUsed`, `monthlyStandardUsed`,
+`monthlyUltraUsed`, `standardTokens`, `ultraTokens`) либо `null`, если строку прочитать
+нельзя. `deductGenerationCredit(userId, quality, hasSubscription)` списывает ровно то, что
+вернул `chooseCreditSource`, до платного запроса и отвечает `{ ok: false, reason: "empty" }`
+(генерации кончились) или `"unavailable"` (база недоступна). `refundGenerationCredit`
+возвращает именно тот счётчик, который уменьшился. Каждое изменение — CAS: `update … where
+user_id = ? and <колонка> = <прочитанное значение>`, до трёх попыток, поэтому параллельные
+вкладки не проходят по одному балансу. Месячный сброс ленивый: `last_monthly_reset`
+сравнивается с началом календарного месяца (UTC), сброс идёт условным `update` и не затирает
+счётчик, который только что изменила параллельная генерация. `null` сознательно не равен
+нулю: «нет генераций» — 402 с предложением купить пакет, «счётчик недоступен» — 503, иначе
+человек пошёл бы платить из-за сбоя базы.
+
+**Схема — `supabase/user_credits.sql`.** Таблица `user_credits` (`user_id` → `auth.users`
+cascade) с колонками `free_standard_used`, `monthly_standard_used`, `monthly_ultra_used`,
+`last_monthly_reset`, `standard_tokens`, `ultra_tokens` и `updated_at`; все счётчики
+`not null default 0 check (>= 0)`. Файл идемпотентен: `create table if not exists` плюс
+`alter table … add column if not exists` для уже созданной старой таблицы, перенос легаси
+`credits` в `standard_tokens` (одна генерация = один Standard-токен) и обнуление `credits`.
+Запись клиентским ролям запрещена (`revoke all … from anon, authenticated`), читать может
+только владелец строки; пишет сервер через `service_role`. Для покупок добавлена
+`token_purchases` (`inv_id` — первичный ключ, `kind` — `standard`/`ultra`, `quantity`) и
+функция `credit_token_purchase(p_inv_id, p_user_id, p_kind, p_quantity)` с
+`security definer`: вставка в `token_purchases` с `on conflict (inv_id) do nothing`
+обеспечивает идемпотентность, повторное уведомление Robokassa возвращает `false` и токены
+второй раз не начисляет. В конце — `notify pgrst, 'reload schema'`.
+
+**Оплата — `lib/payments.ts` и вебхук.** `PAYMENT_PLANS` пополнился `standard-pack` и
+`ultra-pack`, сумма сверяется не с формой, а с каталогом: подписка — `data/courses.json`,
+пакеты — `data/generation-plans.json`. `isPaymentCourseId` пропускает оба вида, поэтому
+`initializePayment` одинаково собирает подписанную ссылку Robokassa и чек 54-ФЗ для
+подписки и для пакета; `buildReceipt` берёт название и цену из того же каталога, так что
+чек не разойдётся с витриной. `/api/payments/robokassa/result` сначала смотрит
+`getTokenPack(courseId)`: для пакета пишет покупку в `purchases` (`expires_at = null` —
+токены не сгорают), вызывает `credit_token_purchase` и отвечает `OK{InvId}`; ошибка rpc —
+500, чтобы Robokassa повторила уведомление (повтор безопасен). Для остальных `courseId`
+работает прежняя ветка продления подписки на 30 дней (`SUBSCRIPTION_PERIOD_DAYS`).
+`supabase/purchases.sql` расширил `check` на `course_id`, иначе пакет не записался бы в
+историю. Переменные окружения не менялись: тех же `ROBOKASSA_*` достаточно, `ROBOKASSA_RECURRING`
+по-прежнему касается только подписки.
+
+**Витрина — `/pricing`.** Публичная страница (`app/pricing/page.tsx`): три карточки —
+подписка Pro (`pro-subscription`, цена из `getPaymentAmount`, 3 Standard + 1 Ultra в месяц,
+«каждый платёж добавляет 30 дней, автосписаний нет»), пакет Standard (10 генераций за 500 ₽)
+и пакет Ultra (5 генераций за 600 ₽) — и блок «Как списываются генерации» с порядком
+«месячный лимит подписки → бесплатная Standard → Standard-токены» и объяснением, почему
+именно так. Цены не захардкожены: `formatPrice` печатает то, что вернул каталог. Кнопки —
+общий `PlanButton` со страницы подписки (`courseId`, `loginHref="/pricing"`): гость после
+входа возвращается на витрину, платёж создаёт серверный экшен. `/pricing` добавлен в
+`app/sitemap.ts` (monthly, priority 0.8) — сам `/3d-generator` закрыт входом и `noindex`,
+поэтому индексируется витрина, а не инструмент.
+
+**UI генератора.** Страница `/3d-generator` и `components/generator/Image3DGenerator.tsx`
+показывают остаток по каждому источнику: бесплатная Standard, `monthlyStandardLeft` /
+`monthlyUltraLeft` при активной подписке и купленные токены; подпись под кнопкой собирает
+`describeCreditSource`. Кнопка гаснет, когда `canGenerateWith` вернул `false`, и рядом
+появляется ссылка на `/pricing`; при `null` (счётчик недоступен) вместо нулей — прочерк и
+нейтральная подпись, а не «купите пакет». 402 от API показывает текст с причинами и
+ссылкой на тарифы, 503 — «попробуйте позже».
+
+**Проверки.** `npx tsc --noEmit`, `npm run lint`, `npm run build` (`/pricing` в списке
+маршрутов), `npm run check:imports`, `npm run check:docs` и `npm run check:credits` —
+зелёные. Дымовой прогон `npm run start`: `/pricing` отвечает 200, в разметке цены 299, 500 и
+600 ₽, подписи «Оформить подписку», две «Купить пакет», «Продление ручное: каждый платёж
+добавляет 30 дней, автосписаний нет» и блок «Как списываются генерации»; `/3d-generator` без
+сессии — 307 на вход. Живых платежей не было: ключей Robokassa в локальном окружении нет,
+поэтому начисление токенов проверено только на уровне кода и SQL, а `credit_token_purchase`
+нужно выполнить в Supabase SQL Editor вместе с `user_credits.sql` и `purchases.sql`.
+
+**Открытые шаги.** Применить три SQL-файла в Supabase (иначе API ответит 503
+«счётчик недоступен»), проверить тестовый платёж 10 ₽ с `ROBOKASSA_TEST_MODE`, затем сверить
+тексты оферты и чека с новыми позициями.
 

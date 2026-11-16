@@ -5,32 +5,42 @@
  * пароли магазина. Вызывать его можно только из Server Action или Route Handler.
  *
  * Почему сумма не приходит из браузера: `initializePayment` сверяет её с
- * `data/courses.json`. Даже если подменить запрос к Server Action, заплатить
+ * каталогом — `data/courses.json` для курсов и подписки, `data/generation-plans.json`
+ * для пакетов токенов. Даже если подменить запрос к Server Action, заплатить
  * меньше цены тарифа или записать в `OutSum` другую сумму не получится.
  *
  * Магазин в Robokassa активирован, поэтому ссылка всегда уходит с чеком для ФНС
- * (`Receipt`, 54-ФЗ). Признак `Recurring` для легаси-подписки Pro добавляется
- * только при `ROBOKASSA_RECURRING=true`: пока в оферте написано «без
- * автопродления», по умолчанию флаг выключен.
+ * (`Receipt`, 54-ФЗ). Признак `Recurring` для подписки Pro добавляется только
+ * при `ROBOKASSA_RECURRING=true`: пока в оферте написано «без автопродления»,
+ * по умолчанию флаг выключен.
  */
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 
 import coursesData from "@/data/courses.json";
+import { TOKEN_PACKS } from "@/lib/generation-plans";
 
 const ROBOKASSA_PAYMENT_URL = "https://auth.robokassa.ru/Merchant/Index.aspx";
-const PAYMENT_DESCRIPTION = "Оплата курса TriDi";
 
 /**
- * Срок легаси-подписки Pro. Платёж `pro-subscription` открывал инструменты на
- * 30 дней, каждый следующий (в том числе автопродление) добавлял ещё 30.
- * Новых продаж с этим ключом нет: константа нужна вебхуку, чтобы продлить
- * оплаченный ранее срок. Здесь константа, чтобы ссылка и вебхук считали одинаково.
+ * Назначение платежа в интерфейсе Robokassa. Общее для всех товаров: у
+ * пакетов токенов, курсов и подписки один магазин, а конкретная позиция
+ * перечислена в чеке (`Receipt`).
+ */
+const PAYMENT_DESCRIPTION = "Оплата TriDi";
+
+/**
+ * Срок подписки Pro. Платёж `pro-subscription` открывает инструменты и
+ * месячные лимиты генераций на 30 дней, каждый следующий добавляет ещё 30.
+ * Автопродление выключено по умолчанию, поэтому продление ручное.
+ *
+ * Здесь константа, чтобы ссылка на оплату и вебхук считали одинаково.
  */
 export const SUBSCRIPTION_PERIOD_DAYS = 30;
 
 /**
- * Все товары, которые можно оплатить. Цены — только из data/courses.json:
- * витрина, кнопки и серверная проверка читают один источник.
+ * Все товары, которые можно оплатить. Цены — из каталогов: `data/courses.json`
+ * для курсов и подписки, `data/generation-plans.json` для пакетов токенов.
+ * Витрина, кнопки и серверная проверка читают один источник.
  */
 export const PAYMENT_PLANS = {
   confident: {
@@ -50,13 +60,22 @@ export const PAYMENT_PLANS = {
     title: coursesData.pro.bundleTitle,
   },
   /**
-   * Легаси-товар: на витрине его нет, новых покупок с этим ключом не бывает.
-   * Ключ и цена остаются ради старых покупателей — по ним вебхук продлевает
-   * срок и обновляет `subscriptions`.
+   * Подписка Pro: доступ к инструментам и месячные лимиты генераций. Продаётся
+   * на `/pricing`; каждый платёж добавляет 30 дней к текущему сроку.
    */
   "pro-subscription": {
     price: coursesData.pro.subscriptionPrice,
-    title: "Подписка Pro (легаси)",
+    title: "Подписка Pro",
+  },
+  /** Пакет Standard-токенов: разовая покупка, срок не истекает. */
+  "standard-pack": {
+    price: TOKEN_PACKS.standard.price,
+    title: TOKEN_PACKS.standard.receiptTitle,
+  },
+  /** Пакет Ultra-токенов: разовая покупка, срок не истекает. */
+  "ultra-pack": {
+    price: TOKEN_PACKS.ultra.price,
+    title: TOKEN_PACKS.ultra.receiptTitle,
   },
 } as const;
 

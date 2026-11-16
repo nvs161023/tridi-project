@@ -1,5 +1,5 @@
 -- =============================================================================
--- Покупки курсов и подписки Pro (Robokassa)
+-- Покупки курсов, подписки Pro и пакетов токенов (Robokassa)
 -- =============================================================================
 -- Справочная копия SQL, который нужно применить вручную в Supabase Dashboard →
 -- SQL Editor. Автоматически не выполняется — как и остальные файлы в supabase/.
@@ -27,7 +27,9 @@ create table if not exists public.purchases (
       'engineer',
       'profit',
       'pro',
-      'pro-subscription'
+      'pro-subscription',
+      'standard-pack',
+      'ultra-pack'
     )
   ),
   amount numeric(10, 2) not null check (amount > 0),
@@ -40,6 +42,26 @@ create table if not exists public.purchases (
 -- уникальный индекс защищает от повторной выдачи доступа по тому же заказу.
 alter table public.purchases
   add column if not exists inv_id bigint;
+
+-- Пакеты токенов продаются с 16 ноября 2026. У уже созданной таблицы CHECK
+-- остался прежним (`create table if not exists` его не меняет), поэтому
+-- снимаем ограничение и добавляем заново. Имя — стандартное для Postgres;
+-- повторный запуск файла безопасен.
+alter table public.purchases
+  drop constraint if exists purchases_course_id_check;
+
+alter table public.purchases
+  add constraint purchases_course_id_check check (
+    course_id in (
+      'confident',
+      'engineer',
+      'profit',
+      'pro',
+      'pro-subscription',
+      'standard-pack',
+      'ultra-pack'
+    )
+  );
 
 create unique index if not exists purchases_inv_id_key
   on public.purchases (inv_id);

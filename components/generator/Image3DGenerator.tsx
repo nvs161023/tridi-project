@@ -13,6 +13,11 @@ import {
 } from "react";
 
 import {
+  chooseCreditSource,
+  describeCreditSource,
+  type GenerationCreditBalance,
+} from "@/lib/generator/generation-credits";
+import {
   GENERATOR_PHOTO_JPEG_QUALITY,
   GENERATOR_PHOTO_MAX_SIDE_PX,
   GENERATOR_PHOTO_VIEWS,
@@ -203,12 +208,17 @@ function readError(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-/** Сколько генераций осталось по счётчику `user_credits`; `null` — неизвестно. */
+/** Баланс `user_credits`; `null` — посчитать на сервере не удалось. */
 type Image3DGeneratorProps = {
-  credits: number | null;
+  balance: GenerationCreditBalance | null;
+  /** Действует ли подписка: её месячный лимит сгорает первым. */
+  hasSubscription: boolean;
 };
 
-export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
+export function Image3DGenerator({
+  balance,
+  hasSubscription,
+}: Image3DGeneratorProps) {
   const router = useRouter();
   const inputId = useId();
   const hintId = useId();
@@ -232,11 +242,18 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
 
   const isBusy = phase === "submitting" || phase === "processing";
   const room = MAX_GENERATOR_PHOTOS - photos.length;
-  // Ноль кредитов — не ошибка ввода: кнопку гасим заранее, чтобы человек не
-  // ждал ответа 402. `null` (счётчик недоступен) кнопку не блокирует — это
-  // решит сервер, а не пропавший запрос к базе.
-  const noCredits = credits !== null && credits <= 0;
-  const canGenerate = photos.length > 0 && !isBusy && !isReading && !noCredits;
+  // Нет оплаченной генерации — не ошибка ввода: кнопку гасим заранее, чтобы
+  // человек не ждал ответа 402. Доступность считает тот же `chooseCreditSource`,
+  // что и `/api/generate-3d`: подпись под кнопкой не разойдётся со списанием.
+  // `null` (баланс недоступен) кнопку не блокирует — это решит сервер, а не
+  // пропавший запрос к базе.
+  const plannedSource =
+    balance === null
+      ? null
+      : chooseCreditSource(balance, quality, hasSubscription);
+  const notEnoughCredits = balance !== null && plannedSource === null;
+  const canGenerate =
+    photos.length > 0 && !isBusy && !isReading && !notEnoughCredits;
 
   /** Общий путь для выбора файлов и drag-and-drop: готовит и добавляет фото. */
   async function addFiles(files: File[]) {
@@ -509,11 +526,14 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
       ? "Отправляем фото в сервис…"
       : stageLabel(progress);
 
-  const creditNote = noCredits
-    ? "Кредиты закончились: одна генерация списывает один кредит."
-    : credits === null
-      ? "Одна генерация списывает один кредит — баланс проверит сервер."
-      : `Одна генерация — один кредит. Осталось: ${credits}.`;
+  const creditNote =
+    balance === null
+      ? "Стоимость генерации проверит сервер."
+      : plannedSource
+        ? `Спишется: ${describeCreditSource(plannedSource)}.`
+        : quality === "ultra"
+          ? "Ультра-генерации закончились: месячный лимит подписки исчерпан, Ultra-токенов нет."
+          : "Генерации Standard закончились: бесплатная использована, месячный лимит подписки исчерпан, токенов нет.";
 
   return (
     <div className="mt-6 grid gap-4 lg:grid-cols-2 lg:items-start">
@@ -725,7 +745,13 @@ export function Image3DGenerator({ credits }: Image3DGeneratorProps) {
         </button>
 
         <p className="mt-2 text-center text-xs leading-relaxed text-zinc-500">
-          {creditNote}
+          {creditNote}{" "}
+          <Link
+            className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
+            href="/pricing"
+          >
+            Тарифы и пакеты
+          </Link>
         </p>
       </section>
 

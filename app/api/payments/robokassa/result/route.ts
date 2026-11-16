@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 
+import { getTokenPack, type TokenPack } from "@/lib/generation-plans";
 import {
   SUBSCRIPTION_PERIOD_DAYS,
   extractShpParams,
@@ -174,6 +175,71 @@ async function readPaidUntil(
   const stored = latestDate(dates);
 
   return new Date(Math.max(Date.now(), timeOf(stored)));
+}
+
+/**
+ * Записывает покупку пакета токенов и начисляет их.
+ *
+ * Покупка попадает в общую историю `purchases` (`expires_at = null` — токены
+ * не сгорают), а начисление выполняет SQL-функция `credit_token_purchase`.
+ * Она идемпотентна по `inv_id`: повторное уведомление Robokassa не начислит
+ * пакет дважды, но если начисление в прошлый раз сорвалось — доведёт его.
+ *
+ * Ошибку начисления возвращаем как 500, чтобы Robokassa повторила запрос:
+ * покупка уже записана, а повтор безопасен.
+ */
+async function creditTokenPack(
+  admin: AdminClient,
+  args: {
+    invId: number;
+    userId: string;
+    courseId: string;
+    amount: number;
+    pack: TokenPack;
+  },
+): Promise<Response> {
+  const { error: insertError } = await admin.from("purchases").insert({
+    inv_id: args.invId,
+    user_id: args.userId,
+    course_id: args.courseId,
+    amount: args.amount,
+    expires_at: null,
+  });
+
+  if (insertError && insertError.code !== "23505") {
+    console.error("[Robokassa] Ошибка записи пакета токенов:", insertError);
+
+    return text("database error", 500);
+  }
+
+  if (insertError?.code === "23505") {
+    console.log(
+      "[Robokassa] Повторное уведомление о пакете токенов:",
+      args.invId,
+    );
+  }
+
+  const { error: creditError } = await admin.rpc("credit_token_purchase", {
+    p_inv_id: args.invId,
+    p_user_id: args.userId,
+    p_kind: args.pack.kind,
+    p_quantity: args.pack.quantity,
+  });
+
+  if (creditError) {
+    console.error("[Robokassa] Не удалось начислить токены:", creditError);
+
+    return text("database error", 500);
+  }
+
+  console.log("[Robokassa] Пакет токенов начислен:", {
+    invId: args.invId,
+    userId: args.userId,
+    kind: args.pack.kind,
+    quantity: args.pack.quantity,
+  });
+
+  return text(`OK${args.invId}`);
 }
 
 /**
@@ -354,6 +420,8 @@ async function handleResult(
     return text("amount does not match plan", 400);
   }
 
+  const tokenPack = getTokenPack(courseId);
+
   let admin: AdminClient;
 
   try {
@@ -364,6 +432,18 @@ async function handleResult(
       error,
     );
     return text("payment configuration error", 500);
+  }
+
+  // Пакет токенов обслуживается отдельно: подписку он не продлевает, а
+  // `purchases` нужен для истории и защиты от повторной выдачи по тому же InvId.
+  if (tokenPack) {
+    return creditTokenPack(admin, {
+      invId,
+      userId,
+      courseId,
+      amount: expectedAmount,
+      pack: tokenPack,
+    });
   }
 
   const isSubscription = courseId === "pro-subscription";

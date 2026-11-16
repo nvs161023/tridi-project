@@ -10,6 +10,7 @@
     "check:imports": "node scripts/check-imports.mjs",
     "check:style": "node scripts/style-check.mjs",
     "check:vase": "node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts",
+    "check:credits": "node --import ./scripts/register-alias.mjs scripts/test-generation-credits.ts",
     "check:keychain": "node --import ./scripts/register-alias.mjs scripts/test-keychain-image.ts",
     "check:lithophane": "node --import ./scripts/register-alias.mjs scripts/test-lithophane-geometry.ts",
     "check:box": "node --import ./scripts/register-alias.mjs scripts/test-box-geometry.ts",

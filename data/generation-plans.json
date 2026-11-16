@@ -1,0 +1,10 @@
+{
+  "standardPack": {
+    "price": 500,
+    "quantity": 10
+  },
+  "ultraPack": {
+    "price": 600,
+    "quantity": 5
+  }
+}

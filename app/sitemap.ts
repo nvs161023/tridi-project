@@ -32,6 +32,9 @@ const STATIC_PAGES: {
   { path: "/", changeFrequency: "weekly", priority: 1 },
   { path: "/start", changeFrequency: "monthly", priority: 0.7 },
   { path: "/subscription", changeFrequency: "weekly", priority: 0.7 },
+  // Витрина генератора: подписка и пакеты токенов. Публичная и индексируемая,
+  // в отличие от самого /3d-generator (он noindex и требует входа).
+  { path: "/pricing", changeFrequency: "monthly", priority: 0.8 },
   { path: "/forum", changeFrequency: "daily", priority: 0.7 },
   { path: "/tools", changeFrequency: "weekly", priority: 0.8 },
   { path: "/tools/defects", changeFrequency: "monthly", priority: 0.7 },
