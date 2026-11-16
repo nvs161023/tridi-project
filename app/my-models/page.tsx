@@ -18,7 +18,8 @@ import { createClient } from "@/lib/supabase/server";
  *
  * Страница закрыта сессией: middleware уводит гостя на вход, а сама страница
  * повторно проверяет пользователя (запрос мог пройти мимо прослойки). Список
- * читается клиентом пользователя, поэтому RLS отдаёт только его строки.
+ * читает сервер service_role с явным фильтром `user_id`: браузеру колонки
+ * `stl_url`/`user_id` больше не выдаются.
  *
  * Превью — подписанные ссылки на закрытый бакет `generated-models`: сам файл
  * в открытом доступе не лежит. Публикация в галерее включается на карточке и
@@ -72,7 +73,7 @@ export default async function MyModelsPage() {
   }
 
   const generations = await attachGenerationPreviews(
-    await getMyGenerations(supabase, userId),
+    await getMyGenerations(userId),
   );
 
   return (

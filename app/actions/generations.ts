@@ -9,10 +9,7 @@ import type {
   UpdateGenerationVisibilityResult,
 } from "@/app/actions/generations-state";
 import { isGenerationCategory } from "@/lib/generator/categories";
-import {
-  GENERATIONS_TABLE,
-  isGenerationId,
-} from "@/lib/generator/generations";
+import { isGenerationId } from "@/lib/generator/generations";
 import {
   isMissingColumnSchema,
   isMissingTableSchema,
@@ -26,13 +23,30 @@ const CATEGORY_UNAVAILABLE =
 const SESSION_EXPIRED = "Сессия истекла. Войдите в аккаунт заново.";
 const MODEL_NOT_FOUND = "Модель не найдена или недоступна.";
 
+/** PostgREST не нашёл RPC: миграция `generations.sql` ещё не применена. */
+function isMissingRpc(error: { code?: string | null }): boolean {
+  return error.code === "PGRST202" || error.code === "42883";
+}
+
+/** PostgreSQL не нашёл колонку `category` внутри RPC. */
+function isMissingCategoryColumn(error: {
+  code?: string | null;
+  message: string;
+}): boolean {
+  return (
+    isMissingColumnSchema(error.code, error.message, "category") ||
+    (error.code === "42703" &&
+      error.message.toLowerCase().includes("category"))
+  );
+}
+
 /**
  * Публикует модель в галерее или снова скрывает её.
  *
- * Идентификатор приходит из браузера, поэтому сначала проверяется как UUID, а
- * фильтр по `user_id` не даёт переключить чужую модель даже зная id. RLS
- * повторяет то же условие в базе, а `.select("id")` показывает, нашлась ли
- * строка: PostgREST на update без строк отвечает успешно.
+ * Идентификатор приходит из браузера, поэтому сначала проверяется как UUID.
+ * Запись делает RPC `set_generation_visibility`: он сверяет `auth.uid()` с
+ * `user_id` строки и возвращает `false`, если модель чужая или ещё не готова.
+ * Прямой update колонки из браузера закрыт грантами.
  */
 export async function setGenerationVisibility(
   input: UpdateGenerationVisibilityInput,
@@ -51,15 +65,10 @@ export async function setGenerationVisibility(
     return { ok: false, error: SESSION_EXPIRED };
   }
 
-  const { data, error } = await supabase
-    .from(GENERATIONS_TABLE)
-    .update({ is_public: input.isPublic })
-    .eq("id", input.id)
-    .eq("user_id", user.id)
-    // Пока модель не готова, публиковать нечего: в галерее нет превью и файла.
-    .not("stl_url", "is", null)
-    .select("id")
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("set_generation_visibility", {
+    p_id: input.id,
+    p_is_public: input.isPublic,
+  });
 
   if (error) {
     console.warn(
@@ -68,7 +77,7 @@ export async function setGenerationVisibility(
       error.message,
     );
 
-    if (isMissingTableSchema(error.code, error.message)) {
+    if (isMissingTableSchema(error.code, error.message) || isMissingRpc(error)) {
       return { ok: false, error: GENERATIONS_UNAVAILABLE };
     }
 
@@ -82,7 +91,7 @@ export async function setGenerationVisibility(
     };
   }
 
-  if (!data) {
+  if (data !== true) {
     return { ok: false, error: MODEL_NOT_FOUND };
   }
 
@@ -98,8 +107,8 @@ export async function setGenerationVisibility(
  *
  * Нужно на случай ошибки при выборе в генераторе: модель могла уехать не в ту
  * вкладку галереи. Проверки те же, что у публикации — UUID, значение из списка,
- * сессия и `user_id` в фильтре, чтобы чужую модель нельзя было переписать,
- * зная только её id.
+ * сессия, а владельца внутри RPC проверяет `auth.uid()`. Прямой update из
+ * браузера закрыт грантами.
  */
 export async function setGenerationCategory(
   input: UpdateGenerationCategoryInput,
@@ -118,13 +127,10 @@ export async function setGenerationCategory(
     return { ok: false, error: SESSION_EXPIRED };
   }
 
-  const { data, error } = await supabase
-    .from(GENERATIONS_TABLE)
-    .update({ category: input.category })
-    .eq("id", input.id)
-    .eq("user_id", user.id)
-    .select("id")
-    .maybeSingle();
+  const { data, error } = await supabase.rpc("set_generation_category", {
+    p_id: input.id,
+    p_category: input.category,
+  });
 
   if (error) {
     console.warn(
@@ -135,11 +141,11 @@ export async function setGenerationCategory(
 
     // Колонку добавляют вручную: пока её нет, честнее сказать об этом, чем
     // молча вернуть флажок на прежнее значение.
-    if (isMissingColumnSchema(error.code, error.message, "category")) {
+    if (isMissingCategoryColumn(error)) {
       return { ok: false, error: CATEGORY_UNAVAILABLE };
     }
 
-    if (isMissingTableSchema(error.code, error.message)) {
+    if (isMissingTableSchema(error.code, error.message) || isMissingRpc(error)) {
       return { ok: false, error: GENERATIONS_UNAVAILABLE };
     }
 
@@ -153,7 +159,7 @@ export async function setGenerationCategory(
     };
   }
 
-  if (!data) {
+  if (data !== true) {
     return { ok: false, error: MODEL_NOT_FOUND };
   }
 

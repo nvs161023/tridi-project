@@ -8,8 +8,9 @@
  *
  * Запись идёт служебным клиентом (service_role): строку создаёт роут после
  * проверки сессии, а файл кладётся в закрытый бакет мимо политик Storage.
- * Чтение списков — клиентом пользователя, поэтому RLS всё равно решает, что
- * ему видно. Ошибки записи не ломают генерацию: история — не критичный путь.
+ * Списки тоже читает service_role: браузеру колонки `user_id`/`stl_url` больше
+ * не выдаются, поэтому явный фильтр по владельцу или `is_public` стоит здесь,
+ * на сервере. Ошибки записи не ломают генерацию: история — не критичный путь.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -32,9 +33,7 @@ import {
 import type { GeneratorService } from "@/lib/generator/photo-generator";
 import { isMissingColumnSchema } from "@/lib/supabase/schema-errors";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { createClient } from "@/lib/supabase/server";
 
-type Supabase = Awaited<ReturnType<typeof createClient>>;
 type SupabaseAdmin = ReturnType<typeof createAdminClient>;
 
 /** Предел размера STL в бакете — тот же, что у `3d-models`. */
@@ -334,11 +333,19 @@ function toStoredGeneration(row: GenerationRow): StoredGeneration | null {
  * категорией нельзя.
  */
 async function listGenerations(
-  supabase: Supabase,
   filter: { userId: string | null; category?: GenerationCategory | null },
 ): Promise<StoredGeneration[]> {
+  let admin: SupabaseAdmin;
+
+  try {
+    admin = createAdminClient();
+  } catch (error) {
+    warnAboutHistory("список не прочитан: нет service_role", error);
+    return [];
+  }
+
   const build = (columns: string) => {
-    let query = supabase
+    let query = admin
       .from(GENERATIONS_TABLE)
       .select(columns)
       .not("stl_url", "is", null)
@@ -394,10 +401,9 @@ async function listGenerations(
 
 /** «Мои модели»: всё, что пользователь сгенерировал, включая скрытые. */
 export async function getMyGenerations(
-  supabase: Supabase,
   userId: string,
 ): Promise<StoredGeneration[]> {
-  return listGenerations(supabase, { userId });
+  return listGenerations({ userId });
 }
 
 /**
@@ -407,10 +413,9 @@ export async function getMyGenerations(
  * кодом; `null` — вкладка «Все».
  */
 export async function getPublicGenerations(
-  supabase: Supabase,
   category: GenerationCategory | null = null,
 ): Promise<StoredGeneration[]> {
-  return listGenerations(supabase, { userId: null, category });
+  return listGenerations({ userId: null, category });
 }
 
 /** Подписанная ссылка на один STL: живёт час и только для чтения файла. */
@@ -529,11 +534,30 @@ export type DownloadableGeneration = {
 };
 
 /**
+ * Путь STL принадлежит папке пользователя.
+ *
+ * Загрузчик всегда пишет `<user_id>/<файл>`, поэтому строка с чужим или
+ * подменённым `stl_url` не должна открывать файл даже при совпадении владельца
+ * строки. Заодно отсекаем `..`, `//` и обратные слэши — те же правила, что у
+ * остальных путей Storage.
+ */
+function belongsToUser(stlPath: string, userId: string): boolean {
+  if (!stlPath.startsWith(`${userId}/`) || stlPath.includes("\\")) {
+    return false;
+  }
+
+  return stlPath
+    .split("/")
+    .every((segment) => segment !== "" && segment !== "." && segment !== "..");
+}
+
+/**
  * Ищет модель для скачивания.
  *
  * Читаем служебным клиентом: гость галереи не должен получать строку через
- * RLS, пока роут сам не решил, что модель публичная. Проверку права делает
- * вызывающий код — здесь только данные.
+ * RLS, пока роут сам не решил, что модель публичная. Владелец проверяется по
+ * `user_id` из этой же строки, а `stl_url` дополнительно должен лежать в папке
+ * владельца. Проверку права делает вызывающий код — здесь только данные.
  */
 export async function getGenerationForDownload(
   id: string,
@@ -554,7 +578,11 @@ export async function getGenerationForDownload(
       return null;
     }
 
-    if (!data?.user_id || !data.stl_url) {
+    if (
+      !data?.user_id ||
+      !data.stl_url ||
+      !belongsToUser(data.stl_url, data.user_id)
+    ) {
       return null;
     }
 

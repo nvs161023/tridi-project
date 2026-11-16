@@ -16,10 +16,16 @@
 --      приватность решает сервер, а не прямая ссылка на файл.
 --
 -- Модель доступа:
---   * владелец читает свои строки при любом флаге публикации;
---   * `is_public = true` дополнительно читает гость — галерея открыта без
---     входа, а скачивание всё равно требует сессию (проверяет роут);
---   * запись и удаление — только свои строки, как у `saved_projects`.
+--   * браузер читает только `id, category, created_at, is_public` — без
+--     `user_id`, `task_id` и `stl_url`;
+--   * списки «Мои модели» и галереи собирает сервер служебным клиентом, поэтому
+--     RLS и явный фильтр по `user_id`/`is_public` остаются на сервере;
+--   * публикация и смена категории идут через RPC: прямой update колонок из
+--     браузера закрыт, а RPC проверяет `auth.uid() = user_id`;
+--   * запись и удаление строк — только service_role.
+--
+-- ВАЖНО: перед этим файлом примените `supabase/generations_category.sql`:
+-- гранты ниже перечисляют колонку `category`, и без неё SQL завершится ошибкой.
 --
 -- Проверить после применения:
 --   select column_name, data_type, is_nullable
@@ -86,12 +92,90 @@ drop policy if exists "generations_delete_own" on public.generations;
 create policy "generations_delete_own" on public.generations
   for delete to authenticated using (auth.uid() = user_id);
 
--- Гранты: запись в историю делает service_role, переключатель публикации —
--- сам пользователь из Server Action. Гостю хватает чтения публичной ленты.
+-- Гранты: браузеру доступны только публичные поля карточки. `task_id` — ключ
+-- опроса внешней сети, `stl_url` — путь в закрытом бакете, `user_id` — чужой
+-- идентификатор: клиенту они не нужны. Списки читает сервер service_role.
 revoke all on public.generations from anon, authenticated;
-grant select on public.generations to anon;
-grant select, insert, update, delete on public.generations to authenticated;
+grant select (id, category, created_at, is_public)
+  on public.generations to anon;
+grant select (id, category, created_at, is_public)
+  on public.generations to authenticated;
 grant all on public.generations to service_role;
+
+-- =============================================================================
+-- RPC публикации и категории
+-- =============================================================================
+-- Прямой update из браузера закрыт вместе с грантами. Эти функции работают
+-- security definer и сами проверяют владельца по `auth.uid()`: чужой id не
+-- изменит строку, даже если пользователь угадает UUID. `stl_url` внутри
+-- функции доступен, но наружу колонка не отдаётся.
+-- =============================================================================
+
+create or replace function public.set_generation_visibility(
+  p_id uuid,
+  p_is_public boolean
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'authentication required' using errcode = '42501';
+  end if;
+
+  update public.generations
+     set is_public = p_is_public
+   where id = p_id
+     and user_id = auth.uid()
+     -- Пока модели нет, публиковать нечего: галерее нечего показать.
+     and stl_url is not null;
+
+  return found;
+end;
+$$;
+
+comment on function public.set_generation_visibility(uuid, boolean) is
+  'Публикует или скрывает свою готовую модель; false — строка не найдена или чужая.';
+
+create or replace function public.set_generation_category(
+  p_id uuid,
+  p_category text
+) returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'authentication required' using errcode = '42501';
+  end if;
+
+  if p_category not in ('toy', 'figure', 'decor', 'functional', 'other') then
+    raise exception 'invalid generation category: %', p_category
+      using errcode = '22023';
+  end if;
+
+  update public.generations
+     set category = p_category
+   where id = p_id
+     and user_id = auth.uid();
+
+  return found;
+end;
+$$;
+
+comment on function public.set_generation_category(uuid, text) is
+  'Меняет категорию своей модели; false — строка не найдена или чужая.';
+
+revoke all on function public.set_generation_visibility(uuid, boolean)
+  from public, anon;
+revoke all on function public.set_generation_category(uuid, text)
+  from public, anon;
+grant execute on function public.set_generation_visibility(uuid, boolean)
+  to authenticated;
+grant execute on function public.set_generation_category(uuid, text)
+  to authenticated;
 
 -- PostgREST кэширует схему: без перечитывания API ещё некоторое время отвечает
 -- PGRST205 на новую таблицу.

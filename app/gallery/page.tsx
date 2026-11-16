@@ -19,11 +19,12 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Публичная галерея: модели, которые пользователи сами решили показать.
  *
- * Превью доступно всем — это подписанная ссылка на час, которую выдаёт
- * сервер. Скачивание остаётся под входом: гость видит кнопку «Войти, чтобы
- * скачать», которая ведёт на /auth/login?next=/gallery. Роут
- * `/api/generations/<id>/stl` проверяет сессию ещё раз, поэтому прямой запрос
- * мимо интерфейса тоже не отдаст файл.
+ * Ленту собирает сервер служебным клиентом: браузеру колонки `stl_url` и
+ * `user_id` не выдаются, а фильтр `is_public` остаётся здесь. Превью доступно
+ * всем — это подписанная ссылка на час. Скачивание остаётся под входом: гость
+ * видит кнопку «Войти, чтобы скачать», которая ведёт на
+ * /auth/login?next=/gallery. Роут `/api/generations/<id>/stl` проверяет сессию
+ * ещё раз, поэтому прямой запрос мимо интерфейса тоже не отдаст файл.
  *
  * Категория — параметр адреса (`?category=toy`), а не состояние клиента:
  * фильтр применяется в запросе к базе (`.eq('category', …)`), поэтому лента не
@@ -133,7 +134,7 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
   const category = parseGenerationCategory((await searchParams).category);
 
   const generations = await attachGenerationPreviews(
-    await getPublicGenerations(supabase, category),
+    await getPublicGenerations(category),
   );
 
   const loginHref = authHref("/auth/login", PAGE_PATH);
