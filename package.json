@@ -11,6 +11,8 @@
     "check:style": "node scripts/style-check.mjs",
     "check:vase": "node --import ./scripts/register-alias.mjs scripts/test-vase-geometry.ts",
     "check:credits": "node --import ./scripts/register-alias.mjs scripts/test-generation-credits.ts",
+    "check:course-access": "node --import ./scripts/register-alias.mjs scripts/test-course-access-guard.ts",
+    "check:promo-rls": "node scripts/test-promo-rls.mjs",
     "check:keychain": "node --import ./scripts/register-alias.mjs scripts/test-keychain-image.ts",
     "check:lithophane": "node --import ./scripts/register-alias.mjs scripts/test-lithophane-geometry.ts",
     "check:box": "node --import ./scripts/register-alias.mjs scripts/test-box-geometry.ts",

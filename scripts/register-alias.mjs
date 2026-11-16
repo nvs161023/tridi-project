@@ -9,7 +9,7 @@
  * Запуск:
  *   node --import ./scripts/register-alias.mjs scripts/test-db.ts
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { registerHooks } from "node:module";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -69,5 +69,21 @@ registerHooks({
     }
 
     return nextResolve(specifier, context);
+  },
+  /**
+   * JSON курсов (`data/course-*.json`) Node без import attributes не загружает,
+   * а Next — загружает. Отдаём файл как JSON-модуль, чтобы те же импорты
+   * работали в тестах без правок приложения.
+   */
+  load(url, context, nextLoad) {
+    if (url.startsWith("file:") && url.endsWith(".json")) {
+      return {
+        format: "json",
+        source: readFileSync(fileURLToPath(url), "utf8"),
+        shortCircuit: true,
+      };
+    }
+
+    return nextLoad(url, context);
   },
 });

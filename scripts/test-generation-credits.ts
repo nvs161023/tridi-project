@@ -34,6 +34,7 @@ import {
   chooseCreditSource,
   createEmptyCreditBalance,
   describeCreditSource,
+  effectiveGeneratorQuality,
   hasFreeStandard,
   monthlyStandardLeft,
   monthlyUltraLeft,
@@ -400,6 +401,64 @@ check(
   "chooseCreditSource не мутирует баланс",
   JSON.stringify(untouched) === snapshot,
   snapshot,
+);
+
+console.log("\n=== 8. Несколько фото — всегда Standard ===");
+
+check(
+  "Одно фото сохраняет Ultra",
+  effectiveGeneratorQuality(1, "ultra") === "ultra",
+  String(effectiveGeneratorQuality(1, "ultra")),
+);
+
+check(
+  "Два фото переводят Ultra в Standard",
+  effectiveGeneratorQuality(2, "ultra") === "standard",
+  String(effectiveGeneratorQuality(2, "ultra")),
+);
+
+check(
+  "Максимум фото тоже даёт Standard",
+  effectiveGeneratorQuality(4, "ultra") === "standard",
+  String(effectiveGeneratorQuality(4, "ultra")),
+);
+
+check(
+  "Standard остаётся Standard при любом числе фото",
+  effectiveGeneratorQuality(3, "standard") === "standard",
+  String(effectiveGeneratorQuality(3, "standard")),
+);
+
+// Раньше при двух фото сервер списывал Ultra: quality из запроса уходил в
+// deductGenerationCredit, хотя сеть собирала multiview Tripo. Теперь и подпись,
+// и списание используют фактическое качество.
+const multiPhotoBalance = balance({ freeStandardUsed: 1, standardTokens: 2 });
+const multiPhotoSource = chooseCreditSource(
+  multiPhotoBalance,
+  effectiveGeneratorQuality(2, "ultra"),
+  false,
+);
+
+check(
+  "Два фото с Ultra в запросе списывают Standard-токен",
+  multiPhotoSource === "standard-token",
+  String(multiPhotoSource),
+);
+
+check(
+  "Два фото не трогают Ultra-токены",
+  chooseCreditSource(
+    balance({ ultraTokens: 2 }),
+    effectiveGeneratorQuality(2, "ultra"),
+    false,
+  ) !== "ultra-token",
+  String(
+    chooseCreditSource(
+      balance({ ultraTokens: 2 }),
+      effectiveGeneratorQuality(2, "ultra"),
+      false,
+    ),
+  ),
 );
 
 console.log(

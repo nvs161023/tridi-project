@@ -1,5 +1,10 @@
 "use server";
 
+import { courseLessonExists } from "@/lib/course-lesson-catalog";
+import {
+  canWriteCourseProgress,
+  hasCourseAccess,
+} from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export type CompleteLessonResult = { success: true } | { error: string };
@@ -26,6 +31,10 @@ export type CourseType = "basic" | "confident" | "engineer" | "profit" | "pro";
  * (SQL — в supabase/pro_course_access.sql). Без него Supabase ответит ошибкой
  * 42P10 и прогресс не сохранится; кнопка при этом всё равно ведёт дальше — см.
  * components/course/CompleteButton.tsx.
+ *
+ * ДОСТУП: платный курс нельзя пройти без покупки или промокода, даже если
+ * страница урока открыта. Проверка стоит на сервере: браузер может вызвать
+ * action напрямую. Номер урока тоже сверяется с каталогом курса.
  */
 export async function completeLesson(
   lessonId: number,
@@ -55,6 +64,22 @@ export async function completeLesson(
     courseType !== "pro"
   ) {
     return { error: "Неизвестный тип курса" };
+  }
+
+  if (!courseLessonExists(courseType, lessonId)) {
+    return { error: "Такого урока нет в курсе" };
+  }
+
+  // Бесплатный курс не требует запроса к purchases. Для платных доступ
+  // проверяется по покупке или активированному промокоду — те же правила, что
+  // у страниц курса (lib/subscription.ts).
+  const hasAccess =
+    courseType === "basic"
+      ? true
+      : await hasCourseAccess(supabase, user.id, courseType);
+
+  if (!canWriteCourseProgress(courseType, hasAccess)) {
+    return { error: "Этот курс не открыт в вашем аккаунте." };
   }
 
   const { error } = await supabase.from("lesson_progress").upsert(

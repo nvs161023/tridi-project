@@ -1,11 +1,16 @@
 "use server";
 
 import {
-  isModuleTestPassed,
   moduleTestCourseType,
   moduleTestPassFrom,
+  scoreModuleTestAnswers,
   type CourseTestVariant,
 } from "@/lib/module-test";
+import { moduleTestQuestions } from "@/lib/module-test-questions";
+import {
+  canWriteCourseProgress,
+  hasCourseAccess,
+} from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 export type CompleteModuleTestResult = { success: true } | { error: string };
@@ -33,8 +38,7 @@ export type CompleteModuleTestResult = { success: true } | { error: string };
 export async function completeModuleTest(
   variant: CourseTestVariant,
   moduleNumber: number,
-  correct: number,
-  total: number,
+  answers: number[],
 ): Promise<CompleteModuleTestResult> {
   const supabase = await createClient();
 
@@ -63,19 +67,44 @@ export async function completeModuleTest(
   }
 
   if (
-    !Number.isInteger(correct) ||
-    !Number.isInteger(total) ||
-    total <= 0 ||
-    correct < 0 ||
-    correct > total
+    !Array.isArray(answers) ||
+    answers.length === 0 ||
+    !answers.every((answer) => Number.isInteger(answer))
   ) {
-    return { error: "Некорректный результат теста" };
+    return { error: "Некорректные ответы теста" };
   }
 
-  // Порог сдачи — 7 правильных из 10 на всех уровнях. Клиент
-  // присылает уже посчитанное число правильных, поэтому порог пересчитываем здесь
-  // повторно.
-  if (!isModuleTestPassed(correct, total, moduleTestPassFrom(variant))) {
+  // Платный уровень без покупки или промокода не сохраняет тест: страница
+  // теста могла быть открыта в обход, а action вызывается напрямую.
+  const hasAccess =
+    variant === "basic"
+      ? true
+      : await hasCourseAccess(supabase, user.id, variant);
+
+  if (!canWriteCourseProgress(variant, hasAccess)) {
+    return { error: "Этот курс не открыт в вашем аккаунте." };
+  }
+
+  // Правильные ответы берём только из серверного каталога. Клиент присылает
+  // выбранные варианты, а не готовое число правильных: подделать `correct` и
+  // `total` больше нельзя.
+  const questions = moduleTestQuestions(variant, moduleNumber);
+
+  if (questions === null) {
+    return { error: "Такого модуля нет в курсе" };
+  }
+
+  const score = scoreModuleTestAnswers(
+    questions,
+    answers,
+    moduleTestPassFrom(variant),
+  );
+
+  if (score === null) {
+    return { error: "Некорректные ответы теста" };
+  }
+
+  if (!score.passed) {
     return { error: "Тест не сдан" };
   }
 

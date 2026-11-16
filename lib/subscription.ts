@@ -334,6 +334,20 @@ export async function getActiveSubscription(
 }
 
 /**
+ * Можно ли писать прогресс по курсу.
+ *
+ * Бесплатный курс открыт всем авторизованным. Платный — только при доступе:
+ * покупке или активированном промокоде. Проверка вынесена отдельной функцией,
+ * чтобы server actions не повторяли правило и его можно было проверить тестом.
+ */
+export function canWriteCourseProgress(
+  courseType: string,
+  hasAccess: boolean,
+): boolean {
+  return courseType === "basic" || hasAccess;
+}
+
+/**
  * Есть ли доступ к платному уровню.
  *
  * Источники:

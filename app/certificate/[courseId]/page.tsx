@@ -149,6 +149,25 @@ function ProgressMeter({
 }
 
 /**
+ * Платный уровень не открыт: сертификат не показываем.
+ *
+ * Прогресс мог оказаться в базе в обход (например, старым клиентом до проверки
+ * доступа в Server Action). Сертификат подтверждает результат курса, поэтому
+ * без покупки или промокода его не выдаём.
+ */
+function CourseNotOpen({ level }: { level: CourseLevel }) {
+  return (
+    <CertificatePageShell>
+      <ScreenIntro
+        title="Курс не открыт"
+        description={`Сертификат по курсу «${level.title}» доступен после покупки уровня или активации промокода. Если доступ уже оплачен, обновите страницу через минуту — платёж иногда приходит с задержкой.`}
+      />
+      <BackLinks level={level} />
+    </CertificatePageShell>
+  );
+}
+
+/**
  * Курс ещё не пройден. Сертификат не показываем и не подписываем: документ
  * должен подтверждать реальный результат, а не открытие страницы.
  */
@@ -254,12 +273,22 @@ export default async function CertificatePage({
     );
   }
 
-  const [progress, fullCourse] = await Promise.all([
-    readCourseProgressRows(supabase, identity.id, level.key),
+  const courseKey = level.key;
+  const [progress, courseAccess, fullCourse] = await Promise.all([
+    readCourseProgressRows(supabase, identity.id, courseKey),
+    // Сертификат платного уровня выдаётся только при доступе: покупка или
+    // промокод. Бесплатный курс проверки не требует.
+    courseKey === "basic"
+      ? Promise.resolve(true)
+      : hasCourseAccess(supabase, identity.id, courseKey),
     // Пакет pro — это три платных уровня. На бланке он подписывается как
     // «Полный курс», поэтому флаг входит в HMAC-токен и не меняется задним числом.
     hasCourseAccess(supabase, identity.id, "pro"),
   ]);
+
+  if (!courseAccess) {
+    return <CourseNotOpen level={level} />;
+  }
 
   if (progress.failed) {
     return <ProgressProblem level={level} />;

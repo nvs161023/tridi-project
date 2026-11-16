@@ -8,6 +8,7 @@ import {
   DEFAULT_GENERATION_CATEGORY,
   parseGenerationCategory,
 } from "@/lib/generator/categories";
+import { effectiveGeneratorQuality } from "@/lib/generator/generation-credits";
 import { rememberGenerationTask } from "@/lib/generator/generation-store";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
@@ -19,9 +20,13 @@ import { createClient } from "@/lib/supabase/server";
  * идёт минуты, держать столько HTTP-запрос незачем — статус читает отдельный
  * роут по `taskId`. Провайдер выбирается по входу:
  *
- *   несколько фото            → Tripo `multiview-to-model` (по видам);
+ *   несколько фото            → Tripo `multiview-to-model` (по видам), Standard;
  *   одно фото + quality=ultra → Meshy `image-to-3d` (модель `meshy-7.1`);
  *   одно фото + standard      → Tripo `image-to-model` (дешевле всего).
+ *
+ * Несколько фото всегда считаются Standard: Meshy принимает только один кадр,
+ * а у Tripo multiview нет Ultra. Иначе за Ultra списался бы токен, а модель
+ * пришла бы в обычном качестве.
  *
  * Созданная задача сразу попадает в `generations` вместе с флагом публикации:
  * по этому номеру опрос статуса найдёт строку и сохранит готовый STL в
@@ -693,7 +698,11 @@ export async function POST(request: Request): Promise<Response> {
     images.push(image);
   }
 
-  const provider = chooseProvider(images.length, quality);
+  // Несколько фото физически не могут быть Ultra: Meshy берёт один кадр, а
+  // multiview Tripo не имеет этого качества. Приводим запрос к реальности до
+  // выбора сети и списания, а не после.
+  const effectiveQuality = effectiveGeneratorQuality(images.length, quality);
+  const provider = chooseProvider(images.length, effectiveQuality);
   const keyName = provider === "meshy" ? "MESHY_API_KEY" : "TRIPO_API_KEY";
   const apiKey = process.env[keyName]?.trim();
 
@@ -710,7 +719,7 @@ export async function POST(request: Request): Promise<Response> {
   const hasSubscription = await hasActiveSubscription(supabase, user.id);
   const deduction = await deductGenerationCredit(
     user.id,
-    quality,
+    effectiveQuality,
     hasSubscription,
   );
 
@@ -726,7 +735,7 @@ export async function POST(request: Request): Promise<Response> {
 
     return errorResponse(
       402,
-      quality === "ultra"
+      effectiveQuality === "ultra"
         ? "Ультра-генерации закончились: месячный лимит подписки исчерпан, Ultra-токенов нет. Купите пакет Ultra в тарифах."
         : "Генерации Standard закончились: бесплатная использована, месячный лимит подписки исчерпан, токенов нет. Купите пакет в тарифах.",
     );
@@ -745,7 +754,7 @@ export async function POST(request: Request): Promise<Response> {
     console.info(
       "[generate-3d] Задача создана:",
       provider,
-      quality,
+      effectiveQuality,
       images.length,
       "фото",
       taskId,

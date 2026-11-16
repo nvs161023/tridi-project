@@ -115,6 +115,73 @@ export function isModuleTestPassed(
   return correct >= Math.min(passFrom, Math.max(total, 1));
 }
 
+/** Итог серверной проверки ответов: сколько верных и сдан ли тест. */
+export type ModuleTestScore = {
+  correct: number;
+  total: number;
+  passed: boolean;
+};
+
+/**
+ * Считает результат теста по ответам ученика и вопросам курса.
+ *
+ * Ответы приходят из браузера, поэтому функция проверяет каждый индекс: он
+ * должен быть целым числом в пределах вариантов вопроса. `null` означает
+ * некорректную попытку — например, ответов меньше, чем вопросов, или вместо
+ * номера пришла строка. Такую попытку нельзя сохранять как сданную.
+ *
+ * Правильные ответы берутся только из серверного каталога курса: клиент больше
+ * не присылает `correct` и `total`, которые можно было подделать.
+ */
+export function scoreModuleTestAnswers(
+  questions: readonly {
+    correct: number;
+    answers: readonly unknown[];
+  }[],
+  answers: readonly unknown[],
+  passFrom: number = MODULE_TEST_PASS_FROM,
+): ModuleTestScore | null {
+  if (questions.length === 0 || answers.length !== questions.length) {
+    return null;
+  }
+
+  let correct = 0;
+
+  for (let index = 0; index < questions.length; index += 1) {
+    const question = questions[index];
+    const answer = answers[index];
+
+    if (
+      !Number.isInteger(question.correct) ||
+      question.correct < 0 ||
+      question.correct >= question.answers.length
+    ) {
+      return null;
+    }
+
+    if (
+      typeof answer !== "number" ||
+      !Number.isInteger(answer) ||
+      answer < 0 ||
+      answer >= question.answers.length
+    ) {
+      return null;
+    }
+
+    if (answer === question.correct) {
+      correct += 1;
+    }
+  }
+
+  const total = questions.length;
+
+  return {
+    correct,
+    total,
+    passed: isModuleTestPassed(correct, total, passFrom),
+  };
+}
+
 /**
  * Сдан ли тест модуля по данным из базы.
  *

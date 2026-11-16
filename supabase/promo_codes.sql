@@ -76,6 +76,29 @@ alter table public.promo_codes
 alter table public.promo_codes enable row level security;
 
 -- Пользователь читает только собственные активации.
+--
+-- Сначала убираем ВСЕ прежние политики таблицы, как бы они ни назывались:
+-- старые версии файла могли оставить политику с другим именем или для anon.
+-- Иначе drop policy по одному имени не закрыл бы доступ, а RLS пропускает
+-- строки при нескольких разрешающих политиках.
+do $$
+declare
+  old_policy record;
+begin
+  for old_policy in
+    select policyname
+      from pg_policies
+     where schemaname = 'public'
+       and tablename = 'promo_codes'
+       and policyname <> 'promo_codes_select_own'
+  loop
+    execute format(
+      'drop policy if exists %I on public.promo_codes',
+      old_policy.policyname
+    );
+  end loop;
+end $$;
+
 drop policy if exists "promo_codes_select_own" on public.promo_codes;
 create policy "promo_codes_select_own" on public.promo_codes
   for select to authenticated using (used_by = auth.uid());
@@ -83,7 +106,7 @@ create policy "promo_codes_select_own" on public.promo_codes
 -- Политик insert/update/delete нет: коды выпускает и гасит только service_role.
 -- Supabase выдаёт гранты новым таблицам автоматически, но явные grant/revoke
 -- делают миграцию самодостаточной и закрывают anon.
-revoke all on public.promo_codes from anon, authenticated;
+revoke all on public.promo_codes from public, anon, authenticated;
 grant select on public.promo_codes to authenticated;
 grant all on public.promo_codes to service_role;
 

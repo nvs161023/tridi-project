@@ -21,6 +21,7 @@ import {
 import {
   chooseCreditSource,
   describeCreditSource,
+  effectiveGeneratorQuality,
   type GenerationCreditBalance,
 } from "@/lib/generator/generation-credits";
 import {
@@ -259,10 +260,11 @@ export function Image3DGenerator({
   // что и `/api/generate-3d`: подпись под кнопкой не разойдётся со списанием.
   // `null` (баланс недоступен) кнопку не блокирует — это решит сервер, а не
   // пропавший запрос к базе.
+  const plannedQuality = effectiveGeneratorQuality(photos.length, quality);
   const plannedSource =
     balance === null
       ? null
-      : chooseCreditSource(balance, quality, hasSubscription);
+      : chooseCreditSource(balance, plannedQuality, hasSubscription);
   const notEnoughCredits = balance !== null && plannedSource === null;
   const canGenerate =
     photos.length > 0 && !isBusy && !isReading && !notEnoughCredits;
@@ -376,7 +378,9 @@ export function Image3DGenerator({
     // Снимок входа: пока идёт POST, список фото может измениться, а сеть для
     // опроса обязана совпасть с той, что получила ровно эти кадры.
     const sentPhotos = photos;
-    const sentQuality = quality;
+    // Сервер всё равно приведёт несколько фото к Standard, но отправляем уже
+    // фактическое качество: подпись, списание и выбор сети говорят об одном.
+    const sentQuality = effectiveGeneratorQuality(sentPhotos.length, quality);
     const sentCategory = category;
 
     setError(null);
@@ -545,7 +549,7 @@ export function Image3DGenerator({
       ? "Стоимость генерации проверит сервер."
       : plannedSource
         ? `Спишется: ${describeCreditSource(plannedSource)}.`
-        : quality === "ultra"
+        : plannedQuality === "ultra"
           ? "Ультра-генерации закончились: месячный лимит подписки исчерпан, Ultra-токенов нет."
           : "Генерации Standard закончились: бесплатная использована, месячный лимит подписки исчерпан, токенов нет.";
 
@@ -688,7 +692,9 @@ export function Image3DGenerator({
             role="group"
           >
             {QUALITY_OPTIONS.map((option) => {
-              const active = quality === option.value;
+              const active = plannedQuality === option.value;
+              const ultraNeedsOnePhoto =
+                option.value === "ultra" && photos.length > 1;
 
               return (
                 <button
@@ -698,9 +704,14 @@ export function Image3DGenerator({
                       ? "min-h-10 rounded-xl border border-fuchsia-400/70 bg-gradient-to-r from-fuchsia-500/30 to-blue-500/30 px-2 text-xs font-semibold text-white shadow-lg shadow-fuchsia-500/10 transition-colors focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                       : "min-h-10 rounded-xl border border-white/15 bg-white/5 px-2 text-xs font-semibold text-slate-300 transition-colors hover:border-white/30 hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60"
                   }
-                  disabled={isBusy}
+                  disabled={isBusy || ultraNeedsOnePhoto}
                   key={option.value}
                   onClick={() => setQuality(option.value)}
+                  title={
+                    ultraNeedsOnePhoto
+                      ? "Ультра работает только с одним фото"
+                      : undefined
+                  }
                   type="button"
                 >
                   {option.label}
@@ -708,6 +719,12 @@ export function Image3DGenerator({
               );
             })}
           </div>
+          {photos.length > 1 ? (
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
+              С несколькими фото доступен только Стандарт: сервис собирает модель
+              по видам и Ultra не поддерживает.
+            </p>
+          ) : null}
         </div>
 
         <label className="mt-5 flex cursor-pointer items-start gap-2.5 rounded-xl border border-white/10 bg-white/[0.02] px-3 py-2.5">

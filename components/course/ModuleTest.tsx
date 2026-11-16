@@ -91,6 +91,7 @@ export function ModuleTest({
 
   const [questionIndex, setQuestionIndex] = useState(0);
   const [picked, setPicked] = useState<number | null>(null);
+  const [answers, setAnswers] = useState<number[]>([]);
   const [correctCount, setCorrectCount] = useState(0);
   const [isFinished, setIsFinished] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -117,6 +118,12 @@ export function ModuleTest({
     }
 
     setPicked(answerIndex);
+    setAnswers((current) => {
+      const next = [...current];
+      next[questionIndex] = answerIndex;
+
+      return next;
+    });
 
     if (answerIndex === question.correct) {
       setCorrectCount((count) => count + 1);
@@ -149,12 +156,7 @@ export function ModuleTest({
     }
 
     startSaving(async () => {
-      const result = await completeModuleTest(
-        courseType,
-        moduleNumber,
-        correctCount,
-        total,
-      );
+      const result = await completeModuleTest(courseType, moduleNumber, answers);
 
       if ("error" in result) {
         console.warn("Результат теста не сохранён:", result.error);
@@ -170,6 +172,7 @@ export function ModuleTest({
   function restart() {
     setQuestionIndex(0);
     setPicked(null);
+    setAnswers([]);
     setCorrectCount(0);
     setIsFinished(false);
     setSaveError(null);

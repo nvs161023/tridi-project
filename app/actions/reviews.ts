@@ -13,6 +13,7 @@ import {
   REVIEW_TEXT_MAX,
   REVIEW_TEXT_MIN,
 } from "@/lib/reviews";
+import { hasCourseAccess } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 import type { ReviewFormState } from "@/app/actions/reviews-state";
@@ -89,6 +90,18 @@ export async function createCourseReview(
 
   if (!user) {
     return { error: "Войдите в аккаунт, чтобы оставить отзыв." };
+  }
+
+  // Отзыв — подтверждение пройденного курса. Без покупки или промокода платный
+  // уровень не должен получать отзыв, даже если строки прогресса как-то
+  // появились в базе. Бесплатный курс проверки не требует.
+  const hasAccess =
+    courseId === "basic"
+      ? true
+      : await hasCourseAccess(supabase, user.id, courseId);
+
+  if (!hasAccess) {
+    return { error: "Отзыв можно оставить после покупки курса." };
   }
 
   const progress = await readCourseProgressRows(supabase, user.id, courseId);

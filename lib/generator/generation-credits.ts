@@ -125,6 +125,21 @@ export function chooseCreditSource(
   return balance.standardTokens > 0 ? "standard-token" : null;
 }
 
+/**
+ * Какое качество реально получит пользователь.
+ *
+ * Ультра-режим умеет только Meshy, а он принимает одно фото. Несколько фото
+ * уходят в multiview Tripo, где качества Ultra нет. Поэтому сервер и интерфейс
+ * обязаны считать такую генерацию Standard: иначе за Ultra спишется токен, а
+ * модель придёт в обычном качестве.
+ */
+export function effectiveGeneratorQuality(
+  imageCount: number,
+  quality: GeneratorQuality,
+): GeneratorQuality {
+  return imageCount > 1 ? "standard" : quality;
+}
+
 /** Хватает ли баланса на генерацию выбранного качества. */
 export function canGenerateWith(
   balance: GenerationCreditBalance,
