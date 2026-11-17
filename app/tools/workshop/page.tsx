@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
@@ -173,10 +174,68 @@ const LIMITS: string[] = [
 ];
 
 /**
+ * Скриншоты демо-мастерской: снимает `npm run shots:workshop` с настоящих
+ * вкладок демо-аккаунта. Подпись под галереей честно говорит, что данные
+ * демонстрационные, — иначе покупатель решит, что видит чужую CRM.
+ *
+ * `unoptimized`: файлы уже сжаты при съёмке (JPEG 88 %), а оптимизатор Next в
+ * standalone-сборке на Amvera остаётся без sharp — пусть отдаётся как есть.
+ */
+const SCREENSHOTS: {
+  src: string;
+  title: string;
+  text: string;
+  width: number;
+  height: number;
+}[] = [
+  {
+    src: "/workshop/orders.jpg",
+    title: "Заказы",
+    text: "Канбан со статусами, сроками и активными заданиями печати.",
+    width: 2160,
+    height: 1725,
+  },
+  {
+    src: "/workshop/stock.jpg",
+    title: "Склад",
+    text: "Остатки катушек, цена за килограмм и красная строка «пора докупить».",
+    width: 2160,
+    height: 1725,
+  },
+  {
+    src: "/workshop/printers.jpg",
+    title: "Принтеры",
+    text: "Наработка сопла и смазки, прогресс печати и очередь заданий.",
+    width: 2160,
+    height: 1725,
+  },
+  {
+    src: "/workshop/clients.jpg",
+    title: "Клиенты",
+    text: "Контакты, адреса и заметки — подставляются в заказ и накладную.",
+    width: 2160,
+    height: 1725,
+  },
+  {
+    src: "/workshop/calculator.jpg",
+    title: "Калькулятор",
+    text: "Себестоимость по вашему тарифу, рекомендованная цена и прибыль.",
+    width: 2160,
+    height: 1725,
+  },
+];
+
+/**
  * Страница собирается на каждый запрос: шапка читает cookies, а кнопки героя
  * зависят от сессии и подписки.
  */
-export default async function WorkshopLandingPage() {
+export default async function WorkshopLandingPage({
+  searchParams,
+}: {
+  /** `?demo=unavailable|error` — итог попытки открыть демо-мастерскую. */
+  searchParams: Promise<{ demo?: string }>;
+}) {
+  const demoState = (await searchParams).demo;
   const supabase = await createClient();
   const {
     data: { user },
@@ -261,6 +320,30 @@ export default async function WorkshopLandingPage() {
                 {hasPro ? "Все инструменты" : "Что входит в Pro"}
               </ButtonLink>
             </div>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+              <a
+                href="/api/demo/workshop"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-5 text-sm font-semibold text-emerald-200 transition-colors hover:border-emerald-300/60 hover:text-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              >
+                Смотреть демо-мастерскую
+                <span aria-hidden>↗</span>
+              </a>
+              <p className="text-xs leading-relaxed text-slate-400">
+                Без регистрации: данные можно листать и считать, но не менять.
+              </p>
+            </div>
+
+            {demoState === "unavailable" || demoState === "error" ? (
+              <p
+                role="status"
+                className="mt-4 max-w-2xl rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100"
+              >
+                {demoState === "unavailable"
+                  ? "Демо-доступ выключен: на сервере не задан пароль демо-аккаунта."
+                  : "Не удалось войти в демо. Обновите страницу и попробуйте ещё раз."}
+              </p>
+            ) : null}
 
             <p className="mt-6 text-sm text-slate-300">
               <span aria-hidden>✅</span> Подписка Pro открывает мастерскую и
@@ -347,6 +430,86 @@ export default async function WorkshopLandingPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </section>
+
+        {/* Как это выглядит: снимки настоящих вкладок демо-аккаунта */}
+        <section
+          aria-labelledby="workshop-screens-title"
+          className="border-b border-white/10"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
+            <p className="text-sm font-semibold tracking-widest text-emerald-400 uppercase">
+              Демо
+            </p>
+            <h2
+              id="workshop-screens-title"
+              className="mt-3 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-4xl"
+            >
+              Посмотрите мастерскую до оплаты
+            </h2>
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
+              Это настоящие вкладки демо-аккаунта: заказы, склад, принтеры и база
+              клиентов. Откройте демо целиком — данные можно листать и считать,
+              но не менять.
+            </p>
+
+            <ul className="mt-10 grid gap-5 md:grid-cols-2">
+              {SCREENSHOTS.map((shot, index) => (
+                <li
+                  key={shot.src}
+                  className={`overflow-hidden rounded-2xl border border-white/10 bg-[#0a0a0a]/70 ${
+                    index === SCREENSHOTS.length - 1 &&
+                    SCREENSHOTS.length % 2 === 1
+                      ? "md:col-span-2"
+                      : ""
+                  }`}
+                >
+                  <Image
+                    src={shot.src}
+                    alt={`Мастерская TriDi: вкладка «${shot.title}» с демонстрационными данными`}
+                    width={shot.width}
+                    height={shot.height}
+                    unoptimized
+                    sizes="(min-width: 768px) 50vw, 100vw"
+                    className="h-auto w-full border-b border-white/10"
+                  />
+                  <div className="p-5">
+                    <p className="text-lg font-bold tracking-tight text-white">
+                      {shot.title}
+                    </p>
+                    <p className="mt-1 text-sm leading-relaxed text-slate-300">
+                      {shot.text}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <p className="mt-4 text-xs text-slate-400">
+              Данные демонстрационные: имена клиентов и заказы придуманы для
+              показа.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-emerald-400/25 bg-emerald-500/[0.07] p-6 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-lg font-bold text-white">
+                  Демо-доступ без регистрации
+                </p>
+                <p className="mt-1 max-w-2xl text-sm leading-relaxed text-slate-300">
+                  Внутри только чтение: сохранить заказ, клиента или настройки
+                  нельзя. При нажатии «Сохранить» мастерская объяснит это и
+                  предложит оформить Pro.
+                </p>
+              </div>
+              <a
+                href="/api/demo/workshop"
+                className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 text-sm font-semibold text-emerald-950 transition-colors hover:bg-emerald-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+              >
+                Открыть демо
+                <span aria-hidden>→</span>
+              </a>
+            </div>
           </div>
         </section>
 
