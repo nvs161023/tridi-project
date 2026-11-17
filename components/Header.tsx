@@ -80,14 +80,16 @@ export async function Header() {
   const lessonsHref = isAuthorized ? "/dashboard" : "/course/lesson-1";
   const hasPro = userId ? await hasActiveSubscription(supabase, userId) : false;
 
-  // Мастерская живёт в кабинете и открывается пакетом «Всё включено».
+  // Мастерская живёт в кабинете и открывается подпиской Pro. Гостя ведём на
+  // вход, ученика без подписки — на витрину Pro (/pricing): на /subscription
+  // продаются курсы, и отправлять туда за мастерской значит путать два оффера.
   const workshop = hasPro
     ? {
         href: "/dashboard/workshop",
         note: "Заказы, принтеры и склад в одном окне",
       }
     : isAuthorized
-      ? { href: "/subscription", note: "Требуется подписка Pro" }
+      ? { href: "/pricing", note: "Требуется подписка Pro" }
       : {
           href: "/auth/login?next=/dashboard/workshop",
           note: "Вход в аккаунт, затем пакет Pro",
@@ -105,15 +107,20 @@ export async function Header() {
           >
             {/*
               Витрина главной больше не держит курсовых якорей: пункты ведут на
-              отдельные страницы. «Цены» — тарифы инструментов (/pricing),
-              «Обучение» — курсы (/subscription), «Бесплатный курс» — стартовый
-              уровень (/start).
+              отдельные страницы. «Подписка Pro» — доступ к инструментам
+              (/pricing), «Обучение» — курсы (/subscription), «Бесплатный
+              курс» — стартовый уровень (/start).
+
+              Пункт называется подпиской, а не «Ценами»: на /pricing продаётся
+              один продукт, и человек должен понимать это до клика. Если места
+              в строке не хватит, сокращайте подписи справа (`xl:gap-6`), а не
+              этот пункт: без него гостю неоткуда узнать про Pro.
             */}
             <Link
               className="transition-colors hover:text-blue-400"
               href="/pricing"
             >
-              Цены
+              Подписка Pro
             </Link>
             <Link
               className="transition-colors hover:text-blue-400"

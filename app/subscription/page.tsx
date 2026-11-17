@@ -32,9 +32,9 @@ import { createClient } from "@/lib/supabase/server";
 import { PlanButton } from "./PlanButton";
 
 export const metadata: Metadata = {
-  title: "Тарифы — 3D-печать с нуля",
+  title: "Курсы 3D-печати — от новичка до заработка",
   description:
-    "Первый уровень бесплатно, три платных курса навсегда. Что входит в каждый уровень, сколько стоит обучение и частые вопросы об оплате.",
+    "Четыре уровня обучения 3D-печати: первый бесплатно, три платных навсегда. Что входит в каждый курс, сколько стоит обучение и ответы на вопросы об оплате.",
   alternates: { canonical: "/subscription" },
   // Свой openGraph: без него og:url наследовался бы от главной.
   openGraph: {
@@ -42,10 +42,10 @@ export const metadata: Metadata = {
     locale: "ru_RU",
     siteName: "TriDi",
     url: "/subscription",
-    title: "Тарифы — 3D-печать с нуля",
+    title: "Курсы 3D-печати — от новичка до заработка",
     description:
       "Первый уровень бесплатно, три платных курса навсегда и отдельная подписка Pro для инструментов.",
-    // Картинка превью: без неё ссылка на тарифы в соцсетях и мессенджерах
+    // Картинка превью: без неё ссылка на курсы в соцсетях и мессенджерах
     // приезжала без изображения. OG_IMAGE общий для сайта (1200×630).
     images: [OG_IMAGE],
   },
@@ -162,7 +162,7 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Что стало с пакетом «Всё включено»?",
-    answer: `Пакет из трёх курсов больше не продаётся: новые покупки закрыты. У тех, кто купил его раньше, сохраняются все три уровня, сертификат и доступ к профилям печати. Инструменты платформы — Конструктор, Профили и генератор — теперь открывает отдельная подписка Pro на странице «Тарифы генератора».`,
+    answer: `Пакет из трёх курсов больше не продаётся: новые покупки закрыты. У тех, кто купил его раньше, сохраняются все три уровня, сертификат и доступ к профилям печати. Инструменты платформы — мастерскую, Конструктор, Профили и генератор — теперь открывает отдельная подписка Pro на странице «Подписка Pro».`,
   },
   {
     question: "Дают ли чек об оплате?",
@@ -214,7 +214,7 @@ export default async function SubscriptionPage() {
 
           <div className="relative mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-24">
             <p className="text-sm font-semibold tracking-widest text-amber-400 uppercase">
-              Тарифы
+              Курсы
             </p>
             <h1 className="mt-4 max-w-3xl text-4xl font-extrabold tracking-tight text-white sm:text-6xl">
               Один путь.
@@ -256,7 +256,7 @@ export default async function SubscriptionPage() {
                 fullWidth
                 className="sm:w-auto"
               >
-                Выбрать тариф
+                Сравнить курсы
                 <span aria-hidden>→</span>
               </ButtonLink>
             </div>

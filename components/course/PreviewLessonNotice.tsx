@@ -52,7 +52,7 @@ export function PreviewLessonNotice({
           href="/subscription"
           className={`${LESSON_PRIMARY} min-h-14 w-full px-8 text-lg sm:w-auto`}
         >
-          Посмотреть тарифы
+          Посмотреть курсы
           <span aria-hidden>→</span>
         </Link>
       </div>
