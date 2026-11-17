@@ -285,8 +285,9 @@ const TOOLS: Tool[] = [
 
 /**
  * Мастерская — Pro-инструмент, поэтому карточка отдельная: у неё своя кнопка
- * «Оформить подписку» для тех, у кого пакета нет, и ссылка, которая ведёт гостя
- * на вход, а ученика без пакета — на тарифы.
+ * «Подписка Pro» для тех, у кого пакета нет, и ссылка, которая ведёт гостя на
+ * вход, а ученика без пакета — на витрину Pro. Публичное описание мастерской
+ * живёт на `/tools/workshop`: туда уходит ссылка «Что внутри».
  */
 const WORKSHOP_TOOL = {
   title: "Мастерская (CRM для 3D-фермы)",
@@ -304,8 +305,8 @@ const TOOL_COUNT = TOOLS.length + 1;
 
 export default async function ToolsPage() {
   // Доступ нужен карточке мастерской: гость уходит на вход с возвратом в
-  // мастерскую, ученик без пакета — на тарифы. Шапка проверяет то же самое для
-  // своего меню, поэтому пункты ведут в те же места.
+  // мастерскую, ученик без подписки — на витрину Pro. Шапка проверяет то же
+  // самое для своего меню, поэтому пункты ведут в те же места.
   const supabase = await createClient();
   const {
     data: { user },
@@ -315,7 +316,7 @@ export default async function ToolsPage() {
   const workshopHref = hasPro
     ? "/dashboard/workshop"
     : user
-      ? "/subscription"
+      ? "/pricing"
       : "/auth/login?next=/dashboard/workshop";
 
   return (
@@ -443,12 +444,23 @@ export default async function ToolsPage() {
                     </Link>
                     {hasPro ? null : (
                       <Link
-                        href="/subscription"
+                        href="/pricing"
                         className="inline-flex min-h-12 items-center justify-center rounded-full border border-white/15 px-6 text-sm font-semibold text-slate-200 transition-colors hover:border-white/30 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
                       >
-                        Оформить подписку
+                        Подписка Pro
                       </Link>
                     )}
+                    {/*
+                      Публичная витрина мастерской: гость видит разделы CRM до
+                      входа и понимает, за что платит подписка.
+                    */}
+                    <Link
+                      href="/tools/workshop"
+                      className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-full px-3 text-sm font-semibold text-slate-300 transition-colors hover:text-white focus-visible:text-white focus-visible:outline-none"
+                    >
+                      Что внутри мастерской
+                      <span aria-hidden>→</span>
+                    </Link>
                   </div>
                 </div>
               </article>

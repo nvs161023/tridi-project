@@ -45,6 +45,10 @@ const STATIC_PAGES: {
   { path: "/gallery", changeFrequency: "weekly", priority: 0.8 },
   { path: "/forum", changeFrequency: "daily", priority: 0.7 },
   { path: "/tools", changeFrequency: "weekly", priority: 0.8 },
+  // Витрина мастерской: публичное описание CRM, которую открывает подписка Pro.
+  // Сам /dashboard/workshop закрыт сессией и noindex — из поиска человек
+  // попадает сюда и уже отсюда идёт в /pricing.
+  { path: "/tools/workshop", changeFrequency: "monthly", priority: 0.8 },
   { path: "/tools/defects", changeFrequency: "monthly", priority: 0.7 },
   // Блог — точка входа для поисковых запросов по ошибкам принтеров: статьи
   // обновляются чаще остальных текстов, поэтому changeFrequency weekly.

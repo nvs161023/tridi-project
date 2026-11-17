@@ -359,7 +359,7 @@ const ECO_CARDS: {
   tone: Tone;
 }[] = [
   {
-    href: "/dashboard/workshop",
+    href: "/tools/workshop",
     title: "Мастерская",
     text: "Заказы с Ozon, Wildberries и Яндекс Маркета, склад пластика, принтеры и документы.",
     badge: "Pro",
@@ -497,8 +497,8 @@ export default function Home() {
             </p>
 
             <div className="mt-9 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
-              <CtaLink href="/dashboard/workshop" size="lg" className="group">
-                Открыть мастерскую
+              <CtaLink href="/tools/workshop" size="lg" className="group">
+                Что умеет мастерская
                 <span
                   aria-hidden
                   className="transition-transform duration-300 group-hover:translate-x-0.5"

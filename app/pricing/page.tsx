@@ -94,12 +94,12 @@ export const metadata: Metadata = {
  */
 const TOOL_CARDS = [
   {
-    href: "/dashboard/workshop",
+    href: "/tools/workshop",
     tag: "Pro · Мастерская",
     title: "Мастерская",
     description:
       "Заказы с Ozon, Wildberries и Яндекс Маркета, доска статусов, склад пластика, принтеры, клиенты, калькулятор себестоимости и документы.",
-    cta: "Открыть мастерскую",
+    cta: "Что внутри мастерской",
   },
   {
     href: "/constructor",
@@ -233,9 +233,9 @@ export default function PricingPage() {
               </div>
               <Link
                 className="mt-3 inline-flex min-h-8 items-center gap-1.5 text-xs font-semibold text-amber-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
-                href="/dashboard/workshop"
+                href="/tools/workshop"
               >
-                Открыть мастерскую
+                Что внутри мастерской
                 <span aria-hidden>→</span>
               </Link>
             </div>
