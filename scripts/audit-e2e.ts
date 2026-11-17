@@ -2285,46 +2285,76 @@ async function scenarioG(
           .first();
 
       try {
-        addStep(scenario, "Открываю главную и считаю карточки витрины.");
+        // Цены берём из каталога, чтобы проверка не разъехалась с данными.
+        const courses = readCoursesData();
+        const confidentPrice = Number(courses.confident.price);
+        const confidentPriceLabel = new Intl.NumberFormat("ru-RU")
+          .format(confidentPrice)
+          // Неразрывный пробел в цене меняем на обычный: текст страницы
+          // сравнивается после нормализации `\s+`.
+          .replace(/\s+/g, " ");
+
+        addStep(
+          scenario,
+          "Открываю главную и проверяю витрину: курсы и подписка.",
+        );
         await openPath(page, "/");
 
-        const cardsCount = await page.locator("#levels article").count();
+        const courseCards = page.locator('#courses a[href^="/courses/"]');
+        const courseCardsCount = await courseCards.count();
+        const freeCourseCards = await page
+          .locator('#courses a[href^="/course/lesson"]')
+          .count();
         addCheck(
           scenario,
-          "На главной пять карточек: четыре уровня и пакет",
-          cardsCount === 5,
-          "5 карточек в блоке #levels",
-          `${cardsCount} карточек`,
+          "В блоке курсов три платных уровня и бесплатный",
+          courseCardsCount === 3 && freeCourseCards === 1,
+          "3 ссылки на /courses/* и 1 на /course/lesson-*",
+          `${courseCardsCount} платных, ${freeCourseCards} бесплатных`,
         );
 
-        const bundleBefore = cardByHeading("Всё включено");
-        const bundleTextBefore = (
-          await bundleBefore.innerText().catch(() => "")
-        ).replace(/\s+/g, " ");
+        const confidentCardHref =
+          (await page
+            .locator('#courses a[href="/courses/confident"]')
+            .first()
+            .getAttribute("href")
+            .catch(() => null)) || "";
         addCheck(
           scenario,
-          "Карточка пакета показывает цену и «Купить пакет»",
-          /9\s?900\s?₽/.test(bundleTextBefore) &&
-            /Купить пакет/.test(bundleTextBefore),
-          "9 900 ₽ и кнопка «Купить пакет»",
-          bundleTextBefore || "карточка пакета не найдена",
+          "Карточка «Уверенный» ведёт на лендинг курса",
+          confidentCardHref === "/courses/confident",
+          "/courses/confident",
+          confidentCardHref || "ссылка не найдена",
+        );
+
+        // Витрина главной продаёт подписку, но не курсы и не токены: курс
+        // покупается на своём лендинге, токены — на /3d-generator. Кнопка
+        // «Купить» на главной означала бы, что витрины снова спорят.
+        const buyButtonsOnHome = await page
+          .getByRole("button", { name: /Купить/ })
+          .count();
+        addCheck(
+          scenario,
+          "На главной нет кнопок покупки курсов и токенов",
+          buyButtonsOnHome === 0,
+          "0 кнопок «Купить …»",
+          `${buyButtonsOnHome} кнопок`,
         );
 
         addStep(
           scenario,
-          "В карточке «Уверенный» нажимаю «Подробнее о курсе» и проверяю текст.",
+          "Нажимаю карточку «Уверенный» и проверяю лендинг курса.",
         );
-        const confidentCard = cardByHeading("Уверенный");
-        const detailsLink = confidentCard.getByRole("link", {
-          name: /Подробнее о курсе/,
-        });
-        const detailsCount = await detailsLink.count();
+        const confidentCard = page
+          .locator('#courses a[href="/courses/confident"]')
+          .first();
+        const detailsCount = await confidentCard.count();
 
         addCheck(
           scenario,
-          "У платного уровня есть «Подробнее о курсе»",
+          "Карточка «Уверенный» кликабельна целиком",
           detailsCount > 0,
-          "ссылка «Подробнее о курсе»",
+          "ссылка на /courses/confident",
           `${detailsCount} ссылок`,
         );
 
@@ -2333,9 +2363,11 @@ async function scenarioG(
         let detailText = "";
 
         if (detailsCount > 0) {
+          await confidentCard.scrollIntoViewIfNeeded().catch(() => {});
+          await screenshot(scenario, page, "funnel-home-before.png");
           await Promise.all([
             page.waitForURL(/\/courses\/confident$/, { timeout: 30000 }),
-            detailsLink.click(),
+            confidentCard.click(),
           ]);
           await page
             .waitForLoadState("networkidle", { timeout: 15000 })
@@ -2353,7 +2385,7 @@ async function scenarioG(
 
         addCheck(
           scenario,
-          "«Подробнее о курсе» ведёт на /courses/confident",
+          "Карточка «Уверенный» открывает /courses/confident",
           detailPath === "/courses/confident",
           "/courses/confident",
           detailPath || "переход не выполнен",
@@ -2363,24 +2395,19 @@ async function scenarioG(
           "Страница курса показывает заголовок, описание и цену",
           detailHeading.includes("Уверенный уровень") &&
             /Продолжение базового курса/.test(detailText) &&
-            /Купить за 2\s?990\s?₽/.test(detailText),
-          "«Уверенный уровень», «Продолжение базового курса», «Купить за 2 990 ₽»",
+            detailText.includes(`Купить за ${confidentPriceLabel} ₽`),
+          `«Уверенный уровень», «Продолжение базового курса», «Купить за ${confidentPriceLabel} ₽»`,
           `h1="${detailHeading}", текст=${detailText.slice(0, 240)}`,
         );
         await screenshot(scenario, page, "funnel-course-detail.png");
 
         addStep(
           scenario,
-          "Возвращаюсь на главную, открываю окно 18+ и генерирую ссылку на пакет pro.",
+          "Нажимаю «Купить за …» на лендинге курса и прохожу окно 18+.",
         );
-        await openPath(page, "/");
-        const bundle = cardByHeading("Всё включено");
-        await bundle.scrollIntoViewIfNeeded().catch(() => {});
-        await screenshot(scenario, page, "funnel-home-before.png");
-
-        const buyBundle = bundle.getByRole("button", {
-          name: /Купить пакет/,
-        });
+        const buyBundle = page
+          .getByRole("button", { name: /Купить за/ })
+          .first();
         const buyCount = await buyBundle.count();
         const dialog = page.getByRole("dialog", {
           name: "Подтвердите возраст",
@@ -2428,7 +2455,7 @@ async function scenarioG(
 
         addCheck(
           scenario,
-          "Кнопка «Купить пакет» открывает окно 18+",
+          "Кнопка «Купить за …» открывает окно 18+",
           buyCount > 0 && dialogVisible,
           "модальное окно «Подтвердите возраст»",
           dialogVisible ? "окно открылось" : "окно не появилось",
@@ -2449,8 +2476,7 @@ async function scenarioG(
           paymentRequestSeen ? "запрос перехвачен" : "запроса не было",
         );
 
-        const courses = readCoursesData();
-        const expectedOutSum = Number(courses.pro.price).toFixed(2);
+        const expectedOutSum = confidentPrice.toFixed(2);
         const login =
           readEnvValue(path.join(ROOT, ".env.local"), "ROBOKASSA_LOGIN") ||
           process.env.ROBOKASSA_LOGIN ||
@@ -2526,12 +2552,12 @@ async function scenarioG(
 
         addCheck(
           scenario,
-          "Ссылка Robokassa содержит пакет pro, сумму и пользователя",
+          "Ссылка Robokassa содержит курс confident, сумму и пользователя",
           invId > 0 &&
             outSum === expectedOutSum &&
-            shp.course === "pro" &&
+            shp.course === "confident" &&
             shp.user === state.normalUser.id,
-          `OutSum=${expectedOutSum}, Shp_course=pro, Shp_user=${state.normalUser.id}`,
+          `OutSum=${expectedOutSum}, Shp_course=confident, Shp_user=${state.normalUser.id}`,
           `InvId=${invId || "—"}, OutSum=${outSum || "—"}, Shp_course=${
             shp.course || "—"
           }, Shp_user=${shp.user || "—"}`,
@@ -2599,13 +2625,13 @@ async function scenarioG(
         );
         addCheck(
           scenario,
-          "Вебхук записал покупку pro на нужную сумму",
+          "Вебхук записал покупку confident на нужную сумму",
           !purchaseError &&
             purchaseRows.length === 1 &&
-            purchaseRows[0]?.course_id === "pro" &&
+            purchaseRows[0]?.course_id === "confident" &&
             Math.round(Number(purchaseRows[0]?.amount) * 100) ===
               Math.round(Number(expectedOutSum) * 100),
-          `1 запись purchases: course_id=pro, amount=${expectedOutSum}`,
+          `1 запись purchases: course_id=confident, amount=${expectedOutSum}`,
           purchaseError ||
             JSON.stringify(
               purchaseRows.map((row: any) => ({
@@ -2628,84 +2654,46 @@ async function scenarioG(
 
         addStep(
           scenario,
-          "Открываю главную после оплаты: проверяю «Доступ открыт» и «Продолжить обучение».",
+          "Открываю купленный уровень: уроки должны открыться.",
         );
-        await openPath(page, "/");
-
-        const bundleAfter = cardByHeading("Всё включено");
-        const bundleTextAfter = (
-          await bundleAfter.innerText().catch(() => "")
-        ).replace(/\s+/g, " ");
-        const bundleDashboardLink = bundleAfter.getByRole("link", {
-          name: /Перейти в кабинет/,
-        });
-        const bundleDashboardCount = await bundleDashboardLink.count();
-
-        addCheck(
-          scenario,
-          "Пакет на главной показывает «Доступ открыт»",
-          /Доступ открыт/.test(bundleTextAfter) &&
-            !/Купить пакет/.test(bundleTextAfter),
-          "плашка «Доступ открыт» без кнопки покупки",
-          bundleTextAfter || "карточка пакета не найдена",
-        );
-        addCheck(
-          scenario,
-          "Пакет ведёт в кабинет кнопкой «Перейти в кабинет»",
-          bundleDashboardCount > 0,
-          "ссылка «Перейти в кабинет» → /dashboard",
-          `${bundleDashboardCount} ссылок`,
-        );
-
-        const levelResults = [];
-
-        for (const title of ["Уверенный", "Инженер", "Заработок"]) {
-          const card = cardByHeading(title);
-          const text = (await card.innerText().catch(() => "")).replace(
-            /\s+/g,
-            " ",
-          );
-          const continueLink = card.getByRole("link", {
-            name: /Продолжить обучение/,
-          });
-          const continueHref =
-            (await continueLink.getAttribute("href").catch(() => null)) || "";
-
-          levelResults.push({
-            title,
-            access: /Доступ открыт/.test(text),
-            continueHref,
-            noBuy: !/Подробнее о курсе/.test(text) && !/Купить/.test(text),
-          });
-        }
-
-        addCheck(
-          scenario,
-          "Три платных уровня открыты после покупки пакета",
-          levelResults.every(
-            (level) =>
-              level.access &&
-              /^\/course\/(confident|engineer|profit)$/.test(
-                level.continueHref,
-              ) &&
-              level.noBuy,
-          ),
-          "«Доступ открыт» + «Продолжить обучение» у трёх уровней",
-          JSON.stringify(levelResults),
-        );
-        await screenshot(scenario, page, "funnel-home-after.png");
-
-        addStep(scenario, "Проверяю статус пакета в личном кабинете.");
-        await openPath(page, "/dashboard");
-        const dashboardText = (
+        await openPath(page, "/course/confident");
+        const coursePathAfter = new URL(page.url()).pathname;
+        const courseTextAfter = (
           await page.locator("main").innerText().catch(() => "")
         ).replace(/\s+/g, " ");
         addCheck(
           scenario,
-          "В кабинете пакет показан активным навсегда",
-          /Пакет «Всё включено» активен навсегда/.test(dashboardText),
-          "«Пакет «Всё включено» активен навсегда»",
-          dashboardText.slice(0, 300) || "текст кабинета не найден",
+          "После оплаты /course/confident открывается",
+          coursePathAfter === "/course/confident" &&
+            courseTextAfter.includes("Уверенный уровень"),
+          "страница «Уверенный уровень» без редиректа",
+          `${coursePathAfter}, текст=${courseTextAfter.slice(0, 200)}`,
+        );
+        await screenshot(scenario, page, "funnel-course-after.png");
+
+        addStep(scenario, "Проверяю карточку уровня в личном кабинете.");
+        await openPath(page, "/dashboard");
+        const dashboardLevel = cardByHeading("Уверенный");
+        const dashboardLevelText = (
+          await dashboardLevel.innerText().catch(() => "")
+        ).replace(/\s+/g, " ");
+        const dashboardContinue = dashboardLevel.getByRole("link", {
+          name: /Продолжить/,
+        });
+        const dashboardContinueHref =
+          (await dashboardContinue.getAttribute("href").catch(() => null)) ||
+          "";
+
+        addCheck(
+          scenario,
+          "В кабинете уровень «Уверенный» открыт после покупки",
+          /Доступ открыт/.test(dashboardLevelText) &&
+            /Продолжить/.test(dashboardLevelText) &&
+            dashboardContinueHref === "/course/confident",
+          "«Доступ открыт» и «Продолжить» → /course/confident",
+          dashboardContinueHref
+            ? `href=${dashboardContinueHref}, текст=${dashboardLevelText.slice(0, 240)}`
+            : dashboardLevelText.slice(0, 240) || "карточка уровня не найдена",
         );
         await screenshot(scenario, page, "funnel-dashboard-after.png");
 
