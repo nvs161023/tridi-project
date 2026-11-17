@@ -9,6 +9,11 @@ import {
 } from "@/lib/supabase/user-headers";
 import { isAuthPath, resolveAfterAuthPath } from "@/lib/auth-redirect";
 import { formatFullName, splitPersonName } from "@/lib/person-name";
+import {
+  DEMO_WORKSHOP_PATH,
+  isDemoAccount,
+  isDemoBlockedPath,
+} from "@/lib/workshop/demo";
 
 /**
  * Страницы, где нужен авторизованный пользователь.
@@ -190,6 +195,17 @@ export async function updateSession(request: NextRequest) {
     verifyUrl.searchParams.set("next", `${pathname}${request.nextUrl.search}`);
 
     return withSessionData(NextResponse.redirect(verifyUrl));
+  }
+
+  // Демо-сессия: мастерская открыта, остальные приватные разделы — нет.
+  // Это про навигацию, а не про права: запись блокируют Server Action и API
+  // (lib/workshop/demo.ts), а сюда мы не пускаем, чтобы демо-вход не открывал
+  // кабинет, форум и конструктор как обычный аккаунт.
+  if (user && isDemoAccount(user) && isDemoBlockedPath(pathname)) {
+    const demoUrl = new URL(DEMO_WORKSHOP_PATH, request.url);
+    demoUrl.searchParams.set("demo", "readonly");
+
+    return withSessionData(NextResponse.redirect(demoUrl));
   }
 
   // Авторизованному человеку форма входа не нужна: если он открыл /auth/*,

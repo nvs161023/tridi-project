@@ -16,6 +16,8 @@ import {
   normalizeAgentToken,
   WORKSHOP_AGENT_TOKEN_COLUMN,
 } from "@/lib/workshop/agent-token";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   hasWorkshopIntegrationFormFields,
   isMaskedOzonApiKey,
@@ -274,6 +276,10 @@ export async function saveWorkshopSettings(
     return { error: PRO_REQUIRED, values: settings ?? undefined };
   }
 
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY, values: settings ?? undefined };
+  }
+
   // В базу уходит только шифротекст. Маска означает «ключ не меняли»: тогда
   // сохраняем прежнее значение, а не открываем его заново.
   let storedIntegrations = integrations;
@@ -379,6 +385,10 @@ export async function ensureAgentToken(): Promise<WorkshopAgentTokenState> {
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
   }
 
   const { data, error } = await supabase

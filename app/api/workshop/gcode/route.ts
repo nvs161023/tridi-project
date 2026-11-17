@@ -3,6 +3,8 @@ import type { ProductFileKind } from "@/lib/3d/print-compatibility";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { uploadGcodeToSupabase } from "@/lib/storage";
 import { createClient } from "@/lib/supabase/server";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 
 /**
  * Загрузка файла товара в закрытый бакет `workshop-gcode`.
@@ -111,6 +113,10 @@ export async function POST(request: Request): Promise<Response> {
       403,
       "Каталог входит в подписку Pro. Оформите подписку, чтобы загрузить файл товара.",
     );
+  }
+
+  if (isDemoAccount(user)) {
+    return errorResponse(403, DEMO_READ_ONLY);
   }
 
   let form: FormData;

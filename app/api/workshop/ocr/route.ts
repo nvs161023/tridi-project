@@ -5,6 +5,8 @@ import {
 } from "@/lib/security/rate-limit";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   INVOICE_OCR_PROMPT,
   OCR_API_URL,
@@ -102,6 +104,10 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return errorResponse(403, "Импорт остатков входит в подписку Pro.");
+  }
+
+  if (isDemoAccount(user)) {
+    return errorResponse(403, DEMO_READ_ONLY);
   }
 
   let form: FormData;

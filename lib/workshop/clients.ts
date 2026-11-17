@@ -22,6 +22,8 @@ import { revalidatePath } from "next/cache";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -377,6 +379,10 @@ export async function addClient(
     return { error: PRO_REQUIRED, fieldErrors: errors };
   }
 
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY, fieldErrors: errors };
+  }
+
   const { error } = await supabase.from("workshop_clients").insert({
     user_id: user.id,
     name: draft.name,
@@ -446,6 +452,10 @@ export async function updateClient(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED, fieldErrors: errors };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY, fieldErrors: errors };
   }
 
   const { data, error } = await supabase

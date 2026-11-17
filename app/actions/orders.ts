@@ -33,6 +33,8 @@ import {
   CLIENT_COLUMNS,
   normalizeClientRow,
 } from "@/lib/workshop/clients";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   FILAMENT_COLUMNS,
   formatGrams,
@@ -228,6 +230,10 @@ export async function createOrder(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
   }
 
   // Ссылку на клиента проверяем по базе: форма могла прислать чужой uuid.
@@ -540,6 +546,10 @@ export async function updateOrderStatus(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const { data, error } = await supabase
     .from("workshop_orders")
     .select("title, status")
@@ -655,6 +665,10 @@ export async function deleteOrder(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   // Защита от удаления заказа с живой печатью. Ошибку чтения очереди считаем
@@ -791,6 +805,10 @@ export async function updateOrder(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   const withClient = await supabase
@@ -1314,6 +1332,10 @@ export async function queueOrderForPrint(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const order = await getOrderWithItems(orderId, {
     supabase,
     userId: user.id,
@@ -1604,6 +1626,10 @@ export async function autoScheduleOrders(): Promise<AutoScheduleState> {
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   // Свободный парк: только `status = 'idle'`. Печатающий, стоящий на паузе,
@@ -1959,6 +1985,10 @@ export async function cancelOrderPrint(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const activeJob = await getOrderActivePrintJob(orderId, {
     supabase,
     userId: user.id,
@@ -2074,6 +2104,10 @@ export async function forceCancelPrintJob(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   let admin: ReturnType<typeof createAdminClient>;
 
   try {
@@ -2153,6 +2187,10 @@ export async function updateOrderPrinter(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   let printerName: string | null = null;
@@ -2258,6 +2296,10 @@ export async function addOrderComment(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   // Заказ должен принадлежать этому же пользователю: чужой uuid в order_id
@@ -2382,6 +2424,10 @@ export async function addOrderItem(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   // Позиция не должна ссылаться на чужой заказ: RLS позиций проверяет только
@@ -2967,6 +3013,10 @@ export async function deleteOrderItem(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const context = await readOrderItemContext(supabase, user.id, orderItemId);
 
   if (!context.ok) {
@@ -3071,6 +3121,10 @@ export async function updateOrderItemQuantity(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   const context = await readOrderItemContext(supabase, user.id, orderItemId);

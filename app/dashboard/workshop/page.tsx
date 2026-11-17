@@ -6,13 +6,15 @@ import { Header } from "@/components/Header";
 import { ButtonLink } from "@/components/ui";
 import { AgentDownloadButton } from "@/components/workshop/AgentDownloadButton";
 import { WorkshopCreateOrderButton } from "@/components/workshop/WorkshopCreateOrderButton";
+import { WorkshopDemoNotice } from "@/components/workshop/WorkshopDemoNotice";
 import { WorkshopTours } from "@/components/workshop/WorkshopOnboarding";
 import { WorkshopStats } from "@/components/workshop/WorkshopStats";
 import { WorkshopTabs } from "@/components/workshop/WorkshopTabs";
-import { resolveUserId } from "@/lib/current-user";
+import { resolveCurrentUser } from "@/lib/current-user";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 import { getWorkshopClients } from "@/lib/workshop/clients";
+import { isDemoAccount } from "@/lib/workshop/demo";
 import { isLowStockFilament } from "@/lib/workshop/filaments";
 import { getWorkshopFilaments } from "@/lib/workshop/filament-store";
 import { getWorkshopOrders } from "@/lib/workshop/order-store";
@@ -50,11 +52,17 @@ export const dynamic = "force-dynamic";
 
 export default async function WorkshopPage() {
   const supabase = await createClient();
-  const userId = await resolveUserId(supabase);
+  const currentUser = await resolveCurrentUser(supabase);
+  const userId = currentUser?.id ?? null;
 
   if (!userId) {
     redirect("/auth/login");
   }
+
+  // Демо-аккаунт: мастерская открыта, но только для чтения. Баннер объясняет
+  // это до первого нажатия, а Server Action вернут тот же текст, если человек
+  // всё-таки нажмёт «Сохранить».
+  const isDemo = isDemoAccount({ email: currentUser?.email ?? null });
 
   const hasPro = await hasActiveSubscription(supabase, userId);
   const [
@@ -108,13 +116,17 @@ export default async function WorkshopPage() {
       <Header />
 
       <main className="mx-auto max-w-7xl px-5 py-8 sm:px-8 sm:py-12">
-        <Link
-          href="/dashboard"
-          className="inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
-        >
-          <span aria-hidden>←</span>
-          Личный кабинет
-        </Link>
+        {isDemo ? <WorkshopDemoNotice /> : null}
+
+        {isDemo ? null : (
+          <Link
+            href="/dashboard"
+            className="inline-flex min-h-9 items-center gap-2 text-sm font-semibold text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]"
+          >
+            <span aria-hidden>←</span>
+            Личный кабинет
+          </Link>
+        )}
 
         <section
           aria-labelledby="workshop-title"

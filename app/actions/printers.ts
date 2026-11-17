@@ -20,6 +20,8 @@ import {
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   isPrinterId,
   missingConnectionFields,
@@ -112,6 +114,10 @@ export async function addPrinter(
     return { error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
+  }
+
   const { error } = await supabase
     .from("workshop_printers")
     .insert(createPrinterPayload(user.id, draft));
@@ -182,6 +188,10 @@ export async function updatePrinter(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   // Сохранённые секреты нужны до записи: форма показывает поля пустыми, и
@@ -296,6 +306,10 @@ export async function deletePrinter(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   // Защита от удаления принтера с живой печатью. Ошибку чтения очереди считаем
@@ -426,6 +440,10 @@ async function resetPrinterCounter(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   const { data, error } = await supabase
@@ -569,6 +587,10 @@ export async function approveDiscoveredPrinters(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   const addresses = parsed.drafts.map((draft) => draft.ipAddress);
@@ -784,6 +806,10 @@ export async function requestNetworkScan(): Promise<NetworkScanRequestState> {
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const { error } = await supabase
     .from("workshop_settings")
     .upsert(
@@ -831,6 +857,10 @@ export async function fetchDiscoveredPrinters(): Promise<
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   const snapshot = await getDiscoveredPrinters(supabase, user.id);

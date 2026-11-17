@@ -10,6 +10,8 @@ import { relinkUnmappedOrders } from "@/lib/order-processor";
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   MARKETPLACE_LINK_LIMITS,
   isMarketplaceLinkId,
@@ -202,6 +204,10 @@ export async function addMarketplaceLink(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const productCheck = await checkOwnProduct(supabase, user.id, productId);
 
   if (productCheck) {
@@ -282,6 +288,10 @@ export async function deleteMarketplaceLink(
     return { ok: false, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
+  }
+
   const { data, error } = await supabase
     .from("workshop_marketplace_links")
     .delete()
@@ -340,6 +350,10 @@ export async function linkUnmappedOrderItem(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { ok: false, error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { ok: false, error: DEMO_READ_ONLY };
   }
 
   const { data: itemRow, error: itemError } = await supabase

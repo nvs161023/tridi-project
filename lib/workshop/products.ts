@@ -28,6 +28,8 @@ import {
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   MARKETPLACE_LINK_LIMITS,
   type MarketplaceLinkDraft,
@@ -1303,6 +1305,10 @@ export async function addProduct(
     return { error: PRO_REQUIRED, fieldErrors: errors };
   }
 
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY, fieldErrors: errors };
+  }
+
   // Связи SKU, заведённые в форме до сохранения: у нового товара нет id,
   // поэтому окно отдаёт их списком, а запись идёт после вставки карточки.
   const pendingLinks = readPendingMarketplaceLinks(formData);
@@ -1500,6 +1506,10 @@ export async function updateProduct(
     return { error: PRO_REQUIRED, fieldErrors: errors };
   }
 
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY, fieldErrors: errors };
+  }
+
   // Поля без файла печати отделены от файла: старая база принимает первые и
   // отвечает PGRST204 на вторые, и откат тогда касается только файла.
   const cardPayload = {
@@ -1666,6 +1676,10 @@ export async function importProductsFromCsv(
     return { imported: 0, updated: 0, errors: [PRO_REQUIRED] };
   }
 
+  if (isDemoAccount(user)) {
+    return { imported: 0, updated: 0, errors: [DEMO_READ_ONLY] };
+  }
+
   const { drafts, errors } = parseProductsCsv(csvString, platform);
 
   if (drafts.length === 0) {
@@ -1779,6 +1793,13 @@ export async function deleteProduct(
   }
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
+    return {
+      error:
+        "Мастерская входит в подписку Pro. Оформите подписку, чтобы менять каталог.",
+    };
+  }
+
+  if (isDemoAccount(user)) {
     return {
       error:
         "Мастерская входит в подписку Pro. Оформите подписку, чтобы менять каталог.",

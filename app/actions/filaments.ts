@@ -10,6 +10,8 @@ import type {
 import { isMissingTableSchema } from "@/lib/supabase/schema-errors";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { DEMO_READ_ONLY, isDemoAccount } from "@/lib/workshop/demo";
+
 import {
   createImportedFilamentDraft,
   formatGrams,
@@ -72,6 +74,10 @@ export async function addFilament(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
   }
 
   const { error } = await supabase
@@ -141,6 +147,10 @@ export async function updateFilament(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
   }
 
   const { data, error } = await supabase
@@ -231,6 +241,10 @@ export async function saveImportedFilaments(
     return { saved: 0, failed: items.length, error: PRO_REQUIRED };
   }
 
+  if (isDemoAccount(user)) {
+    return { saved: 0, failed: items.length, error: DEMO_READ_ONLY };
+  }
+
   const drafts: FilamentDraft[] = [];
   let failed = 0;
 
@@ -314,6 +328,10 @@ export async function consumeFilament(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
   }
 
   const { data, error } = await supabase
@@ -408,6 +426,10 @@ export async function deleteFilament(
 
   if (!(await hasActiveSubscription(supabase, user.id))) {
     return { error: PRO_REQUIRED };
+  }
+
+  if (isDemoAccount(user)) {
+    return { error: DEMO_READ_ONLY };
   }
 
   const { data, error } = await supabase
