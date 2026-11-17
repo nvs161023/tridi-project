@@ -2300,10 +2300,10 @@ async function scenarioG(
         );
         await openPath(page, "/");
 
-        const courseCards = page.locator('#courses a[href^="/courses/"]');
+        const courseCards = page.locator('#training a[href^="/courses/"]');
         const courseCardsCount = await courseCards.count();
         const freeCourseCards = await page
-          .locator('#courses a[href^="/course/lesson"]')
+          .locator('#training a[href^="/course/lesson"]')
           .count();
         addCheck(
           scenario,
@@ -2315,7 +2315,7 @@ async function scenarioG(
 
         const confidentCardHref =
           (await page
-            .locator('#courses a[href="/courses/confident"]')
+            .locator('#training a[href="/courses/confident"]')
             .first()
             .getAttribute("href")
             .catch(() => null)) || "";
@@ -2346,7 +2346,7 @@ async function scenarioG(
           "Нажимаю карточку «Уверенный» и проверяю лендинг курса.",
         );
         const confidentCard = page
-          .locator('#courses a[href="/courses/confident"]')
+          .locator('#training a[href="/courses/confident"]')
           .first();
         const detailsCount = await confidentCard.count();
 
