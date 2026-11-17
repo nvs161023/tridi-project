@@ -4,9 +4,16 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { visibleToolLinks } from "@/components/navigation/tool-links";
+import { DEMO_WORKSHOP_PATH } from "@/lib/workshop/demo";
 
 type MobileMenuProps = {
   isAuthorized: boolean;
+  /**
+   * Демо-сессия мастерской: вход есть, но кабинет и уроки закрыты.
+   * В подвале меню вместо «Мои уроки» и «Личного кабинета» показывается один
+   * пункт «Демо-мастерская», а «Выйти» остаётся на месте.
+   */
+  isDemo?: boolean;
   lessonsHref: string;
   /** Куда ведёт «Мастерская (Pro)»: в мастерскую, на тарифы или на вход. */
   workshopHref: string;
@@ -88,6 +95,7 @@ function BurgerIcon({ isOpen }: { isOpen: boolean }) {
  */
 export function MobileMenu({
   isAuthorized,
+  isDemo = false,
   lessonsHref,
   workshopHref,
 }: MobileMenuProps) {
@@ -233,22 +241,34 @@ export function MobileMenu({
                 Активировать код
               </Link>
 
-              {isAuthorized ? (
+              {isAuthorized || isDemo ? (
                 <>
-                  <Link
-                    href={lessonsHref}
-                    onClick={closeMenu}
-                    className={MOBILE_LINK_CLASS}
-                  >
-                    Мои уроки
-                  </Link>
-                  <Link
-                    href="/dashboard"
-                    onClick={closeMenu}
-                    className={MOBILE_LINK_CLASS}
-                  >
-                    Личный кабинет
-                  </Link>
+                  {isDemo ? (
+                    <Link
+                      href={DEMO_WORKSHOP_PATH}
+                      onClick={closeMenu}
+                      className={MOBILE_LINK_CLASS}
+                    >
+                      Демо-мастерская
+                    </Link>
+                  ) : (
+                    <>
+                      <Link
+                        href={lessonsHref}
+                        onClick={closeMenu}
+                        className={MOBILE_LINK_CLASS}
+                      >
+                        Мои уроки
+                      </Link>
+                      <Link
+                        href="/dashboard"
+                        onClick={closeMenu}
+                        className={MOBILE_LINK_CLASS}
+                      >
+                        Личный кабинет
+                      </Link>
+                    </>
+                  )}
                   {/*
                     Выход есть и здесь: в шапке «Выйти» скрыта на экранах до
                     400 px, и без этого пункта с телефона было бы не выйти.

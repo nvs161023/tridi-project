@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { resolveSiteUrl } from "@/lib/site-url";
 import { demoWorkshopEmail } from "@/lib/workshop/demo";
 
 /**
@@ -31,8 +32,14 @@ type PendingCookie = {
   options?: CookieOptions;
 };
 
-export async function GET(request: Request): Promise<Response> {
-  const origin = new URL(request.url).origin;
+export async function GET(): Promise<Response> {
+  // Адрес берём не из `request.url`: на Amvera приложение слушает внутренний
+  // порт 3000 за прокси, и в запросе приходит `https://run-…:3000/…`. Такой
+  // Location браузер открыть не может — кнопка демо молча ломалась бы.
+  // `resolveSiteUrl()` сначала смотрит NEXT_PUBLIC_SITE_URL, затем (в
+  // разработке) заголовки Host и только потом боевой домен. Так же устроен
+  // редирект в app/logout/route.ts.
+  const origin = await resolveSiteUrl();
   const redirect = (path: string) =>
     NextResponse.redirect(new URL(path, origin), 303);
 

@@ -8,6 +8,7 @@ import { ToolsDropdown } from "@/components/navigation/ToolsDropdown";
 import { createClient } from "@/lib/supabase/server";
 import { USER_HEADER, decodeRequestUser } from "@/lib/supabase/user-headers";
 import { hasActiveSubscription } from "@/lib/subscription";
+import { DEMO_WORKSHOP_PATH, isDemoEmail } from "@/lib/workshop/demo";
 
 /**
  * Ссылка «Активировать код» — вторичная: серый текст, белый при наведении,
@@ -78,6 +79,15 @@ export async function Header() {
   }
 
   const lessonsHref = isAuthorized ? "/dashboard" : "/course/lesson-1";
+
+  // Демо-сессия живёт только в мастерской: кабинет, генератор и конструктор
+  // для неё закрыты middleware. Иконка аккаунта вела бы в /dashboard, откуда
+  // человека тут же возвращает обратно в мастерскую, поэтому у демо она ведёт
+  // прямо в мастерскую и подписана «Демо-доступ». Пункт «Мои модели» в меню
+  // инструментов у демо тоже скрыт: истории генераций у него нет.
+  const isDemo = isDemoEmail(userEmail);
+  const navAuthorized = isAuthorized && !isDemo;
+
   const hasPro = userId ? await hasActiveSubscription(supabase, userId) : false;
 
   // Мастерская живёт в кабинете и открывается подпиской Pro. Гостя ведём на
@@ -152,7 +162,7 @@ export async function Header() {
               те же курсы, что и «Обучение». Тарифы инструментов живут под
               «Цены», чтобы не путать два разных оффера.
             */}
-            <ToolsDropdown workshop={workshop} isAuthorized={isAuthorized} />
+            <ToolsDropdown workshop={workshop} isAuthorized={navAuthorized} />
           </nav>
 
           <Link href="/activate" className={activationLinkClassName}>
@@ -160,7 +170,8 @@ export async function Header() {
           </Link>
 
           <MobileMenu
-            isAuthorized={isAuthorized}
+            isAuthorized={navAuthorized}
+            isDemo={isDemo}
             lessonsHref={lessonsHref}
             workshopHref={workshop.href}
           />
@@ -168,11 +179,13 @@ export async function Header() {
           {isAuthorized ? (
             <>
               <Link
-                href="/dashboard"
+                href={isDemo ? DEMO_WORKSHOP_PATH : "/dashboard"}
                 aria-label={
-                  userEmail
-                    ? `Личный кабинет: ${userEmail}`
-                    : "Личный кабинет"
+                  isDemo
+                    ? "Демо-мастерская"
+                    : userEmail
+                      ? `Личный кабинет: ${userEmail}`
+                      : "Личный кабинет"
                 }
                 className="group flex shrink-0 items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pr-1.5 pl-1.5 transition-colors hover:border-blue-400/40 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 xl:pr-2.5"
               >
@@ -186,7 +199,7 @@ export async function Header() {
                 </span>
                 <span className="hidden min-w-0 text-left xl:block">
                   <span className="block text-[10px] font-semibold tracking-[0.14em] text-slate-300 uppercase">
-                    Аккаунт
+                    {isDemo ? "Демо-доступ" : "Аккаунт"}
                   </span>
                   <span className="block max-w-36 truncate text-xs font-semibold text-slate-200">
                     {userEmail ?? "Профиль"}
