@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
 import { Image3DGenerator } from "@/components/generator/Image3DGenerator";
+import { PlanButton } from "@/app/subscription/PlanButton";
 import { authHref } from "@/lib/auth-redirect";
 import { getUserCredits } from "@/lib/credits";
 import { resolveUserId } from "@/lib/current-user";
@@ -14,6 +15,7 @@ import {
   monthlyStandardLeft,
   monthlyUltraLeft,
 } from "@/lib/generator/generation-credits";
+import { TOKEN_PACKS } from "@/lib/generation-plans";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,6 +35,11 @@ import { createClient } from "@/lib/supabase/server";
  * Free, остаток месячных лимитов у подписки и купленные токены у всех. Числа
  * считает `lib/generator/generation-credits.ts`, поэтому приоритет списания не
  * дублируется в разметке.
+ *
+ * Пакеты токенов продаются здесь же, в блоке «Покупается отдельно»: это
+ * единственная страница, где человек видит свой баланс, качество модели и
+ * цену разовой докупки. На `/pricing` остались только подписка и ссылка сюда,
+ * чтобы одинаковые кнопки оплаты не стояли в двух местах.
  *
  * С 16 ноября 2026 страница открыта для индексации: noindex снят, запрет из
  * robots.txt убран, адрес есть в карте сайта. Вход по-прежнему обязателен —
@@ -68,6 +75,35 @@ const GENERATOR_STEPS = [
   {
     title: "Скачайте STL",
     text: "Сетка очищена и приведена к 120 мм — файл готов для слайсера.",
+  },
+] as const;
+
+/**
+ * Пакеты токенов на витрине генератора.
+ *
+ * Цены и объёмы берутся из `data/generation-plans.json` через `TOKEN_PACKS`:
+ * здесь только подписи для витрины, поэтому изменение каталога не потребует
+ * правки разметки. Кнопки `PlanButton` создают подписанную ссылку Robokassa на
+ * сервере — сумму в браузере подменить нельзя.
+ */
+const PACK_CARDS = [
+  {
+    courseId: TOKEN_PACKS.standard.courseId,
+    title: TOKEN_PACKS.standard.title,
+    quantity: TOKEN_PACKS.standard.quantity,
+    priceLabel: TOKEN_PACKS.standard.price.toLocaleString("ru-RU"),
+    description:
+      "Обычное качество: быстро и достаточно для сувениров, прототипов и простых форм.",
+    variant: "blue",
+  },
+  {
+    courseId: TOKEN_PACKS.ultra.courseId,
+    title: TOKEN_PACKS.ultra.title,
+    quantity: TOKEN_PACKS.ultra.quantity,
+    priceLabel: TOKEN_PACKS.ultra.price.toLocaleString("ru-RU"),
+    description:
+      "Максимальная детализация: мелкие элементы, лица, фактура и тонкие стенки.",
+    variant: "gold",
   },
 ] as const;
 
@@ -188,13 +224,22 @@ export default async function ThreeDGeneratorPage() {
                 {credits === null ? "—" : credits.ultraTokens}
               </p>
 
-              <Link
-                className="mt-3 inline-flex min-h-8 items-center gap-1.5 text-xs font-semibold text-fuchsia-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
-                href="/pricing"
-              >
-                Тарифы и пакеты
-                <span aria-hidden>→</span>
-              </Link>
+              <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold">
+                <Link
+                  className="inline-flex min-h-8 items-center gap-1.5 text-fuchsia-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                  href="#generator-packs"
+                >
+                  Докупить генерации
+                  <span aria-hidden>↓</span>
+                </Link>
+                <Link
+                  className="inline-flex min-h-8 items-center gap-1.5 text-zinc-300 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                  href="/pricing"
+                >
+                  Подписка Pro
+                  <span aria-hidden>→</span>
+                </Link>
+              </div>
 
               <p className="mt-2 text-[11px] leading-relaxed text-zinc-500">
                 Если сеть отказала, списание возвращается.
@@ -207,6 +252,76 @@ export default async function ThreeDGeneratorPage() {
           balance={credits}
           hasSubscription={hasSubscription}
         />
+
+        {/*
+          Пакеты токенов продаются только здесь: человек видит свой баланс и
+          качество модели, поэтому разовая докупка стоит рядом с генератором, а
+          не в общем списке тарифов. `scroll-mt` держит заголовок под липкой
+          шапкой, когда ссылка «Докупить генерации» прокручивает страницу.
+        */}
+        <section
+          aria-labelledby="generator-packs-title"
+          className="mt-4 scroll-mt-24 rounded-[1.75rem] border border-fuchsia-300/25 bg-gradient-to-b from-fuchsia-500/[0.07] to-[#0a0a0a]/60 p-5 backdrop-blur-xl sm:p-7"
+          id="generator-packs"
+        >
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold tracking-widest text-fuchsia-300 uppercase">
+                Покупается отдельно
+              </p>
+              <h2
+                className="mt-2 text-lg font-extrabold tracking-tight text-white sm:text-xl"
+                id="generator-packs-title"
+              >
+                Пакеты токенов
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-slate-300">
+                Разовая докупка, когда лимита подписки и бесплатной генерации не
+                хватило. Токены не сгорают и списываются последними.
+              </p>
+            </div>
+            <Link
+              className="inline-flex min-h-8 items-center gap-1.5 text-xs font-semibold text-zinc-300 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+              href="/pricing"
+            >
+              Подписка Pro и лимиты
+              <span aria-hidden>→</span>
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            {PACK_CARDS.map((pack) => (
+              <article
+                className="flex h-full flex-col rounded-2xl border border-white/[0.07] bg-white/[0.03] p-4 sm:p-5"
+                key={pack.courseId}
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <h3 className="text-base font-bold tracking-tight text-white">
+                    {pack.title}
+                  </h3>
+                  <span className="shrink-0 text-xs font-semibold text-zinc-400">
+                    {pack.quantity} генераций
+                  </span>
+                </div>
+                <p className="mt-2 flex-1 text-xs leading-relaxed text-zinc-400">
+                  {pack.description}
+                </p>
+                <div className="mt-4 flex flex-wrap items-end justify-between gap-3">
+                  <p className="text-2xl font-extrabold text-white">
+                    {pack.priceLabel} ₽
+                  </p>
+                  <PlanButton
+                    courseId={pack.courseId}
+                    label="Купить пакет"
+                    loginHref={PAGE_PATH}
+                    size="compact"
+                    variant={pack.variant}
+                  />
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
 
         <section
           aria-labelledby="generator-steps-title"

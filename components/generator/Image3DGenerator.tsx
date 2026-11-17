@@ -856,9 +856,9 @@ export function Image3DGenerator({
           {creditNote}{" "}
           <Link
             className="font-semibold text-zinc-300 underline underline-offset-2 hover:text-white"
-            href="/pricing"
+            href="#generator-packs"
           >
-            Тарифы и пакеты
+            Докупить генерации
           </Link>
         </p>
       </section>
