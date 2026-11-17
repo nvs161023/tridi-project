@@ -9,6 +9,26 @@ const PHONE_HREF = `tel:${LEGAL_OPERATOR.phone.replace(/[^\d+]/g, "")}`;
 /** Готовая строка реквизитов: её проверяют платёжные сервисы при активации. */
 const SELLER_REQUISITES = `Самозанятый ${LEGAL_OPERATOR.shortName}, ИНН ${LEGAL_OPERATOR.inn}`;
 
+/**
+ * Продуктовые разделы в футере.
+ *
+ * До этого в подвале были только документы и контакты: попасть на Конструктор,
+ * Генератор или Мастерскую можно было лишь из шапки, а из глубины страницы —
+ * только кнопкой «наверх». Отдельная колонка даёт каждой витрине постоянную
+ * ссылку и помогает поисковику обойти продукт целиком, а не одну главную.
+ */
+const PLATFORM_LINKS = [
+  { href: "/constructor", label: "Конструктор 3D" },
+  { href: "/3d-generator", label: "Генератор по фото" },
+  { href: "/tools/workshop", label: "Мастерская" },
+  { href: "/gallery", label: "Галерея моделей" },
+  { href: "/profiles", label: "Профили печати" },
+  { href: "/pricing", label: "Тарифы Pro" },
+  { href: "/subscription", label: "Обучение" },
+  { href: "/blog", label: "Блог" },
+  { href: "/forum", label: "Форум" },
+] as const;
+
 const footerHeadingClassName =
   "text-xs font-semibold tracking-[0.14em] text-white/90 uppercase";
 
@@ -37,7 +57,7 @@ export function Footer() {
   return (
     <footer className="border-t border-white/[0.05] bg-black/50 backdrop-blur-xl print:hidden">
       <div className="mx-auto max-w-6xl px-5 py-12 sm:px-8 sm:py-16">
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,0.95fr)_minmax(0,1.2fr)]">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(0,1.2fr)]">
           <div>
             <div className="flex flex-wrap items-center gap-3">
               <Logo variant="wordmark" />
@@ -46,7 +66,8 @@ export function Footer() {
               </span>
             </div>
             <p className="mt-5 max-w-xs text-sm leading-relaxed text-zinc-400">
-              Онлайн-курс по 3D-печати: практика, тесты и профили для слайсеров.
+              Платформа для 3D-печати: модели по фото и параметрам, профили
+              слайсеров и Мастерская для заказов.
             </p>
             <p className="mt-3 max-w-xs text-sm leading-relaxed text-zinc-400">
               Сервис предназначен для лиц старше 18 лет.
@@ -65,6 +86,19 @@ export function Footer() {
               <span aria-hidden>→</span>
             </Link>
           </div>
+
+          <nav aria-label="Разделы платформы">
+            <h2 className={footerHeadingClassName}>Платформа</h2>
+            <ul className="mt-5 grid gap-2.5 text-sm sm:grid-cols-2 lg:grid-cols-1">
+              {PLATFORM_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link href={link.href} className={footerLinkClassName}>
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
 
           <nav aria-label="Юридические документы">
             <h2 className={footerHeadingClassName}>Документы</h2>
@@ -154,7 +188,8 @@ export function Footer() {
 
         <div className="mt-12 flex flex-col gap-2 text-xs leading-relaxed text-zinc-400 sm:flex-row sm:items-center sm:justify-between">
           <p>
-            © {currentYear} tridi-print.ru — 3D-печать с нуля. Все права защищены.
+            © {currentYear} tridi-print.ru — платформа для 3D-печати. Все права
+            защищены.
           </p>
           <p>Оплата через Robokassa · чек НПД на email</p>
         </div>

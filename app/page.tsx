@@ -6,76 +6,46 @@ import type { ReactNode } from "react";
 import { Header } from "@/components/Header";
 import { cx } from "@/components/ui/class-names";
 import { VASE_RECIPES, vaseRecipeImagePath } from "@/data/vase-recipes";
+import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
 import { MODEL_TYPES, MODEL_TYPE_LABELS } from "@/lib/constructor/model-types";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
 import { LEVELS, TOTAL_LESSONS } from "@/lib/course-levels";
 import { defects } from "@/lib/defects";
-import { SUBSCRIPTION_PLAN } from "@/lib/generation-plans";
+import { SUBSCRIPTION_PLAN, TOKEN_PACKS } from "@/lib/generation-plans";
 import { getPaymentAmount } from "@/lib/payments";
 import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
+import { resolveSiteUrl } from "@/lib/site-url";
 
 /**
- * Формы склонения для чисел на странице: 10 моделей, 193 профиля, 6 дефектов.
- * Без них «193 профилей» выглядит как ошибка. Объявлены до metadata: описание
- * страницы тоже считает числа из каталога.
+ * Главная объясняет платформу в том порядке, в котором человек принимает
+ * решение: какая у него боль, чем мы её снимаем, что именно есть на сайте,
+ * сколько это стоит и что будет после регистрации.
+ *
+ * Блоки идут лесенкой:
+ *   1. герой — что можно сделать прямо сейчас;
+ *   2. «Что решаем» — шесть типовых болей печатника и конкретный инструмент;
+ *   3. «Инструменты» — полный каталог платформы, а не только генератор;
+ *   4. «Как это работает» — три шага от идеи до STL;
+ *   5. «Мастерская» — главный Pro-инструмент, разобранный по разделам;
+ *   6. галерея — реальные модели вместо обещаний;
+ *   7. «Для кого» — самоидентификация;
+ *   8. тарифы — бесплатный старт, Pro и токены без скрытых условий;
+ *   9. FAQ — возражения до оплаты;
+ *  10. курсы — отдельный продукт, а не часть подписки;
+ *  11. финальный CTA.
+ *
+ * Числа и цены не дублируются руками: модели — из `MODEL_TYPES`, профили — из
+ * `lib/profiles`, дефекты — из `lib/defects`, лимиты — из правил списания,
+ * цена Pro — из того же каталога, что у Robokassa (`getPaymentAmount`).
+ * Превью галереи — реальные PNG Конструктора из `public/constructor/recipes`.
  */
+
+/** Формы склонения: 10 моделей, 193 профиля, 6 дефектов, 4 уровня. */
 const MODEL_FORMS: [string, string, string] = ["модель", "модели", "моделей"];
 const PROFILE_FORMS: [string, string, string] = ["профиль", "профиля", "профилей"];
 const DEFECT_FORMS: [string, string, string] = ["дефект", "дефекта", "дефектов"];
 const LEVEL_FORMS: [string, string, string] = ["уровень", "уровня", "уровней"];
-
-/**
- * Главная продаёт платформу, а не один инструмент.
- *
- * Первый экран отвечает на вопрос «что я получу, если у меня есть принтер»:
- * мастерская снимает рутину с заказов, склада и принтеров, конструктор и
- * генератор дают модели, профили и справочник дефектов убирают настройку
- * вслепую. Курсы идут отдельным блоком: они учат печатать, но не входят в
- * подписку и не занимают первый экран.
- *
- * Числа не дублируются руками: список моделей берётся из `MODEL_TYPES`, цена
- * подписки — из того же источника, что у Robokassa (`getPaymentAmount`),
- * количество профилей и дефектов — из библиотек. Превью галереи — реальные PNG
- * Конструктора из `public/constructor/recipes`, поэтому блок демонстрации не
- * обещает моделей, которых нет. Пакетов токенов здесь нет: разовая докупка
- * живёт на странице генератора, где виден баланс.
- */
-export const metadata: Metadata = {
-  // Заголовок главной без шаблона: template из корневого layout действует
-  // только на вложенные сегменты, поэтому бренд дописываем здесь сами.
-  title: "TriDi — мастерская и инструменты для 3D-печати",
-  description: `Мастерская для заказов с маркетплейсов, склада и принтеров, конструктор с ${MODEL_TYPES.length} моделями, генератор по фото, ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати и справочник дефектов. Курсы — от распаковки до заработка.`,
-  alternates: { canonical: "/" },
-  // Свои openGraph и twitter: иначе в мессенджере развернулась бы карточка
-  // генератора, а og:url указывал бы на вложенную страницу.
-  openGraph: {
-    type: "website",
-    locale: "ru_RU",
-    siteName: "TriDi",
-    url: "/",
-    title: "TriDi — мастерская и инструменты для 3D-печати",
-    description: `Мастерская, конструктор и генератор 3D: заказы с маркетплейсов, склад пластика, ${MODEL_TYPES.length} ${pluralize(MODEL_TYPES.length, MODEL_FORMS)} и ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати.`,
-    images: [
-      {
-        ...OG_IMAGE,
-        alt: "TriDi: мастерская, конструктор и генератор для 3D-печати",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "TriDi — мастерская и инструменты для 3D-печати",
-    description:
-      "Мастерская для заказов из маркетплейсов, конструктор 3D и генератор по фото. Курсы — от распаковки принтера до заработка.",
-    images: [
-      {
-        url: OG_IMAGE.url,
-        alt: "TriDi: мастерская, конструктор и генератор для 3D-печати",
-      },
-    ],
-  },
-};
 
 /** Цена в рублях с разделителями разрядов: 500 → «500», 1 486 → «1 486». */
 const formatPrice = (price: number) =>
@@ -123,6 +93,44 @@ const TONE_STYLES: Record<
   },
 };
 
+const PAGE_TITLE = "TriDi — 3D-модели для печати из фото и в конструкторе";
+
+const PAGE_DESCRIPTION = `Создайте 3D-модель по 1–4 фото или в Конструкторе, скачайте STL и ведите заказы в Мастерской. ${MODEL_TYPES.length} моделей, ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати и справочник дефектов. Первая генерация — бесплатно.`;
+
+export const metadata: Metadata = {
+  // Заголовок главной без шаблона: template из корневого layout действует
+  // только на вложенные сегменты, поэтому бренд дописываем здесь сами.
+  title: PAGE_TITLE,
+  description: PAGE_DESCRIPTION,
+  alternates: { canonical: "/" },
+  // Свои openGraph и twitter: иначе в мессенджере развернулась бы карточка
+  // генератора, а og:url указывал бы на вложенную страницу.
+  openGraph: {
+    type: "website",
+    locale: "ru_RU",
+    siteName: "TriDi",
+    url: "/",
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images: [
+      {
+        ...OG_IMAGE,
+        alt: "TriDi: 3D-модели по фото, Конструктор и Мастерская для 3D-печати",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: PAGE_TITLE,
+    description: PAGE_DESCRIPTION,
+    images: [
+      {
+        url: OG_IMAGE.url,
+        alt: "TriDi: 3D-модели по фото, Конструктор и Мастерская для 3D-печати",
+      },
+    ],
+  },
+};
 
 type CtaVariant = "light" | "outline" | "ghost" | "success";
 
@@ -268,355 +276,735 @@ function FeatureIcon({
   );
 }
 
-/**
- * Три шага: что делает пользователь, а не что умеет платформа.
- * Формулировки — из ТЗ, пояснение под каждым шагом снимает страх «это сложно».
- */
-const STEPS: {
-  number: string;
-  title: string;
-  text: string;
-  icon: FeatureIconName;
-  tone: Tone;
-}[] = [
+/** Три шага от идеи до файла: одинаковые для фото и Конструктора. */
+const STEPS: { icon: FeatureIconName; title: string; text: string }[] = [
   {
-    number: "01",
-    title: "Загрузите фото или выберите модель",
-    text: "Генератор примет JPG или PNG. В Конструкторе уже готовы вазы, брелоки, литофаны и вывески.",
     icon: "photo",
-    tone: "blue",
+    title: "Загрузите фото или выберите модель",
+    text: "Генератор принимает JPEG, PNG и WebP с 1–4 ракурсами. В Конструкторе готовы вазы, брелоки, литофаны, вывески, кашпо и органайзеры: форму задают параметры, а не навык моделирования.",
   },
   {
-    number: "02",
-    title: "Настройте параметры (размер, узор, текст)",
-    text: "Высота, диаметр, толщина стенки, узор и подпись — слайдерами, без CAD и Blender.",
     icon: "sliders",
-    tone: "violet",
+    title: "Настройте размер и детали",
+    text: "Покрутите модель в 3D, поменяйте высоту, узор, толщину стенки или подпись. Всё меняется слайдерами, поэтому не нужно открывать Blender и разбираться в CAD.",
   },
   {
-    number: "03",
-    title: "Скачайте STL и отправьте на печать",
-    text: "Файл открывается в Cura, PrusaSlicer и Orca: проверьте модель в 3D и сохраните.",
     icon: "download",
-    tone: "amber",
+    title: "Скачайте STL и печатайте",
+    text: "Готовый файл открывается в Bambu Studio, OrcaSlicer, PrusaSlicer и Cura. Профиль печати под принтер и пластик можно взять в библиотеке, а расчёт веса — в карточке модели.",
   },
 ];
 
-/** Шесть превью из галереи Конструктора: реальные PNG, а не заглушки. */
-const DEMO_MODELS = VASE_RECIPES.slice(0, 6);
+/**
+ * Витрина показывает реальные PNG Конструктора: они лежат в
+ * `public/constructor/recipes` и обновляются вместе с рецептами. Если рецепт
+ * переименуют, карточка просто не отрисуется, а не сломает сборку.
+ */
+const DEMO_MODELS = [
+  "japandi-ribs",
+  "twisted-fluted",
+  "moire-illusion",
+  "scales-armor",
+]
+  .map((id) => VASE_RECIPES.find((recipe) => recipe.id === id))
+  .filter((recipe): recipe is (typeof VASE_RECIPES)[number] => Boolean(recipe));
 
-/** Три аудитории: печатник, бизнес и хобби. */
-const AUDIENCE: {
+/** Кому какой сценарий ближе: блок помогает узнать себя до чтения тарифов. */
+const AUDIENCE: { icon: FeatureIconName; title: string; text: string }[] = [
+  {
+    icon: "business",
+    title: "Мастерская и ферма",
+    text: "Заказы, склад и принтеры в одном окне. Видно, что печатается, что ждёт пластика и сколько стоит каждый заказ.",
+  },
+  {
+    icon: "hobby",
+    title: "Домашняя печать",
+    text: "Модель по фото или параметрам — без CAD. Полезно, когда нужно быстро закрыть бытовую задачу и не учить Blender.",
+  },
+  {
+    icon: "printer",
+    title: "Продажи на маркетплейсах",
+    text: "Заказы с Ozon, Wildberries и Яндекс Маркета, сроки и документы под рукой. Себестоимость считается до печати.",
+  },
+  {
+    icon: "photo",
+    title: "Только купили принтер",
+    text: "Бесплатный первый уровень курса, справочник дефектов и форум. Понятный маршрут вместо случайных роликов.",
+  },
+];
+
+type PainCard = {
+  pain: string;
   title: string;
   text: string;
-  icon: FeatureIconName;
+  href: string;
+  linkLabel: string;
   tone: Tone;
-}[] = [
+};
+
+/**
+ * Шесть болей, с которыми приходят на TriDi: от «не умею моделировать» до
+ * «не понимаю, сколько стоит заказ». У каждой — конкретный инструмент, а не
+ * общее обещание «всё в одном».
+ */
+const PAINS: PainCard[] = [
   {
-    title: "Для 3D-печатников",
-    text: "Модели к печати без часов на сетку и мастерская для заказов: склад, принтеры и документы в одном окне.",
-    icon: "printer",
+    pain: "Нет навыков 3D-моделирования",
+    title: "Модель без Blender и CAD",
+    text: "Генератор собирает форму по 1–4 фотографиям, Конструктор — по слайдерам. На выходе готовый STL, а не учебный проект.",
+    href: "/3d-generator",
+    linkLabel: "Генератор по фото",
     tone: "blue",
   },
   {
-    title: "Для бизнеса",
-    text: "Логотипы, брелоки и сувениры: один проект превращается в партию персонализированных изделий.",
-    icon: "business",
+    pain: "Заказы живут в таблицах и переписках",
+    title: "Одна доска вместо блокнота",
+    text: "Заказы с Ozon, Wildberries и Яндекс Маркета приходят в Мастерскую: статусы, сроки, клиенты и документы рядом.",
+    href: "/tools/workshop",
+    linkLabel: "Мастерская",
+    tone: "amber",
+  },
+  {
+    pain: "Цена заказа считается «на глаз»",
+    title: "Себестоимость до печати",
+    text: "Калькулятор складывает пластик, электричество, амортизацию и работу. Прибыль видна до запуска, а не после.",
+    href: "/tools/workshop",
+    linkLabel: "Калькулятор в Мастерской",
     tone: "emerald",
   },
   {
-    title: "Для хобби",
-    text: "Литофаны по фото, декор и игрушки: подарок, который можно напечатать в тот же вечер.",
-    icon: "hobby",
+    pain: "Пластик заканчивается в середине печати",
+    title: "Склад предупреждает заранее",
+    text: "Катушки, остаток в граммах и списание на заказ. Строка «пора докупить» появляется до простоя, а не после.",
+    href: "/tools/workshop",
+    linkLabel: "Склад и принтеры",
+    tone: "violet",
+  },
+  {
+    pain: "Печать идёт с браком, причины ищутся наугад",
+    title: "Профили и разбор дефектов",
+    text: "Готовые настройки под принтер и материал плюс справочник причин: от отрыва от стола до пропусков экструзии.",
+    href: "/tools/defects",
+    linkLabel: "Разобрать дефект",
+    tone: "blue",
+  },
+  {
+    pain: "Непонятно, с чего начать и у кого спросить",
+    title: "Маршрут вместо поиска вслепую",
+    text: "Бесплатный первый уровень курса, форум с разборами и галерея реальных моделей. Дальше — по шагам, без угадывания.",
+    href: "/start",
+    linkLabel: "Начать бесплатно",
     tone: "violet",
   },
 ];
 
-/**
- * Возможности подписки Pro: сначала инструменты, которые снимают рутину, потом
- * модели. Лимиты генератора берутся из тарифа, а не из текста.
- */
-const PRO_FEATURES = [
-  "Мастерская: заказы, склад пластика, принтеры и документы",
-  "Справочник дефектов и форум — бесплатно всем, без подписки",
-  `Все ${MODEL_TYPES.length} моделей Конструктора и безлимитный STL`,
-  `Библиотека профилей печати и ${SUBSCRIPTION_PLAN.standardPerMonth} + ${SUBSCRIPTION_PLAN.ultraPerMonth} генерации в месяц`,
-];
-
-/**
- * Экосистема TriDi: шесть инструментов, которые получает печатник.
- *
- * Порядок не случайный: мастерская первой, потому что она снимает рутину, а
- * конструктор, генератор и профили — то, чем эту мастерскую наполняют. Два
- * бесплатных инструмента стоят последними: они не продают подписку, но
- * показывают, что платформа полезна и без неё.
- */
-const ECO_CARDS: {
+type ToolCard = {
   href: string;
+  category: string;
   title: string;
   text: string;
+  meta: string;
   badge: string;
   tone: Tone;
-}[] = [
+};
+
+/**
+ * Каталог инструментов: не только генератор, а вся платформа. Порядок отражает
+ * путь пользователя — создать модель, вести производство, печатать без брака,
+ * спросить совета.
+ */
+const TOOLS: ToolCard[] = [
   {
-    href: "/tools/workshop",
-    title: "Мастерская",
-    text: "Заказы с Ozon, Wildberries и Яндекс Маркета, склад пластика, принтеры и документы.",
-    badge: "Pro",
-    tone: "amber",
+    href: "/3d-generator",
+    category: "Создать модель",
+    title: "Генератор по фото",
+    text: "1–4 снимка — сеть собирает 3D-модель, чистит сетку и приводит размер к 120 мм. Без ручной ретуши и платных плагинов.",
+    meta: "На выходе: STL для слайсера",
+    badge: "1 бесплатно",
+    tone: "blue",
   },
   {
     href: "/constructor",
+    category: "Создать модель",
     title: "Конструктор 3D",
-    text: `${MODEL_TYPES.length} ${pluralize(MODEL_TYPES.length, MODEL_FORMS)} с параметрами: вазы, брелоки, вывески, литофаны и органайзеры.`,
-    badge: "Pro",
+    text: `${MODEL_TYPES.length} параметрических моделей: вазы, брелоки, вывески, литофаны, кашпо, органайзеры и термопринт.`,
+    meta: "На выходе: STL, превью и расчёт веса",
+    badge: `${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL/мес`,
     tone: "emerald",
   },
   {
-    href: "/3d-generator",
-    title: "Генератор по фото",
-    text: "Модель из 1–4 снимков: сеть соберёт форму, чистка сетки и 120 мм — уже внутри.",
+    href: "/tools/workshop",
+    category: "Вести производство",
+    title: "Мастерская",
+    text: "Заказы с маркетплейсов, склад пластика, ферма принтеров, клиенты и документы в одном окне.",
+    meta: "Для регулярной работы",
     badge: "Pro",
-    tone: "blue",
+    tone: "amber",
   },
   {
     href: "/profiles",
+    category: "Печатать без брака",
     title: "Профили печати",
-    text: `${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer.`,
+    text: `${profileCount} проверенных настроек принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer.`,
+    meta: "Скачивание в Pro · импорт в слайсер",
     badge: "Pro",
     tone: "violet",
   },
   {
     href: "/tools/defects",
-    title: "Дефекты печати",
-    text: `${defects.length} ${pluralize(defects.length, DEFECT_FORMS)} с причинами и решениями — от отрыва от стола до пропусков экструзии.`,
+    category: "Печатать без брака",
+    title: "Справочник дефектов",
+    text: `${defects.length} ${pluralize(defects.length, DEFECT_FORMS)} печати с причинами и пошаговыми решениями — от отрыва от стола до пропусков экструзии.`,
+    meta: "Бесплатно и без входа",
     badge: "Бесплатно",
-    tone: "amber",
+    tone: "blue",
   },
   {
     href: "/forum",
+    category: "Спросить и обсудить",
     title: "Форум",
-    text: "Разборы печати, настройки от участников и ответы на вопросы по конкретной модели.",
+    text: "Разборы печати, настройки от участников и ответы на вопросы по конкретной модели. Можно спросить до покупки.",
+    meta: "Бесплатно",
     badge: "Бесплатно",
-    tone: "blue",
+    tone: "emerald",
   },
 ];
 
 /**
- * Что внутри мастерской: по строке на раздел, который реально есть в CRM.
- * Ничего «на будущее» — только вкладки `/dashboard/workshop`.
+ * Разделы Мастерской повторяют публичную витрину `/tools/workshop` и подсказки
+ * `TAB_HELP`: главная не обещает вкладку, которой нет в продукте.
  */
-const WORKSHOP_FEATURES: {
-  title: string;
-  text: string;
-  tone: Tone;
-}[] = [
+const WORKSHOP_FEATURES: { title: string; text: string }[] = [
   {
     title: "Заказы и доска статусов",
-    text: "Заказы с маркетплейсов в одной доске: новый, в печати, готов, отправлен. Сроки подсвечиваются сами.",
-    tone: "blue",
+    text: "Заказы с маркетплейсов и ручные в одной доске. Карточка переезжает: новый, в печати, готов, выдан.",
   },
   {
     title: "Склад пластика",
-    text: "Катушки, остатки в граммах и списание материала на заказ: видно, хватит ли пластика до конца печати.",
-    tone: "violet",
+    text: "Катушки, остаток в граммах и порог «пора купить». Списание материала идёт при завершении печати.",
   },
   {
-    title: "Принтеры и обслуживание",
-    text: "Наработка в часах и регламенты ТО. Агент фермы распределяет задания по свободным принтерам.",
-    tone: "emerald",
+    title: "Ферма принтеров",
+    text: "Станки с наработкой и регламентами ТО. Кнопка «Распределить» раздаёт задачи свободным принтерам.",
   },
   {
     title: "Себестоимость до печати",
-    text: "Материал, электричество, амортизация и работа: калькулятор показывает цену и прибыль заказа.",
-    tone: "amber",
+    text: "Материал, электричество, амортизация и работа. Цена и прибыль видны до запуска, а не после.",
   },
   {
     title: "Документы заказа",
-    text: "Спецификация и накладная собираются из данных заказа, реквизиты компании хранятся рядом.",
-    tone: "blue",
+    text: "Спецификация и накладная собираются из заказа. Реквизиты вводятся один раз и подставляются сами.",
   },
   {
     title: "Клиенты и товары",
-    text: "База контактов, каталог изделий и связи SKU маркетплейсов с товарами каталога.",
-    tone: "violet",
+    text: "База клиентов с историей заказов. SKU маркетплейсов в карточке товара привязывают заказы сами.",
   },
 ];
 
+/** Быстрый переход по длинной главной: восемь якорей вместо прокрутки наугад. */
+const ANCHORS = [
+  { href: "#problems", label: "Что решаем" },
+  { href: "#tools", label: "Инструменты" },
+  { href: "#how", label: "Как это работает" },
+  { href: "#workshop", label: "Мастерская" },
+  { href: "#gallery", label: "Галерея" },
+  { href: "#pricing", label: "Цены" },
+  { href: "#faq", label: "Вопросы" },
+  { href: "#courses", label: "Курсы" },
+];
+
+type FaqItem = { question: string; answer: string };
+
 /**
- * Главная отдаётся на каждый запрос: Header читает cookies, чтобы показать
- * имя пользователя. force-dynamic также убирает зависимость сборки от
- * NEXT_PUBLIC_SUPABASE_* на этапе статической генерации.
+ * FAQ закрывает возражения, которые обычно всплывают уже на странице оплаты:
+ * «это нейросеть или конструктор», «нужен ли CAD», «что бесплатно» и «чем Pro
+ * отличается от курсов». Ответы не расходятся с лимитами и тарифами: числа
+ * берутся из тех же констант, что у генератора и подписки.
  */
+const FAQ: FaqItem[] = [
+  {
+    question: "TriDi — это нейросеть или конструктор?",
+    answer:
+      "И то, и другое. Генератор по фото собирает 3D-модель по 1–4 снимкам. Конструктор работает без нейросети: вы задаёте размеры, форму, узор и подпись, а модель строится по параметрам.",
+  },
+  {
+    question: "Нужно ли уметь моделировать в Blender или CAD?",
+    answer:
+      "Нет. В Конструкторе все параметры меняются слайдерами, а генератору достаточно фотографий. На выходе — готовый STL для слайсера, а не проект, который ещё нужно дорабатывать.",
+  },
+  {
+    question: "Сколько фотографий нужно генератору?",
+    answer:
+      "От одной до четырёх. Один снимок подойдёт для простой формы, несколько ракурсов дают более точную модель. Фото загружаются в JPEG, PNG или WebP.",
+  },
+  {
+    question: "Что я получу на выходе?",
+    answer:
+      "STL-файл: очищенная сетка, размер приведён к 120 мм. Файл открывается в Bambu Studio, OrcaSlicer, PrusaSlicer и Cura — дальше печать идёт по вашим настройкам.",
+  },
+  {
+    question: "Что можно попробовать бесплатно?",
+    answer: `Первая генерация Standard по фото — бесплатно, в Конструкторе — ${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL в месяц. Справочник дефектов, форум и первый уровень курса тоже открыты без оплаты.`,
+  },
+  {
+    question: "Чем подписка Pro отличается от курсов?",
+    answer: `Pro открывает инструменты: Мастерскую, все ${MODEL_TYPES.length} моделей Конструктора, ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати и ${SUBSCRIPTION_PLAN.standardPerMonth} Standard + ${SUBSCRIPTION_PLAN.ultraPerMonth} Ultra в месяц. Курсы — отдельные программы с доступом навсегда, в подписку не входят.`,
+  },
+  {
+    question: "Можно ли продавать изделия, напечатанные по моделям TriDi?",
+    answer:
+      "Да. В Pro лицензия включает печать и продажу изделий по своим моделям. Условия — в публичной оферте; для разовых задач можно купить пакет токенов без подписки.",
+  },
+  {
+    question: "Нужен ли специальный принтер?",
+    answer:
+      "Подойдёт любой FDM-принтер, который печатает по STL. TriDi не заменяет слайсер: модель открывается в вашей программе, там же выбираются профиль, поддержки и температура.",
+  },
+  {
+    question: "Где посмотреть Мастерскую до оплаты?",
+    answer:
+      "На странице Мастерской есть разбор всех разделов и демо-режим только для чтения. Демо открывается без оплаты и показывает заказы, склад и принтеры на тестовых данных.",
+  },
+  {
+    question: "Как оплатить и получить чек?",
+    answer:
+      "Оплата картой через Robokassa. Исполнитель работает как плательщик НПД: чек формируется в приложении «Мой налог» и приходит на email. У Pro нет автосписаний: каждый следующий платёж добавляет 30 дней.",
+  },
+];
+
+/** FAQPage для поиска: вопросы и ответы повторяют видимый блок, а не живут отдельно. */
+function buildFaqJsonLd(siteUrl: string) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    name: "TriDi: частые вопросы о 3D-моделях, печати и оплате",
+    url: `${siteUrl}/`,
+    inLanguage: "ru",
+    mainEntity: FAQ.map((item) => ({
+      "@type": "Question",
+      name: item.question,
+      acceptedAnswer: {
+        "@type": "Answer",
+        text: item.answer,
+      },
+    })),
+  };
+}
+
+/** Тарифы на главной: коротко, с одной ссылкой на полную страницу оплаты. */
+const PRICING_PLANS: {
+  title: string;
+  price: string;
+  note: string;
+  description: string;
+  features: string[];
+  cta: string;
+  href: string;
+  tone: Tone;
+  featured?: boolean;
+}[] = [
+  {
+    title: "Старт",
+    price: "0 ₽",
+    note: "без карты",
+    description: "Попробовать инструменты и понять, подходит ли платформа.",
+    features: [
+      "1 бесплатная генерация Standard по фото",
+      `${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL в Конструкторе в месяц`,
+      "Справочник дефектов и форум",
+      "История моделей в личном кабинете",
+    ],
+    cta: "Создать аккаунт",
+    href: "/auth/sign-up",
+    tone: "emerald",
+  },
+  {
+    title: "Pro",
+    price: `${formatPrice(subscriptionPrice)} ₽`,
+    note: "за 30 дней",
+    description: "Для регулярной печати и заказов: все инструменты и лимиты.",
+    features: [
+      "Мастерская: заказы, склад, принтеры, документы",
+      `Все ${MODEL_TYPES.length} моделей и STL без лимита`,
+      `Профили печати: ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)}`,
+      `${SUBSCRIPTION_PLAN.standardPerMonth} Standard + ${SUBSCRIPTION_PLAN.ultraPerMonth} Ultra в месяц`,
+      "Печать и продажа изделий по своим моделям",
+    ],
+    cta: "Подключить Pro",
+    href: "/pricing",
+    tone: "amber",
+    featured: true,
+  },
+  {
+    title: "Токены",
+    price: `от ${formatPrice(TOKEN_PACKS.standard.price)} ₽`,
+    note: "разово",
+    description: "Когда подписка не нужна: докупить генерации под задачу.",
+    features: [
+      `${TOKEN_PACKS.standard.quantity} Standard — ${formatPrice(TOKEN_PACKS.standard.price)} ₽`,
+      `${TOKEN_PACKS.ultra.quantity} Ultra — ${formatPrice(TOKEN_PACKS.ultra.price)} ₽`,
+      "Пакет не сгорает и не зависит от подписки",
+      "Покупка в генераторе, без автосписаний",
+    ],
+    cta: "Открыть генератор",
+    href: "/3d-generator",
+    tone: "blue",
+  },
+];
+
+/** Шапка читает cookies, поэтому страница собирается на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-export default function Home() {
+export default async function Home() {
+  const siteUrl = await resolveSiteUrl();
+  const faqJsonLd = buildFaqJsonLd(siteUrl);
+
   return (
-    <div className="relative min-h-screen text-white">
+    <div className="relative min-h-screen bg-[#030303] text-white">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(faqJsonLd).replace(/</g, "\\u003c"),
+        }}
+      />
       <Header />
 
       <main>
-        {/* Hero: что получит пользователь, два входа в продукты и микро-факты. */}
-        <section className="relative isolate overflow-hidden">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 -z-10"
-          >
-            <div className="hero-grid absolute inset-0 opacity-80" />
-            <div className="absolute top-[-26rem] left-1/2 h-[46rem] w-[46rem] -translate-x-1/2 rounded-full bg-blue-600/20 blur-[150px]" />
-            <div className="absolute top-24 right-[-14rem] h-[32rem] w-[32rem] rounded-full bg-violet-600/15 blur-[130px]" />
-            <div className="absolute top-1/2 left-[-14rem] h-[28rem] w-[28rem] rounded-full bg-blue-700/10 blur-[120px]" />
-            <div className="absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+        {/* 1. Герой: что можно сделать прямо сейчас и с чего начать */}
+        <section className="relative isolate overflow-hidden border-b border-white/[0.06]">
+          <div aria-hidden className="pointer-events-none absolute inset-0">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_-20%,rgba(59,130,246,0.18),transparent_46%)]" />
+            <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.035)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:72px_72px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]" />
+            <div className="absolute -left-40 top-20 h-[30rem] w-[30rem] rounded-full bg-blue-600/10 blur-[140px]" />
+            <div className="absolute -right-40 top-40 h-[26rem] w-[26rem] rounded-full bg-violet-600/10 blur-[140px]" />
           </div>
 
-          <div className="relative mx-auto flex min-h-[calc(100svh_-_5rem)] max-w-7xl flex-col items-center justify-center px-5 py-16 text-center sm:px-8 sm:py-20 lg:py-24">
-            <div className="inline-flex max-w-full items-center gap-2.5 rounded-full border border-white/10 bg-white/[0.035] px-3.5 py-1.5 text-[11px] font-medium tracking-wide text-white/60 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl sm:px-4 sm:text-xs">
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.9)]" />
-              </span>
-              <span className="text-center">
-                Мастерская · Конструктор · Генератор · Курсы
-              </span>
-            </div>
-
-            <h1 className="mx-auto mt-7 max-w-5xl text-balance text-5xl leading-[0.95] font-extrabold tracking-[-0.05em] sm:text-6xl md:text-7xl xl:text-[5.5rem]">
-              <span className="block bg-gradient-to-b from-white via-white to-white/60 bg-clip-text text-transparent">
-                Всё для 3D-печати
-              </span>{" "}
-              <span className="mt-1 block bg-gradient-to-r from-blue-200 via-violet-200 to-white bg-clip-text pb-2 text-transparent">
-                от модели до заказа
-              </span>{" "}
-              <span className="block text-white/35">в одном окне</span>
-            </h1>
-
-            <p className="mx-auto mt-6 max-w-2xl text-pretty text-base leading-7 text-white/55 sm:mt-7 sm:text-lg sm:leading-8">
-              Мастерская ведёт заказы с маркетплейсов, склад и принтеры.
-              Конструктор и генератор по фото делают модели, а профили и
-              справочник дефектов помогают печатать с первого раза.
-            </p>
-
-            <div className="mt-9 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row sm:items-center">
-              <CtaLink href="/tools/workshop" size="lg" className="group">
-                Что умеет мастерская
-                <span
-                  aria-hidden
-                  className="transition-transform duration-300 group-hover:translate-x-0.5"
-                >
-                  →
+          <div className="relative mx-auto max-w-7xl px-5 pb-14 pt-16 sm:px-8 sm:pb-16 sm:pt-20 lg:pt-24">
+            <div className="mx-auto max-w-5xl text-center">
+              <div className="inline-flex flex-wrap items-center justify-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-4 py-2 text-xs text-white/60 backdrop-blur-xl">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 </span>
-              </CtaLink>
-              <CtaLink href="/3d-generator" variant="outline" size="lg">
-                Сделать 3D-модель
-              </CtaLink>
-            </div>
+                Платформа для 3D-печати
+                <span className="text-white/20">·</span>
+                модели, мастерская и обучение
+              </div>
 
-            <Link
-              className="mt-4 text-xs font-semibold text-white/40 underline decoration-white/20 underline-offset-4 transition-colors hover:text-white/80"
-              href="/tools"
-            >
-              Все инструменты TriDi
-            </Link>
+              <h1 className="mt-7 text-balance text-[2.75rem] font-extrabold leading-[0.95] tracking-[-0.06em] sm:text-6xl lg:text-[5.5rem]">
+                <span className="block text-white">3D-модель для печати</span>
+                <span className="mt-2 block bg-gradient-to-b from-white via-white to-white/45 bg-clip-text text-transparent">
+                  из фото или в конструкторе
+                </span>
+                <span className="mt-3 block text-2xl font-semibold tracking-[-0.03em] text-white/35 sm:text-3xl lg:text-4xl">
+                  за вечер, без Blender и CAD
+                </span>
+              </h1>
 
-            <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-white/40 sm:text-sm">
-              {[
-                "Первая генерация бесплатно",
-                "STL для 3D-печати",
-                "Профили и диагностика",
-                "Курсы отдельно, навсегда",
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-1.5">
-                  <Check className="h-3.5 w-3.5 text-emerald-400/80" />
-                  {item}
-                </li>
-              ))}
-            </ul>
+              <p className="mx-auto mt-7 max-w-2xl text-pretty text-base leading-7 text-white/55 sm:text-lg sm:leading-8">
+                Загрузите 1–4 снимка — генератор соберёт форму и отдаст STL.
+                Или соберите модель в Конструкторе из готовых форм:{" "}
+                {MODEL_TYPE_LABELS.vase.toLowerCase()},{" "}
+                {MODEL_TYPE_LABELS.keychain.toLowerCase()},{" "}
+                {MODEL_TYPE_LABELS.lithophane.toLowerCase()},{" "}
+                {MODEL_TYPE_LABELS.sign.toLowerCase()} и ещё{" "}
+                {MODEL_TYPES.length - 4} моделей. Первая генерация — бесплатно.
+              </p>
 
-            <dl className="mt-12 grid w-full max-w-3xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.06] shadow-[0_24px_80px_-40px_rgba(0,0,0,0.9)] sm:mt-14 sm:grid-cols-4">
-              {[
-                { value: `${MODEL_TYPES.length}`, label: `${pluralize(MODEL_TYPES.length, MODEL_FORMS)} в Конструкторе` },
-                { value: `${profileCount}`, label: `${pluralize(profileCount, PROFILE_FORMS)} печати` },
-                { value: `${defects.length}`, label: `${pluralize(defects.length, DEFECT_FORMS)} с решениями` },
-                { value: `${TOTAL_LESSONS}`, label: `${pluralize(TOTAL_LESSONS, LESSON_FORMS)} в курсах` },
-              ].map((stat) => (
-                <div
-                  key={stat.label}
-                  className="bg-[#070707]/95 px-3 py-4 backdrop-blur-xl sm:px-4 sm:py-5"
+              <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <CtaLink
+                  href="/3d-generator"
+                  size="lg"
+                  className="w-full sm:w-auto"
                 >
-                  <dt className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                    {stat.value}
-                  </dt>
-                  <dd className="mt-1 text-[10px] tracking-[0.14em] text-white/35 uppercase sm:text-[11px]">
-                    {stat.label}
-                  </dd>
-                </div>
-              ))}
-            </dl>
+                  Сделать модель по фото
+                  <span aria-hidden>→</span>
+                </CtaLink>
+                <CtaLink
+                  href="/constructor"
+                  variant="outline"
+                  size="lg"
+                  className="w-full sm:w-auto"
+                >
+                  Открыть конструктор
+                </CtaLink>
+              </div>
+
+              {/*
+                Честный шаг между кнопкой и продуктом: генератор и конструктор
+                открываются только вошедшему. Без этой строки гость нажимает
+                «бесплатно» и попадает на форму входа, не понимая, зачем она.
+              */}
+              <p className="mx-auto mt-4 max-w-xl text-xs leading-5 text-white/45">
+                Генератор и Конструктор открываются после бесплатной
+                регистрации — без карты и оплаты. Демо Мастерской доступно
+                сразу.
+              </p>
+
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/40">
+                <Link
+                  href="/tools/workshop"
+                  className="transition-colors hover:text-white"
+                >
+                  Мастерская для заказов
+                </Link>
+                <span aria-hidden className="text-white/15">
+                  ·
+                </span>
+                <Link
+                  href="/gallery"
+                  className="transition-colors hover:text-white"
+                >
+                  Галерея моделей
+                </Link>
+                <span aria-hidden className="text-white/15">
+                  ·
+                </span>
+                <Link
+                  href="/tools"
+                  className="transition-colors hover:text-white"
+                >
+                  Все инструменты →
+                </Link>
+              </div>
+
+              <ul className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-3 text-xs text-white/40">
+                {[
+                  "Без карты на старте",
+                  `${MODEL_TYPES.length} моделей в Конструкторе`,
+                  `${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати`,
+                  "STL для любого слайсера",
+                ].map((fact) => (
+                  <li key={fact} className="flex items-center gap-2">
+                    <Check className="h-3.5 w-3.5 text-emerald-400/80" />
+                    {fact}
+                  </li>
+                ))}
+              </ul>
+
+              <dl
+                aria-label="TriDi в цифрах"
+                className="mx-auto mt-14 grid max-w-4xl grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.06] sm:grid-cols-4"
+              >
+                {[
+                  {
+                    value: MODEL_TYPES.length,
+                    label: `${pluralize(MODEL_TYPES.length, MODEL_FORMS)} в Конструкторе`,
+                  },
+                  {
+                    value: profileCount,
+                    label: `${pluralize(profileCount, PROFILE_FORMS)} печати`,
+                  },
+                  {
+                    value: defects.length,
+                    label: `${pluralize(defects.length, DEFECT_FORMS)} в справочнике`,
+                  },
+                  {
+                    value: TOTAL_LESSONS,
+                    label: `${pluralize(TOTAL_LESSONS, LESSON_FORMS)} в курсах`,
+                  },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="flex flex-col-reverse gap-1 bg-[#050505]/90 px-4 py-5 backdrop-blur"
+                  >
+                    <dt className="text-xs leading-4 text-white/35">
+                      {stat.label}
+                    </dt>
+                    <dd className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+                      {stat.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
           </div>
         </section>
 
-        {/* Экосистема: все инструменты платформы, а не только генератор. */}
-        <section
-          id="ecosystem"
-          className="relative scroll-mt-24 border-t border-white/[0.06] bg-white/[0.012]"
+        {/* 2. Быстрый переход: длинную главную можно листать по разделам */}
+        <nav
+          aria-label="Разделы главной"
+          className="sticky top-[4.5rem] z-30 border-b border-white/[0.06] bg-[#030303]/85 backdrop-blur-xl"
         >
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-5 py-3 sm:px-8">
+            <span className="mr-2 hidden shrink-0 text-[10px] font-semibold tracking-[0.18em] text-white/25 uppercase sm:block">
+              На странице
+            </span>
+            {ANCHORS.map((anchor) => (
+              <a
+                key={anchor.href}
+                href={anchor.href}
+                className="shrink-0 rounded-full px-3 py-1.5 text-xs font-medium text-white/45 transition-colors hover:bg-white/[0.05] hover:text-white"
+              >
+                {anchor.label}
+              </a>
+            ))}
+          </div>
+        </nav>
+
+        {/* 3. Какие боли снимаем: сначала проблема, потом инструмент */}
+        <section
+          id="problems"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
-                <p className={cx(SECTION_LABEL, "text-amber-300/80")}>
-                  Экосистема
-                </p>
+                <p className={cx(SECTION_LABEL, "text-blue-300")}>Что решаем</p>
                 <h2 className={SECTION_TITLE}>
-                  Один аккаунт —{" "}
-                  <span className="text-white/35">вся мастерская.</span>
+                  Печать упирается не в принтер, а в рутину
                 </h2>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                  Модели, настройки, заказы и склад живут рядом: не нужно
-                  переключать пять сервисов, чтобы напечатать одну деталь.
-                </p>
               </div>
-              <CtaLink href="/tools" variant="outline">
-                Центр инструментов
-                <span aria-hidden>→</span>
-              </CtaLink>
+              <p className="max-w-sm text-sm leading-6 text-white/45 lg:pb-2">
+                Шесть типовых проблем печатника — и конкретный инструмент TriDi
+                на каждую. Без переключения между пятью сервисами и таблицами.
+              </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-16 lg:grid-cols-3">
-              {ECO_CARDS.map((card) => {
-                const tone = TONE_STYLES[card.tone];
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {PAINS.map((pain, index) => {
+                const tone = TONE_STYLES[pain.tone];
 
                 return (
-                  <Link
-                    key={card.href}
-                    className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/25 sm:p-7"
-                    href={card.href}
+                  <article
+                    key={pain.title}
+                    className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-[#080808] p-6 transition-colors hover:border-white/15 sm:p-7"
                   >
                     <div
                       aria-hidden
                       className={cx(
-                        "pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full opacity-60 blur-3xl",
+                        "absolute -right-16 -top-16 h-40 w-40 rounded-full opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100",
                         tone.glow,
                       )}
                     />
-                    <span
-                      className={cx(
-                        "relative inline-flex w-fit rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.16em] uppercase",
-                        tone.badge,
-                      )}
-                    >
-                      {card.badge}
-                    </span>
-                    <h3 className="relative mt-4 text-xl font-extrabold tracking-tight text-white">
-                      {card.title}
+                    <div className="relative flex items-center justify-between gap-3">
+                      <span className="font-mono text-[11px] tracking-[0.18em] text-white/25">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span
+                        className={cx(
+                          "rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase",
+                          tone.badge,
+                        )}
+                      >
+                        боль
+                      </span>
+                    </div>
+                    <p className="relative mt-5 text-xs leading-5 text-white/35">
+                      «{pain.pain}»
+                    </p>
+                    <h3 className="relative mt-3 text-lg font-extrabold tracking-tight text-white">
+                      {pain.title}
                     </h3>
                     <p className="relative mt-2 flex-1 text-sm leading-6 text-white/45">
-                      {card.text}
+                      {pain.text}
                     </p>
-                    <span className="relative mt-5 inline-flex items-center gap-1.5 text-sm font-semibold text-white/60 transition-colors group-hover:text-white">
+                    <Link
+                      href={pain.href}
+                      className={cx(
+                        "relative mt-5 inline-flex items-center gap-1.5 text-sm font-semibold transition-colors hover:text-white",
+                        tone.text,
+                      )}
+                    >
+                      {pain.linkLabel}
+                      <span
+                        aria-hidden
+                        className="transition-transform duration-200 group-hover:translate-x-0.5"
+                      >
+                        →
+                      </span>
+                    </Link>
+                  </article>
+                );
+              })}
+            </div>
+
+            <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <p className="max-w-2xl text-sm leading-6 text-white/45">
+                Не нашли свою боль? В каталоге — все инструменты с описанием,
+                лимитами и бесплатными возможностями.
+              </p>
+              <CtaLink
+                href="/tools"
+                variant="outline"
+                className="shrink-0 self-start sm:self-auto"
+              >
+                Каталог инструментов →
+              </CtaLink>
+            </div>
+          </div>
+        </section>
+
+        {/* 4. Все инструменты: платформа целиком, а не только генератор */}
+        <section
+          id="tools"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className={cx(SECTION_LABEL, "text-emerald-300")}>
+                  Все инструменты
+                </p>
+                <h2 className={SECTION_TITLE}>
+                  Один аккаунт — от идеи до готового заказа
+                </h2>
+              </div>
+              <p className="max-w-sm text-sm leading-6 text-white/45 lg:pb-2">
+                Создавайте модели, ведите производство и разбирайте дефекты.
+                Бесплатные инструменты доступны без подписки.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {TOOLS.map((tool) => {
+                const tone = TONE_STYLES[tool.tone];
+
+                return (
+                  <Link
+                    key={tool.title}
+                    href={tool.href}
+                    className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-[#080808] p-6 transition-colors hover:border-white/15 sm:p-7"
+                  >
+                    <div
+                      aria-hidden
+                      className={cx(
+                        "absolute -right-20 -top-20 h-48 w-48 rounded-full opacity-0 blur-3xl transition-opacity duration-500 group-hover:opacity-100",
+                        tone.glow,
+                      )}
+                    />
+                    <div className="relative flex items-start justify-between gap-3">
+                      <span
+                        className={cx(
+                          "rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase",
+                          tone.badge,
+                        )}
+                      >
+                        {tool.category}
+                      </span>
+                      <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-2 py-1 text-[10px] font-semibold text-white/45">
+                        {tool.badge}
+                      </span>
+                    </div>
+                    <h3 className="relative mt-6 text-xl font-extrabold tracking-tight text-white">
+                      {tool.title}
+                    </h3>
+                    <p className="relative mt-2 flex-1 text-sm leading-6 text-white/45">
+                      {tool.text}
+                    </p>
+                    <p className="relative mt-5 border-t border-white/[0.07] pt-4 text-xs leading-5 text-white/30">
+                      {tool.meta}
+                    </p>
+                    <span
+                      className={cx(
+                        "relative mt-4 inline-flex items-center gap-1.5 text-sm font-semibold",
+                        tone.text,
+                      )}
+                    >
                       Перейти
                       <span
                         aria-hidden
-                        className="transition-transform duration-300 group-hover:translate-x-0.5"
+                        className="transition-transform duration-200 group-hover:translate-x-0.5"
                       >
                         →
                       </span>
@@ -625,432 +1013,582 @@ export default function Home() {
                 );
               })}
             </div>
-          </div>
-        </section>
 
-        {/* Мастерская: главный Pro-инструмент, поэтому у неё своя секция. */}
-        <section
-          id="workshop"
-          className="relative scroll-mt-24 overflow-hidden border-y border-white/[0.06]"
-        >
-          <div aria-hidden className="pointer-events-none absolute inset-0">
-            <div className="absolute top-[-10rem] left-1/2 h-[30rem] w-[40rem] -translate-x-1/2 rounded-full bg-amber-500/10 blur-[130px]" />
-            <div className="absolute right-[-10rem] bottom-[-10rem] h-72 w-72 rounded-full bg-blue-600/10 blur-[110px]" />
-          </div>
-
-          <div className="relative mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl">
-                <p className={cx(SECTION_LABEL, "text-amber-300/80")}>
-                  Мастерская
+            <div className="mt-8 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-white/45">
+                  <span className="font-semibold text-white/70">
+                    В Конструкторе:
+                  </span>{" "}
+                  {MODEL_TYPES.map((type) => MODEL_TYPE_LABELS[type]).join(" · ")}
                 </p>
-                <h2 className={SECTION_TITLE}>
-                  Рутина печатника —{" "}
-                  <span className="text-white/35">в одном окне.</span>
-                </h2>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                  Заказы с Ozon, Wildberries и Яндекс Маркета, склад пластика,
-                  принтеры и документы. Не таблицы в блокноте — рабочий процесс,
-                  который напоминает о сроке и списывает материал.
-                </p>
-              </div>
-              <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-                <CtaLink href="/dashboard/workshop" size="lg">
-                  Открыть мастерскую
-                  <span aria-hidden>→</span>
-                </CtaLink>
-                <CtaLink href="/pricing" variant="ghost">
-                  Подписка Pro
+                <CtaLink
+                  href="/constructor"
+                  variant="outline"
+                  className="shrink-0 self-start sm:self-auto"
+                >
+                  Открыть конструктор
                 </CtaLink>
               </div>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-16 lg:grid-cols-3">
-              {WORKSHOP_FEATURES.map((feature, index) => {
-                const tone = TONE_STYLES[feature.tone];
-
-                return (
-                  <article
-                    key={feature.title}
-                    className="relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-7"
-                  >
-                    <div
-                      aria-hidden
-                      className={cx(
-                        "pointer-events-none absolute -top-20 -right-16 h-40 w-40 rounded-full opacity-60 blur-3xl",
-                        tone.glow,
-                      )}
-                    />
-                    <span className="relative font-mono text-xs font-semibold tracking-[0.2em] text-white/25 uppercase">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <h3 className="relative mt-4 text-lg font-extrabold tracking-tight text-white">
-                      {feature.title}
-                    </h3>
-                    <p className="relative mt-2 text-sm leading-6 text-white/45">
-                      {feature.text}
-                    </p>
-                  </article>
-                );
-              })}
+            <div className="mt-4 flex flex-col gap-5 rounded-2xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/[0.07] via-transparent to-transparent p-6 sm:flex-row sm:items-center sm:justify-between sm:p-7">
+              <div>
+                <p className="text-[11px] font-semibold tracking-[0.2em] text-emerald-300 uppercase">
+                  Ещё есть обучение
+                </p>
+                <p className="mt-2 text-lg font-extrabold tracking-tight text-white">
+                  {LEVELS.length} {pluralize(LEVELS.length, LEVEL_FORMS)}: от
+                  первого слоя до заработка
+                </p>
+                <p className="mt-1 max-w-xl text-sm leading-6 text-white/45">
+                  Первый уровень бесплатно, остальные — с доступом навсегда.
+                  Курсы не входят в Pro и покупаются отдельно.
+                </p>
+              </div>
+              <CtaLink
+                href="#courses"
+                variant="success"
+                className="shrink-0 self-start sm:self-auto"
+              >
+                Посмотреть курсы →
+              </CtaLink>
             </div>
-
-            <p className="mt-8 max-w-3xl text-sm leading-6 text-white/35">
-              Мастерская входит в подписку Pro вместе с конструктором, профилями
-              и лимитами генератора. Курсы покупаются отдельно.
-            </p>
           </div>
         </section>
 
-        {/* Что можно собрать: названия моделей вместо абстрактных обещаний. */}
-        <div className="border-y border-white/[0.06] bg-white/[0.01]">
-          <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-center gap-x-7 gap-y-2 px-5 py-4 text-[10px] font-semibold tracking-[0.2em] text-white/30 uppercase sm:px-8">
-            {MODEL_TYPES.map((type) => (
-              <span key={type}>{MODEL_TYPE_LABELS[type]}</span>
-            ))}
-          </div>
-        </div>
-
-        {/* Как это работает: три видимых шага с крупными номерами. */}
+        {/* 5. Как это работает: три шага, одинаковые для фото и параметров */}
         <section
           id="how"
-          className="relative scroll-mt-24 border-b border-white/[0.06]"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
         >
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
             <div className="max-w-3xl">
-              <p className={cx(SECTION_LABEL, "text-blue-300/80")}>
+              <p className={cx(SECTION_LABEL, "text-violet-300")}>
                 Как это работает
               </p>
               <h2 className={SECTION_TITLE}>
-                Три шага от фото до печати.{" "}
-                <span className="text-white/35">Без моделирования вручную.</span>
+                Три шага до файла, который можно печатать
               </h2>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                Оба инструмента дают один результат — STL. Разница только в
-                том, откуда берётся форма: из фотографии или из параметров.
+              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45">
+                Не нужно устанавливать CAD, разбираться в топологии и покупать
+                курсы по моделированию. Маршрут одинаковый для фото и
+                Конструктора.
               </p>
             </div>
 
-            <ol className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-3 lg:mt-16">
-              {STEPS.map((step) => {
-                const tone = TONE_STYLES[step.tone];
-
-                return (
-                  <li
-                    key={step.number}
-                    className="group relative overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_24px_70px_-36px_rgba(0,0,0,0.95)] transition-colors duration-300 hover:border-white/20 sm:p-8"
-                  >
-                    <div
-                      aria-hidden
+            <ol className="mt-12 grid gap-4 lg:grid-cols-3">
+              {STEPS.map((step, index) => (
+                <li
+                  key={step.title}
+                  className="relative flex flex-col rounded-2xl border border-white/[0.07] bg-[#080808] p-6 sm:p-7"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <span
                       className={cx(
-                        "pointer-events-none absolute -top-20 -right-16 h-44 w-44 rounded-full opacity-70 blur-3xl",
-                        tone.glow,
+                        "flex h-11 w-11 items-center justify-center rounded-xl border",
+                        index === 0
+                          ? TONE_STYLES.blue.icon
+                          : index === 1
+                            ? TONE_STYLES.violet.icon
+                            : TONE_STYLES.emerald.icon,
                       )}
-                    />
-                    <div className="relative flex items-start justify-between gap-4">
-                      <span className="font-mono text-5xl leading-none font-extrabold tracking-tight text-white/10 sm:text-6xl">
-                        {step.number}
-                      </span>
-                      <span
-                        className={cx(
-                          "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:h-12 sm:w-12",
-                          tone.icon,
-                        )}
-                      >
-                        <FeatureIcon name={step.icon} />
-                      </span>
-                    </div>
-                    <h3 className="relative mt-6 text-xl font-extrabold tracking-tight text-white">
-                      {step.title}
-                    </h3>
-                    <p className="relative mt-3 text-sm leading-6 text-white/45">
-                      {step.text}
-                    </p>
-                  </li>
-                );
-              })}
+                    >
+                      <FeatureIcon name={step.icon} />
+                    </span>
+                    <span
+                      aria-hidden
+                      className="font-mono text-3xl font-black text-white/[0.07]"
+                    >
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                  </div>
+                  <h3 className="mt-6 text-lg font-extrabold tracking-tight text-white">
+                    {step.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-white/45">
+                    {step.text}
+                  </p>
+                </li>
+              ))}
             </ol>
+
+            <div className="mt-8 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 sm:p-7">
+                <p className="text-base font-extrabold text-white">
+                  Оба пути дают один результат — STL
+                </p>
+                <p className="mt-2 text-sm leading-6 text-white/45">
+                  Генератор берёт форму с фотографий и чистит сетку. Конструктор
+                  строит её по параметрам: высота, диаметр, узор, подпись.
+                  Дальше — ваш слайсер и привычный профиль печати.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6 sm:p-7">
+                <p className="text-sm font-semibold text-white">
+                  Не хотите начинать с фото?
+                </p>
+                <CtaLink href="/constructor" variant="outline" fullWidth>
+                  Собрать по параметрам
+                </CtaLink>
+                <CtaLink href="/3d-generator" variant="ghost" fullWidth>
+                  Загрузить фото →
+                </CtaLink>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* Демонстрация: реальные модели Конструктора и ссылка в галерею. */}
+        {/* 6. Мастерская: главный Pro-инструмент, разобранный по разделам */}
         <section
-          id="demo"
-          className="relative scroll-mt-24 border-b border-white/[0.06] bg-white/[0.012]"
+          id="workshop"
+          className="relative scroll-mt-36 overflow-hidden border-b border-white/[0.06]"
         >
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl">
-                <p className={cx(SECTION_LABEL, "text-violet-300/80")}>
-                  Демонстрация
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+          >
+            <div className="absolute -right-40 top-0 h-[28rem] w-[28rem] rounded-full bg-amber-500/[0.07] blur-[140px]" />
+            <div className="absolute -left-40 bottom-0 h-[24rem] w-[24rem] rounded-full bg-emerald-500/[0.05] blur-[140px]" />
+          </div>
+
+          <div className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="grid gap-12 lg:grid-cols-[0.95fr_1.05fr] lg:items-start lg:gap-16">
+              <div>
+                <p className={cx(SECTION_LABEL, "text-amber-300")}>
+                  Главный Pro-инструмент
                 </p>
                 <h2 className={SECTION_TITLE}>
-                  Модели, которые уже печатают.
+                  Мастерская: заказы, склад и принтеры в одном окне
                 </h2>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                  {MODEL_TYPES.length}{" "}
-                  {pluralize(MODEL_TYPES.length, MODEL_FORMS)} Конструктора с
-                  параметрами и генератор по фото. Каждая карточка — реальная
-                  модель TriDi, которую можно открыть и скачать как STL.
+                <p className="mt-5 max-w-xl text-base leading-7 text-white/45">
+                  Заказы с маркетплейсов и ручные, остатки пластика, загрузка
+                  станков, себестоимость и документы — в одной рабочей области.
+                  Не нужно сводить таблицы вручную и вспоминать, какая катушка
+                  стоит на каком принтере.
+                </p>
+
+                <ul className="mt-7 space-y-3">
+                  {[
+                    "Одна доска статусов вместо чатов и блокнотов",
+                    "Списание пластика при завершении печати",
+                    "Себестоимость и прибыль до запуска, а не после",
+                  ].map((item) => (
+                    <li
+                      key={item}
+                      className="flex items-start gap-3 text-sm leading-6 text-white/55"
+                    >
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-emerald-400/20 bg-emerald-500/10 text-emerald-300">
+                        <Check className="h-3 w-3" />
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <CtaLink
+                    href="/tools/workshop"
+                    className="w-full sm:w-auto"
+                  >
+                    Что внутри мастерской →
+                  </CtaLink>
+                  <a
+                    href="/api/demo/workshop"
+                    className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 transition-colors hover:border-emerald-300/40 hover:bg-emerald-400/15 sm:w-auto"
+                  >
+                    Смотреть демо
+                  </a>
+                </div>
+                <p className="mt-3 text-xs text-white/30">
+                  Демо открывается без оплаты и работает только на чтение.
                 </p>
               </div>
-              <CtaLink href="/gallery" variant="outline">
-                Смотреть всю галерею
-                <span aria-hidden>→</span>
-              </CtaLink>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {WORKSHOP_FEATURES.map((feature, index) => (
+                  <div
+                    key={feature.title}
+                    className="rounded-2xl border border-white/[0.07] bg-[#080808]/90 p-5 backdrop-blur"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-mono text-[11px] tracking-[0.18em] text-white/25">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-300/70" />
+                    </div>
+                    <h3 className="mt-4 text-sm font-extrabold tracking-tight text-white">
+                      {feature.title}
+                    </h3>
+                    <p className="mt-2 text-xs leading-5 text-white/40">
+                      {feature.text}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div className="mt-12 grid grid-cols-2 gap-3 lg:grid-cols-3 lg:mt-16">
+            <div className="mt-10 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:p-6">
+              <p className="text-sm leading-6 text-white/45">
+                <span className="font-semibold text-white/70">
+                  Честно о границах:
+                </span>{" "}
+                Мастерская не заменяет слайсер и бухгалтерию. Модель режется в
+                вашей программе, а налоги и чеки остаются в сторонних сервисах.
+                TriDi закрывает заказы, материалы, станки и документы вокруг
+                печати.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 7. Галерея: реальные модели Конструктора вместо абстрактных обещаний */}
+        <section
+          id="gallery"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className={cx(SECTION_LABEL, "text-blue-300")}>Результат</p>
+                <h2 className={SECTION_TITLE}>
+                  Модели, которые можно напечатать сегодня
+                </h2>
+              </div>
+              <p className="max-w-sm text-sm leading-6 text-white/45 lg:pb-2">
+                Это превью из Конструктора: форму, рельеф и пропорции можно
+                поменять слайдерами и сразу скачать STL.
+              </p>
+            </div>
+
+            <div className="mt-12 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
               {DEMO_MODELS.map((model) => (
-                <figure
+                <Link
                   key={model.id}
-                  className="group relative overflow-hidden rounded-2xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/20"
+                  href="/constructor"
+                  className="group relative overflow-hidden rounded-2xl border border-white/[0.07] bg-[#080808] transition-colors hover:border-white/15"
                 >
-                  <div className="relative aspect-[4/5] overflow-hidden bg-[#0d0d0e]">
+                  <div className="aspect-square overflow-hidden bg-[#0d0d0d]">
                     <Image
-                      alt={`Модель «${model.name}» из Конструктора TriDi`}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
-                      height={400}
                       src={vaseRecipeImagePath(model.id)}
-                      unoptimized
-                      width={320}
+                      alt={`3D-модель вазы ${model.name}`}
+                      width={600}
+                      height={600}
+                      sizes="(max-width: 640px) 50vw, 25vw"
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
-                    <span className="absolute top-3 left-3 rounded-full border border-white/10 bg-black/60 px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] text-white/70 uppercase backdrop-blur">
-                      Конструктор
-                    </span>
                   </div>
-                  <figcaption className="border-t border-white/[0.06] p-4">
+                  <div className="p-4">
                     <p className="text-sm font-semibold text-white">
                       {model.name}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/40">
+                    <p className="mt-1 line-clamp-2 text-xs leading-5 text-white/35">
                       {model.description}
                     </p>
-                  </figcaption>
-                </figure>
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <p className="max-w-2xl text-sm leading-6 text-white/45">
+                Понравилась форма? Откройте её в Конструкторе, поменяйте высоту
+                и узор, затем скачайте STL — без регистрации в CAD-программе.
+              </p>
+              <CtaLink
+                href="/gallery"
+                variant="outline"
+                className="shrink-0 self-start sm:self-auto"
+              >
+                Смотреть галерею →
+              </CtaLink>
+            </div>
+          </div>
+        </section>
+
+        {/* 8. Для кого: помогает узнать себя до чтения тарифов */}
+        <section className="relative border-b border-white/[0.06]">
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="max-w-3xl">
+              <p className={cx(SECTION_LABEL, "text-emerald-300")}>
+                Для кого
+              </p>
+              <h2 className={SECTION_TITLE}>
+                Один аккаунт для дома и мастерской
+              </h2>
+              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45">
+                Начните с одной модели для себя или сразу ведите поток заказов.
+                Инструменты включаются по мере роста, а не требуют покупать всё
+                сразу.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {AUDIENCE.map((item) => (
+                <article
+                  key={item.title}
+                  className="flex flex-col rounded-2xl border border-white/[0.07] bg-[#080808] p-6"
+                >
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-emerald-300">
+                    <FeatureIcon name={item.icon} />
+                  </span>
+                  <h3 className="mt-5 text-base font-extrabold tracking-tight text-white">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-white/45">
+                    {item.text}
+                  </p>
+                </article>
               ))}
             </div>
           </div>
         </section>
 
-
-        {/* Подписка Pro: одна карточка, полная витрина инструментов — на /pricing. */}
-        <section id="pricing" className="relative scroll-mt-24">
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="max-w-3xl">
-              <p className={cx(SECTION_LABEL, "text-emerald-300/80")}>
-                Подписка Pro
-              </p>
-              <h2 className={SECTION_TITLE}>
-                Инструменты —{" "}
-                <span className="text-white/35">по одной подписке.</span>
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                Мастерская, конструктор, профили и лимиты генератора входят в
-                один платёж. Курсы покупаются отдельно, токены — в генераторе.
-              </p>
-            </div>
-
-            <article className="relative mt-12 overflow-hidden rounded-3xl border border-amber-300/25 border-t-amber-200/40 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_30px_90px_-60px_rgba(0,0,0,1)] sm:p-9">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute -top-24 -right-16 h-52 w-52 rounded-full bg-amber-500/15 blur-3xl"
-              />
-              <div className="relative grid gap-8 lg:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] lg:gap-12">
-                <div className="flex flex-col">
-                  <span className={cx("w-fit rounded-full border px-3 py-1.5 text-[10px] font-semibold tracking-[0.16em] uppercase", TONE_STYLES.amber.badge)}>
-                    Подписка Pro
-                  </span>
-
-                  <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
-                    {SUBSCRIPTION_PLAN.title}
-                  </h3>
-                  <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                    <span className="text-4xl font-extrabold tracking-tight text-white sm:text-5xl">
-                      {formatPrice(subscriptionPrice)} ₽
-                    </span>
-                    <span className="text-sm text-white/40">за 30 дней</span>
-                  </p>
-
-                  <p className="mt-4 text-sm leading-6 text-white/45">
-                    Один платёж на 30 дней, продление ручное: каждый следующий
-                    добавляет ещё 30. Курсы сюда не входят.
-                  </p>
-
-                  <div className="mt-6">
-                    <CtaLink href="/pricing" fullWidth size="lg">
-                      Выбрать тариф
-                      <span aria-hidden>→</span>
-                    </CtaLink>
-                  </div>
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-[11px] font-semibold tracking-[0.24em] text-white/35 uppercase">
-                    Что входит
-                  </p>
-                  <ul className="mt-4 grid gap-2.5 text-sm leading-6 text-white/55 sm:grid-cols-2">
-                    {PRO_FEATURES.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2.5">
-                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-4 text-xs leading-5 text-white/30">
-                    Токены докупаются в генераторе по фото, курсы — на странице
-                    обучения.
-                  </p>
-                </div>
-              </div>
-            </article>
-
-            <p className="mt-6 text-sm leading-6 text-white/35">
-              Первая генерация Standard — бесплатно после регистрации. Полный
-              список лимитов и условий — на странице{" "}
-              <Link
-                className="font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition-colors hover:text-white"
-                href="/pricing"
-              >
-                подписки Pro
-              </Link>
-              , цены уровней обучения — на странице{" "}
-              <Link
-                className="font-semibold text-white/70 underline decoration-white/20 underline-offset-4 transition-colors hover:text-white"
-                href="/subscription"
-              >
-                курсов
-              </Link>
-              .
-            </p>
-          </div>
-        </section>
-
-
-        {/* Для кого: самоидентификация до финального CTA. */}
+        {/* 9. Тарифы: бесплатный старт, Pro и токены без скрытых условий */}
         <section
-          id="audience"
-          className="relative scroll-mt-24 border-y border-white/[0.06] bg-white/[0.012]"
+          id="pricing"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
         >
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="max-w-3xl">
-              <p className={cx(SECTION_LABEL, "text-blue-300/80")}>
-                Для кого
-              </p>
-              <h2 className={SECTION_TITLE}>
-                Печатникам, бизнесу{" "}
-                <span className="text-white/35">и хобби.</span>
-              </h2>
-              <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                Модель нужна трём разным людям с одной проблемой: без CAD её не
-                сделать за вечер.
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className={cx(SECTION_LABEL, "text-amber-300")}>Тарифы</p>
+                <h2 className={SECTION_TITLE}>
+                  Начните бесплатно, платите за регулярную работу
+                </h2>
+              </div>
+              <p className="max-w-sm text-sm leading-6 text-white/45 lg:pb-2">
+                Бесплатный старт без карты, Pro — один платёж на 30 дней, токены
+                — разово и не сгорают. Курсы покупаются отдельно.
               </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-3 md:grid-cols-3 lg:mt-16">
-              {AUDIENCE.map((item) => {
-                const tone = TONE_STYLES[item.tone];
+            <div className="mt-12 grid items-start gap-4 lg:grid-cols-3">
+              {PRICING_PLANS.map((plan) => {
+                const tone = TONE_STYLES[plan.tone];
 
                 return (
                   <article
-                    key={item.title}
-                    className="group relative overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-7 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/20 sm:p-8"
+                    key={plan.title}
+                    className={cx(
+                      "relative flex h-full flex-col rounded-3xl border p-6 sm:p-7",
+                      plan.featured
+                        ? "border-amber-400/30 bg-gradient-to-b from-amber-500/[0.08] to-[#080808] shadow-[0_30px_80px_-40px_rgba(245,158,11,0.35)]"
+                        : "border-white/[0.07] bg-[#080808]",
+                    )}
                   >
-                    <div
-                      aria-hidden
-                      className={cx(
-                        "pointer-events-none absolute -top-20 -right-16 h-44 w-44 rounded-full opacity-70 blur-3xl",
-                        tone.glow,
-                      )}
-                    />
-                    <span
-                      className={cx(
-                        "relative flex h-11 w-11 items-center justify-center rounded-xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] sm:h-12 sm:w-12",
-                        tone.icon,
-                      )}
-                    >
-                      <FeatureIcon name={item.icon} />
-                    </span>
-                    <h3 className="relative mt-6 text-xl font-extrabold tracking-tight text-white">
-                      {item.title}
-                    </h3>
-                    <p className="relative mt-3 text-sm leading-6 text-white/45">
-                      {item.text}
+                    {plan.featured && (
+                      <span className="absolute -top-3 left-6 rounded-full border border-amber-400/30 bg-[#1a1405] px-3 py-1 text-[10px] font-semibold tracking-[0.14em] text-amber-200 uppercase">
+                        Выбор мастерских
+                      </span>
+                    )}
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-lg font-extrabold tracking-tight text-white">
+                        {plan.title}
+                      </h3>
+                      <span className="text-xs text-white/35">{plan.note}</span>
+                    </div>
+                    <p className="mt-5 text-4xl font-extrabold tracking-tight text-white">
+                      {plan.price}
                     </p>
+                    <p className="mt-2 text-sm leading-6 text-white/45">
+                      {plan.description}
+                    </p>
+                    <ul className="mt-6 flex-1 space-y-3">
+                      {plan.features.map((feature) => (
+                        <li
+                          key={feature}
+                          className="flex items-start gap-3 text-sm leading-6 text-white/55"
+                        >
+                          <Check className={cx("mt-1", tone.text)} />
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+                    <CtaLink
+                      href={plan.href}
+                      variant={plan.featured ? "light" : "outline"}
+                      fullWidth
+                      className="mt-7"
+                    >
+                      {plan.cta}
+                    </CtaLink>
                   </article>
                 );
               })}
             </div>
+
+            <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <p className="max-w-2xl text-sm leading-6 text-white/45">
+                Полные лимиты, условия оплаты и чеки — на странице тарифов.
+                Курсы покупаются отдельно и не входят в подписку Pro.
+              </p>
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-semibold">
+                <Link
+                  href="/pricing"
+                  className="text-white transition-colors hover:text-amber-300"
+                >
+                  Все тарифы и лимиты →
+                </Link>
+                <Link
+                  href="/subscription"
+                  className="text-white/45 transition-colors hover:text-white"
+                >
+                  Курсы →
+                </Link>
+              </div>
+            </div>
           </div>
         </section>
 
-        {/* Обучение: курсы идут отдельным блоком — они не входят в подписку. */}
-        <section className="relative" id="courses">
-          <div className="mx-auto max-w-7xl px-5 py-24 sm:px-8 sm:py-28 lg:py-32">
-            <div className="flex flex-col gap-8 lg:flex-row lg:items-end lg:justify-between">
+        {/* 10. FAQ: возражения до оплаты, с разметкой FAQPage */}
+        <section
+          id="faq"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
-                <p className={cx(SECTION_LABEL, "text-violet-300/80")}>
-                  Обучение
-                </p>
+                <p className={cx(SECTION_LABEL, "text-blue-300")}>Вопросы</p>
                 <h2 className={SECTION_TITLE}>
-                  От распаковки принтера{" "}
-                  <span className="text-white/35">до первых заказов.</span>
+                  Вопросы, которые обычно задают до оплаты
                 </h2>
-                <p className="mt-5 max-w-2xl text-base leading-7 text-white/45 sm:text-lg">
-                  {LEVELS.length} {pluralize(LEVELS.length, LEVEL_FORMS)},{" "}
-                  {TOTAL_LESSONS} {pluralize(TOTAL_LESSONS, LESSON_FORMS)}, тесты и
-                  сертификат. Первый уровень бесплатный, платные покупаются
-                  навсегда и не входят в подписку Pro.
-                </p>
               </div>
-              <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-                <CtaLink href="/start" variant="outline">
-                  Начать бесплатно
-                  <span aria-hidden>→</span>
-                </CtaLink>
-                <CtaLink href="/subscription" variant="ghost">
-                  Курсы и цены
-                </CtaLink>
-              </div>
+              <p className="max-w-sm text-sm leading-6 text-white/45 lg:pb-2">
+                Коротко о моделировании, лимитах, лицензии и оплате. Если
+                вопроса нет в списке — спросите на форуме.
+              </p>
             </div>
 
-            <div className="mt-12 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:mt-16 lg:grid-cols-4">
+            <div className="mt-12 grid items-start gap-3 lg:grid-cols-2">
+              {FAQ.map((item) => (
+                <details
+                  key={item.question}
+                  className="group rounded-2xl border border-white/[0.07] bg-[#080808] px-5 py-4 transition-colors open:border-white/20 sm:px-6 sm:py-5"
+                >
+                  <summary className="flex cursor-pointer list-none items-start justify-between gap-4 text-sm leading-6 font-semibold text-white sm:text-base [&::-webkit-details-marker]:hidden">
+                    {item.question}
+                    <span
+                      aria-hidden
+                      className="shrink-0 text-sm text-white/35 transition-transform duration-200 group-open:rotate-180"
+                    >
+                      ⌄
+                    </span>
+                  </summary>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-white/45">
+                    {item.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+
+            <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <p className="max-w-2xl text-sm leading-6 text-white/45">
+                Не нашли ответ? На форуме разбирают конкретные модели, настройки
+                и дефекты печати.
+              </p>
+              <CtaLink
+                href="/forum"
+                variant="outline"
+                className="shrink-0 self-start sm:self-auto"
+              >
+                Открыть форум →
+              </CtaLink>
+            </div>
+          </div>
+        </section>
+
+        {/* 11. Курсы: три платных уровня и бесплатный, без кнопок покупки */}
+        <section
+          id="courses"
+          className="relative scroll-mt-36 border-b border-white/[0.06]"
+        >
+          <div className="mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+              <div className="max-w-3xl">
+                <p className={cx(SECTION_LABEL, "text-violet-300")}>Обучение</p>
+                <h2 className={SECTION_TITLE}>
+                  Курсы, чтобы печатать увереннее и зарабатывать на этом
+                </h2>
+              </div>
+              <p className="max-w-sm text-sm leading-6 text-white/45 lg:pb-2">
+                {LEVELS.length} {pluralize(LEVELS.length, LEVEL_FORMS)} и{" "}
+                {TOTAL_LESSONS} уроков. Первый уровень бесплатный, платные
+                открываются навсегда.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {LEVELS.map((level) => (
                 <Link
                   key={level.key}
-                  className="group relative flex h-full flex-col overflow-hidden rounded-3xl border border-white/[0.07] border-t-white/20 bg-[#0a0a0a] p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-colors duration-300 hover:border-white/25"
                   href={level.href}
+                  className={cx(
+                    "group flex h-full flex-col rounded-2xl border p-6 transition-colors",
+                    level.isFree
+                      ? "border-emerald-400/20 bg-emerald-500/[0.04] hover:border-emerald-300/40"
+                      : "border-white/[0.07] bg-[#080808] hover:border-white/20",
+                  )}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="font-mono text-xs font-semibold tracking-[0.2em] text-white/25 uppercase">
+                    <span className="font-mono text-[11px] tracking-[0.18em] text-white/25">
                       {level.code}
                     </span>
                     <span
                       className={cx(
-                        "rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.12em] uppercase",
+                        "rounded-full border px-2.5 py-1 text-[10px] font-semibold",
                         level.isFree
-                          ? TONE_STYLES.emerald.badge
-                          : TONE_STYLES.violet.badge,
+                          ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+                          : "border-white/10 bg-white/[0.03] text-white/45",
                       )}
                     >
-                      {level.isFree ? "Бесплатно" : `${formatPrice(level.price)} ₽`}
+                      {level.isFree
+                        ? "Бесплатно"
+                        : `${formatPrice(level.price)} ₽`}
                     </span>
                   </div>
-                  <h3 className="mt-4 text-lg font-extrabold tracking-tight text-white">
+
+                  <h3 className="mt-5 text-lg font-extrabold tracking-tight text-white">
                     {level.shortTitle}
                   </h3>
-                  <p className="mt-2 flex-1 text-sm leading-6 text-white/45">
+                  <p className="mt-1 text-xs leading-5 text-white/35">
                     {level.audience}
                   </p>
-                  <p className="mt-4 text-xs leading-5 text-white/30">
-                    {level.lessons} {pluralize(level.lessons, LESSON_FORMS)} ·{" "}
-                    {level.hours}
+                  <p className="mt-4 flex-1 text-sm leading-6 text-white/45">
+                    {level.goal}
                   </p>
-                  <span className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-white/60 transition-colors group-hover:text-white">
-                    Перейти
+
+                  <div className="mt-5 grid grid-cols-3 gap-2 border-t border-white/[0.07] pt-4 text-center">
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {level.lessons}
+                      </p>
+                      <p className="text-[10px] text-white/30">уроков</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {level.visuals}
+                      </p>
+                      <p className="text-[10px] text-white/30">схем</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white">
+                        {level.tests}
+                      </p>
+                      <p className="text-[10px] text-white/30">тестов</p>
+                    </div>
+                  </div>
+
+                  <span
+                    className={cx(
+                      "mt-5 inline-flex items-center gap-1.5 text-sm font-semibold",
+                      level.isFree ? "text-emerald-300" : "text-white/70",
+                    )}
+                  >
+                    {level.isFree ? "Начать бесплатно" : "Смотреть программу"}
                     <span
                       aria-hidden
-                      className="transition-transform duration-300 group-hover:translate-x-0.5"
+                      className="transition-transform duration-200 group-hover:translate-x-0.5"
                     >
                       →
                     </span>
@@ -1058,59 +1596,78 @@ export default function Home() {
                 </Link>
               ))}
             </div>
+
+            <div className="mt-8 flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <p className="max-w-2xl text-sm leading-6 text-white/45">
+                Программа, демо-уроки и условия покупки — на странице курсов.
+                Доступ к оплаченному уровню остаётся навсегда.
+              </p>
+              <Link
+                href="/subscription"
+                className="shrink-0 self-start text-sm font-semibold text-white transition-colors hover:text-violet-300 sm:self-auto"
+              >
+                Все курсы и программа →
+              </Link>
+            </div>
           </div>
         </section>
 
-
-        {/* Финальный CTA: тёмная панель со свечением и крупным заголовком. */}
+        {/* 12. Финальный CTA: последний шаг до первой модели */}
         <section className="relative overflow-hidden">
-          <div className="mx-auto max-w-7xl px-5 pt-8 pb-20 sm:px-8 sm:pt-10 sm:pb-24 lg:pb-28">
-            <div className="relative overflow-hidden rounded-[2rem] border border-white/[0.08] bg-[#080808] px-6 py-16 text-center shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_40px_120px_-60px_rgba(0,0,0,1)] sm:px-12 sm:py-20 lg:py-24">
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.04)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.04)_1px,transparent_1px)] bg-[size:56px_56px] opacity-50 [mask-image:radial-gradient(ellipse_70%_85%_at_50%_50%,#000_10%,transparent_82%)]"
-              />
-              <div
-                aria-hidden
-                className="pointer-events-none absolute top-[-12rem] left-1/2 h-80 w-[36rem] -translate-x-1/2 rounded-full bg-blue-500/20 blur-[120px]"
-              />
-              <div
-                aria-hidden
-                className="pointer-events-none absolute right-[-8rem] bottom-[-10rem] h-72 w-72 rounded-full bg-violet-500/15 blur-[110px]"
-              />
+          <div aria-hidden className="pointer-events-none absolute inset-0">
+            <div className="absolute left-1/2 top-0 h-[26rem] w-[36rem] -translate-x-1/2 rounded-full bg-blue-600/10 blur-[150px]" />
+            <div className="absolute bottom-0 right-0 h-[20rem] w-[24rem] rounded-full bg-violet-600/10 blur-[130px]" />
+          </div>
 
+          <div className="relative mx-auto max-w-7xl px-5 py-20 sm:px-8 sm:py-24 lg:py-28">
+            <div className="relative overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.01] px-6 py-14 text-center sm:px-12 sm:py-20">
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)]"
+              />
               <div className="relative">
-                <p className={cx(SECTION_LABEL, "text-blue-300/80")}>
-                  Старт
+                <p className={cx(SECTION_LABEL, "text-blue-300")}>
+                  Начать можно за пять минут
                 </p>
-                <h2 className="mx-auto mt-4 max-w-3xl text-balance text-4xl font-extrabold leading-[0.98] tracking-[-0.045em] sm:text-5xl md:text-6xl">
-                  <span className="bg-gradient-to-b from-white to-white/55 bg-clip-text text-transparent">
-                    Начните с модели или с заказа.
-                  </span>
+                <h2 className="mx-auto mt-5 max-w-3xl text-balance text-3xl font-extrabold leading-[1.05] tracking-[-0.04em] text-white sm:text-4xl lg:text-5xl">
+                  Соберите первую модель сегодня — оплата не нужна
                 </h2>
-                <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-white/45 sm:text-lg">
-                  Подключите Pro и откройте мастерскую — или сделайте первую
-                  модель по фото: генерация Standard бесплатна.
+                <p className="mx-auto mt-5 max-w-2xl text-pretty text-sm leading-7 text-white/50 sm:text-base sm:leading-8">
+                  Загрузите фото или откройте Конструктор. Первая генерация по
+                  фото бесплатна,{" "}
+                  {FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL в Конструкторе
+                  доступны каждый месяц без карты.
                 </p>
-
-                <div className="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-                  <CtaLink href="/pricing" size="lg" className="group">
-                    Подключить Pro
-                    <span
-                      aria-hidden
-                      className="transition-transform duration-300 group-hover:translate-x-0.5"
-                    >
-                      →
-                    </span>
+                <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                  <CtaLink
+                    href="/3d-generator"
+                    size="lg"
+                    className="w-full sm:w-auto"
+                  >
+                    Сделать модель по фото
+                    <span aria-hidden>→</span>
                   </CtaLink>
-                  <CtaLink href="/3d-generator" variant="outline" size="lg">
-                    Сделать 3D-модель
+                  <CtaLink
+                    href="/constructor"
+                    variant="outline"
+                    size="lg"
+                    className="w-full sm:w-auto"
+                  >
+                    Открыть конструктор
                   </CtaLink>
                 </div>
-
-                <p className="mt-6 text-[11px] leading-5 text-white/30">
-                  Мастерская · Конструктор · Профили · Генератор · Курсы отдельно
-                </p>
+                <ul className="mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-white/35">
+                  {[
+                    "Без карты на старте",
+                    "STL сразу после сборки",
+                    `До ${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL в месяц`,
+                  ].map((item) => (
+                    <li key={item} className="flex items-center gap-2">
+                      <span className="h-1 w-1 rounded-full bg-white/25" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
               </div>
             </div>
           </div>
@@ -1119,4 +1676,3 @@ export default function Home() {
     </div>
   );
 }
-
