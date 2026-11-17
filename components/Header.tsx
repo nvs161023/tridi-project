@@ -81,8 +81,9 @@ export async function Header() {
   const hasPro = userId ? await hasActiveSubscription(supabase, userId) : false;
 
   // Мастерская живёт в кабинете и открывается подпиской Pro. Гостя ведём на
-  // вход, ученика без подписки — на витрину Pro (/pricing): на /subscription
-  // продаются курсы, и отправлять туда за мастерской значит путать два оффера.
+  // публичную витрину: он видит, из чего состоит CRM, и уже оттуда решает
+  // войти или купить. Ученика без подписки — на витрину Pro (/pricing), потому
+  // что на /subscription продаются курсы.
   const workshop = hasPro
     ? {
         href: "/dashboard/workshop",
@@ -91,8 +92,8 @@ export async function Header() {
     : isAuthorized
       ? { href: "/pricing", note: "Требуется подписка Pro" }
       : {
-          href: "/auth/login?next=/dashboard/workshop",
-          note: "Вход в аккаунт, затем пакет Pro",
+          href: "/tools/workshop",
+          note: "Что внутри и как оформить Pro",
         };
 
   return (
