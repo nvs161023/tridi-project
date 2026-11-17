@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { PlanButton } from "@/app/subscription/PlanButton";
 import { Header } from "@/components/Header";
 import { MODEL_TYPES } from "@/lib/constructor/model-types";
+import { pluralize } from "@/lib/course-stats";
 import { defects } from "@/lib/defects";
 import { SUBSCRIPTION_PLAN, TOKEN_PACKS } from "@/lib/generation-plans";
 import { getPaymentAmount } from "@/lib/payments";
@@ -36,6 +37,10 @@ import { OG_IMAGE } from "@/lib/seo";
 
 /** Цена в рублях с разделителями разрядов: 500 → «500», 1 500 → «1 500». */
 const formatPrice = (price: number) => price.toLocaleString("ru-RU");
+
+/** Формы склонения: 193 профиля, 6 дефектов — без них «профилей» выглядит ошибкой. */
+const PROFILE_FORMS: [string, string, string] = ["профиль", "профиля", "профилей"];
+const DEFECT_FORMS: [string, string, string] = ["дефект", "дефекта", "дефектов"];
 
 /** Цена подписки из каталога: одна и та же в метаданных, карточке и оплате. */
 const SUBSCRIPTION_PRICE = getPaymentAmount(SUBSCRIPTION_PLAN.courseId);
@@ -107,7 +112,7 @@ const TOOL_CARDS = [
     href: "/profiles",
     tag: "Pro · Профили",
     title: "Профили печати",
-    description: `${profileCount} настроек принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer.`,
+    description: `${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer.`,
     cta: "Открыть библиотеку",
   },
   {
@@ -184,10 +189,10 @@ export default function PricingPage() {
               {MODEL_TYPES.length} моделей Конструктора
             </span>
             <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-              {profileCount} профилей печати
+              {profileCount} {pluralize(profileCount, PROFILE_FORMS)} печати
             </span>
             <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-              {defects.length} дефектов бесплатно
+              {defects.length} {pluralize(defects.length, DEFECT_FORMS)} бесплатно
             </span>
           </div>
         </section>
@@ -268,7 +273,7 @@ export default function PricingPage() {
                   <strong className="font-semibold text-white">
                     Профили печати:
                   </strong>{" "}
-                  {profileCount} готовых настроек для слайсеров
+                  {profileCount} {pluralize(profileCount, PROFILE_FORMS)} для слайсеров
                 </PlanFeature>
                 <PlanFeature accent="text-amber-300">
                   <strong className="font-semibold text-white">
