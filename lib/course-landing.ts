@@ -75,10 +75,10 @@ export type CourseLanding = {
   /**
    * Ключ товара для PlanButton и Robokassa.
    *
-   * null — архивный пакет `pro`: страница остаётся для купивших и поиска, но
-   * новую оплату не предлагает.
+   * null оставлен на случай будущего товара без онлайн-оплаты; у всех текущих
+   * страниц оплата включена, включая пакет `pro`.
    */
-  paymentId: PaidLevelKey | null;
+  paymentId: PaidLevelKey | "pro" | null;
   kicker: string;
   title: string;
   subtitle: string;
@@ -360,8 +360,8 @@ function buildProLanding(): CourseLanding {
 
   return {
     id: "pro",
-    // Продажи пакета остановлены: ссылку на оплату не рисуем.
-    paymentId: null,
+    // Пакет продаётся как разовая покупка всех трёх платных курсов.
+    paymentId: "pro",
     kicker: copy.kicker,
     title: coursesData.pro.bundleTitle,
     subtitle: coursesData.pro.bundleSubtitle,

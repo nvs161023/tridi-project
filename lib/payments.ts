@@ -5,9 +5,10 @@
  * пароли магазина. Вызывать его можно только из Server Action или Route Handler.
  *
  * Почему сумма не приходит из браузера: `initializePayment` сверяет её с
- * каталогом — `data/courses.json` для курсов и подписки, `data/generation-plans.json`
- * для пакетов токенов. Даже если подменить запрос к Server Action, заплатить
- * меньше цены тарифа или записать в `OutSum` другую сумму не получится.
+ * каталогом — `data/courses.json` для курсов, пакета и подписки,
+ * `data/generation-plans.json` для пакетов токенов. Даже если подменить запрос
+ * к Server Action, заплатить меньше цены тарифа или записать в `OutSum`
+ * другую сумму не получится.
  *
  * Магазин в Robokassa активирован, поэтому ссылка всегда уходит с чеком для ФНС
  * (`Receipt`, 54-ФЗ). Признак `Recurring` для подписки Pro добавляется только
@@ -39,12 +40,8 @@ export const SUBSCRIPTION_PERIOD_DAYS = 30;
 
 /**
  * Товары, которые можно купить сейчас. Цены — из каталогов: `data/courses.json`
- * для курсов и подписки, `data/generation-plans.json` для пакетов токенов.
- * Витрина, кнопки и серверная проверка читают один источник.
- *
- * Пакета `pro` здесь больше нет: продажи остановлены (R2), новые ссылки на
- * оплату для него не создаются. Уже оплаченные заказы принимает вебхук через
- * `LEGACY_PAYMENT_PLANS`, чтобы платёж, созданный до остановки, не потерялся.
+ * для курсов, пакета и подписки, `data/generation-plans.json` для пакетов
+ * токенов. Витрина, кнопки и серверная проверка читают один источник.
  */
 export const PAYMENT_PLANS = {
   confident: {
@@ -58,6 +55,14 @@ export const PAYMENT_PLANS = {
   profit: {
     price: coursesData.profit.price,
     title: coursesData.profit.title,
+  },
+  /**
+   * Пакет «Всё включено»: три платных курса навсегда со скидкой. Продаётся на
+   * `/subscription`; подписку Pro на инструменты не заменяет.
+   */
+  pro: {
+    price: coursesData.pro.price,
+    title: coursesData.pro.bundleTitle,
   },
   /**
    * Подписка Pro: доступ к инструментам и месячные лимиты генераций. Продаётся
@@ -79,32 +84,8 @@ export const PAYMENT_PLANS = {
   },
 } as const;
 
-/**
- * Исторические товары, которые уже нельзя купить, но чьи подписанные
- * уведомления Robokassa ещё могут прийти. Сумма проверяется по тем же данным,
- * поэтому занизить её в вебхуке нельзя.
- *
- * `pro` оставлен только здесь: старый разовый пакет «Всё включено». Новые
- * покупки не создаются, а уведомление по оплате, начатой до остановки продаж,
- * всё равно записывается в `purchases` и открывает три курса.
- */
-export const LEGACY_PAYMENT_PLANS = {
-  pro: {
-    price: coursesData.pro.price,
-    title: coursesData.pro.bundleTitle,
-  },
-} as const;
-
 /** Ключ товара, который можно продать и отправить в Robokassa как `Shp_course`. */
 export type PaymentCourseId = keyof typeof PAYMENT_PLANS;
-
-/** Исторический товар: купить нельзя, уведомление об оплате принять можно. */
-export type LegacyPaymentCourseId = keyof typeof LEGACY_PAYMENT_PLANS;
-
-/** Все ключи, для которых вебхук умеет проверить сумму и выдать покупку. */
-export type AcceptedPaymentCourseId =
-  | PaymentCourseId
-  | LegacyPaymentCourseId;
 
 export type PaymentRequest = {
   /** Ключ курса, пакета или подписки. */
@@ -131,29 +112,9 @@ export function isPaymentCourseId(value: string): value is PaymentCourseId {
   return Object.prototype.hasOwnProperty.call(PAYMENT_PLANS, value);
 }
 
-/**
- * Проверяет товар для вебхука: к продаваемым добавляются исторические.
- *
- * Отдельная проверка нужна только ResultURL. Ссылку на оплату по-прежнему
- * создаёт `initializePayment` через `isPaymentCourseId`, поэтому новый заказ
- * `pro` получить нельзя.
- */
-export function isAcceptedPaymentCourseId(
-  value: string,
-): value is AcceptedPaymentCourseId {
-  return (
-    isPaymentCourseId(value) ||
-    Object.prototype.hasOwnProperty.call(LEGACY_PAYMENT_PLANS, value)
-  );
-}
-
-/** Цена товара в рублях: для продажи и для проверки старого уведомления. */
-export function getPaymentAmount(courseId: AcceptedPaymentCourseId): number {
-  if (isPaymentCourseId(courseId)) {
-    return PAYMENT_PLANS[courseId].price;
-  }
-
-  return LEGACY_PAYMENT_PLANS[courseId].price;
+/** Цена товара в рублях: единый источник для витрины и вебхука. */
+export function getPaymentAmount(courseId: PaymentCourseId): number {
+  return PAYMENT_PLANS[courseId].price;
 }
 
 /** Сумма для Robokassa: строго два знака после точки. */

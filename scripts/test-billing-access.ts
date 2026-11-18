@@ -6,13 +6,12 @@
  * ./scripts/register-alias.mjs scripts/test-billing-access.ts`).
  *
  * Что закрывает тест:
- *   1. пакет `pro` больше нельзя купить, но подписанный вебхук по старой оплате
- *      ещё принимается и сумма проверяется по исторической цене;
+ *   1. пакет `pro` снова продаётся, а сумма берётся из каталога;
  *   2. покупка курса `confident` открывает уроки, но не инструменты Pro —
  *      `hasActiveSubscription` = false, значит Конструктор, Профили и
  *      генератор отвечают 403;
- *   3. покупка `pro` без строки legacy_pro_users инструментов не открывает;
- *   4. купленный ранее `pro` с legacy-грантом остаётся пожизненным;
+ *   3. новая покупка `pro` без строки legacy_pro_users инструментов не открывает;
+ *   4. купленный до 17 ноября 2026 `pro` с legacy-грантом остаётся пожизненным;
  *   5. `pro-subscription` и действующий entitlement в `subscriptions`
  *      открывают инструменты, просроченный — нет;
  *   6. пакеты токенов дают только кредиты, а не доступ к инструментам.
@@ -24,7 +23,6 @@ import coursesData from "@/data/courses.json";
 import {
   PAYMENT_PLANS,
   getPaymentAmount,
-  isAcceptedPaymentCourseId,
   isPaymentCourseId,
 } from "@/lib/payments";
 import {
@@ -147,28 +145,22 @@ function client({
   });
 }
 
-console.log("=== 1. Пакет pro остановлен, старые оплаты принимаются ===");
+console.log("=== 1. Пакет pro продаётся, сумма берётся из каталога ===");
 
 check(
-  "pro убран из продаваемых товаров",
-  !Object.prototype.hasOwnProperty.call(PAYMENT_PLANS, "pro"),
+  "pro входит в продаваемые товары",
+  Object.prototype.hasOwnProperty.call(PAYMENT_PLANS, "pro"),
   `ключи: ${Object.keys(PAYMENT_PLANS).join(", ")}`,
 );
 
 check(
-  "Новую ссылку на pro создать нельзя",
-  isPaymentCourseId("pro") === false,
+  "Ссылку на оплату pro создать можно",
+  isPaymentCourseId("pro") === true,
   `isPaymentCourseId(pro)=${isPaymentCourseId("pro")}`,
 );
 
 check(
-  "Вебхук старой оплаты pro принимается",
-  isAcceptedPaymentCourseId("pro") === true,
-  `isAcceptedPaymentCourseId(pro)=${isAcceptedPaymentCourseId("pro")}`,
-);
-
-check(
-  "Сумма исторического pro проверяется по каталогу",
+  "Сумма pro совпадает с каталогом",
   getPaymentAmount("pro") === coursesData.pro.price,
   `${coursesData.pro.price} ₽`,
 );
@@ -189,7 +181,7 @@ check(
 
 check(
   "Неизвестный товар отклоняется",
-  isAcceptedPaymentCourseId("lifetime-everything") === false,
+  isPaymentCourseId("lifetime-everything") === false,
   "lifetime-everything",
 );
 
@@ -231,7 +223,13 @@ check(
 console.log("\n=== 3. Покупка pro без legacy-гранта ===");
 
 const proWithoutGrant = client({
-  purchases: [{ course_id: "pro", expires_at: null }],
+  purchases: [
+    {
+      course_id: "pro",
+      expires_at: null,
+      created_at: "2026-11-17T12:00:00Z",
+    },
+  ],
   legacy: [],
 });
 const proTools = await hasActiveSubscription(proWithoutGrant, USER_ID);
@@ -252,7 +250,13 @@ check(
 console.log("\n=== 4. Пожизненный legacy-грант для старых покупателей ===");
 
 const legacyClient = client({
-  purchases: [{ course_id: "pro", expires_at: null }],
+  purchases: [
+    {
+      course_id: "pro",
+      expires_at: null,
+      created_at: "2026-11-16T12:00:00Z",
+    },
+  ],
   legacy: [{ user_id: USER_ID }],
 });
 const legacyAccess = await getActiveSubscription(legacyClient, USER_ID);
@@ -337,7 +341,13 @@ check(
 console.log("\n=== 7. Выкат раньше SQL: fallback не отбирает оплаченное ===");
 
 const beforeMigration = client({
-  purchases: [{ course_id: "pro", expires_at: null }],
+  purchases: [
+    {
+      course_id: "pro",
+      expires_at: null,
+      created_at: "2026-11-16T12:00:00Z",
+    },
+  ],
   legacy: {
     error: {
       code: "PGRST205",
@@ -355,8 +365,40 @@ check(
   `active=${fallbackAccess.active}, source=${fallbackAccess.source ?? "null"}`,
 );
 
+const newProBeforeMigration = client({
+  purchases: [
+    {
+      course_id: "pro",
+      expires_at: null,
+      created_at: "2026-11-17T12:00:00Z",
+    },
+  ],
+  legacy: {
+    error: {
+      code: "PGRST205",
+      message: "Could not find the table 'public.legacy_pro_users'",
+    },
+  },
+});
+const newProTools = await hasActiveSubscription(
+  newProBeforeMigration,
+  USER_ID,
+);
+
+check(
+  "Новый pro без таблицы legacy_pro_users инструменты не открывает",
+  newProTools === false,
+  `hasActiveSubscription=${newProTools}`,
+);
+
 const refundedPro = client({
-  purchases: [{ course_id: "pro", expires_at: PAST }],
+  purchases: [
+    {
+      course_id: "pro",
+      expires_at: PAST,
+      created_at: "2026-11-16T12:00:00Z",
+    },
+  ],
   legacy: [],
 });
 const refundedTools = await hasActiveSubscription(refundedPro, USER_ID);

@@ -120,7 +120,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
   const price = formatPrice(course.price);
   const saving = course.saving ? formatPrice(course.saving) : null;
   const loginHref = authHref("/auth/login", `/courses/${course.id}`);
-  /** null — архивный пакет `pro`: показываем историю, но не кнопку оплаты. */
+  /** null остаётся на случай товара без онлайн-оплаты; у текущих курсов она есть. */
   const isPurchasable = course.paymentId !== null;
 
   const stats = [
@@ -150,8 +150,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
     inLanguage: "ru-RU",
     isAccessibleForFree: false,
     provider: organizationJsonLd(siteUrl),
-    // У архивного пакета нет продажи — нет и Offer: иначе поиск показывал бы
-    // цену товара, который нельзя купить.
+    // Offer публикуем только для товара, который действительно можно купить.
     ...(isPurchasable
       ? {
           offers: {
@@ -287,9 +286,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
               <p
                 className={`inline-flex rounded-full border px-3 py-1 text-xs font-bold tracking-wide uppercase ${course.theme.badge}`}
               >
-                {isPurchasable
-                  ? (course.badge ?? "Доступ навсегда")
-                  : "Архивный пакет"}
+                {course.badge ?? "Доступ навсегда"}
               </p>
 
               <div className="mt-5 flex flex-wrap items-baseline gap-3">
@@ -298,11 +295,9 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-300">
-                {isPurchasable
-                  ? "Разовый платёж. Доступ остаётся навсегда."
-                  : "Историческая цена. Пакет больше не продаётся."}
+                Разовый платёж. Доступ остаётся навсегда.
               </p>
-              {isPurchasable && saving ? (
+              {saving ? (
                 <p className="mt-3 inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300">
                   Экономия {saving} ₽ против трёх курсов
                 </p>
@@ -728,9 +723,7 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-300">
-                {isPurchasable
-                  ? "Разовый платёж. Доступ остаётся навсегда."
-                  : "Историческая цена. Пакет больше не продаётся."}
+                Разовый платёж. Доступ остаётся навсегда.
               </p>
 
               <div className="mt-6">
@@ -760,9 +753,8 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
               </Link>
 
               <p className="mt-4 text-center text-xs leading-relaxed text-slate-300">
-                {isPurchasable
-                  ? "Оплата через Robokassa · чек НПД на email · уроки в личном кабинете"
-                  : "Пакет закрыт для новых покупок · доступ купивших сохранён"}
+                Оплата через Robokassa · чек НПД на email · уроки в личном
+                кабинете
               </p>
             </div>
           </div>

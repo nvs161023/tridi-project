@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import { ButtonLink, Card } from "@/components/ui";
+import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
@@ -34,7 +35,7 @@ import { PlanButton } from "./PlanButton";
 export const metadata: Metadata = {
   title: "Курсы 3D-печати — от новичка до заработка",
   description:
-    "Четыре уровня обучения 3D-печати: первый бесплатно, три платных навсегда. Что входит в каждый курс, сколько стоит обучение и ответы на вопросы об оплате.",
+    "Четыре уровня обучения 3D-печати: первый бесплатно, три платных навсегда по отдельности или пакетом со скидкой. Что входит в каждый курс, сколько стоит обучение и ответы на вопросы об оплате.",
   alternates: { canonical: "/subscription" },
   // Свой openGraph: без него og:url наследовался бы от главной.
   openGraph: {
@@ -44,7 +45,7 @@ export const metadata: Metadata = {
     url: "/subscription",
     title: "Курсы 3D-печати — от новичка до заработка",
     description:
-      "Первый уровень бесплатно, три платных курса навсегда и отдельная подписка Pro для инструментов.",
+      "Первый уровень бесплатно, три платных курса навсегда по отдельности или пакетом со скидкой и отдельная подписка Pro для инструментов.",
     // Картинка превью: без неё ссылка на курсы в соцсетях и мессенджерах
     // приезжала без изображения. OG_IMAGE общий для сайта (1200×630).
     images: [OG_IMAGE],
@@ -60,6 +61,14 @@ const DISCOUNT_BADGE =
 
 /** Цена уровня для FAQ: «2 990 ₽». */
 const levelPrice = (level: CourseLevel) => `${formatPrice(level.price)} ₽`;
+
+/** Цена пакета и выгода против трёх отдельных покупок. */
+const BUNDLE_PRICE = coursesData.pro.price;
+const BUNDLE_SEPARATE_PRICE = PAID_LEVELS.reduce(
+  (sum, level) => sum + level.price,
+  0,
+);
+const BUNDLE_SAVING = BUNDLE_SEPARATE_PRICE - BUNDLE_PRICE;
 
 /** Бесплатный уровень: цена 0 ₽ и подпись вместо скидочного бейджа. */
 const basicLevel = LEVELS[0];
@@ -158,11 +167,11 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Можно ли купить курс навсегда?",
-    answer: `Да. «Уверенный» стоит ${levelPrice(LEVELS[1])}, «Инженер» — ${levelPrice(LEVELS[2])}, «Заработок» — ${levelPrice(LEVELS[3])}. Это разовые платежи, доступ остаётся навсегда. Купить можно каждый уровень отдельно — если не уверены, начните с бесплатного «Новичка».`,
+    answer: `Да. «Уверенный» стоит ${levelPrice(LEVELS[1])}, «Инженер» — ${levelPrice(LEVELS[2])}, «Заработок» — ${levelPrice(LEVELS[3])}. Это разовые платежи, доступ остаётся навсегда. Все три курса сразу можно взять пакетом «Всё включено» за ${formatPrice(BUNDLE_PRICE)} ₽ — на ${formatPrice(BUNDLE_SAVING)} ₽ дешевле покупки по отдельности.`,
   },
   {
-    question: "Что стало с пакетом «Всё включено»?",
-    answer: `Пакет из трёх курсов больше не продаётся: новые покупки закрыты. У тех, кто купил его раньше, сохраняются все три уровня, сертификат и доступ к профилям печати навсегда.`,
+    question: "Что входит в пакет «Всё включено»?",
+    answer: `Пакет открывает все платные курсы сайта — «Уверенный», «Инженер» и «Заработок» — навсегда. Он стоит ${formatPrice(BUNDLE_PRICE)} ₽ вместо ${formatPrice(BUNDLE_SEPARATE_PRICE)} ₽ при покупке по отдельности: скидка ${formatPrice(BUNDLE_SAVING)} ₽. Бесплатный «Новичок» доступен и без пакета. Сертификат выдаётся после завершения каждого курса отдельно. Подписка Pro на инструменты в пакет не входит.`,
   },
   {
     question: "Дают ли чек об оплате?",
@@ -286,14 +295,16 @@ export default async function SubscriptionPage() {
               каждый уровень.
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center gap-3 rounded-2xl border border-amber-400/25 bg-amber-400/5 px-5 py-4 text-sm text-slate-300">
-              <span aria-hidden className="text-amber-300">
+            <div className="mt-8 flex flex-wrap items-center gap-3 rounded-2xl border border-emerald-400/25 bg-emerald-400/5 px-5 py-4 text-sm text-slate-300">
+              <span aria-hidden className="text-emerald-300">
                 ◆
               </span>
               <span>
-                <strong className="text-white">Пакет «Всё включено»</strong>{" "}
-                больше не продаётся: новые покупки закрыты. У купивших три
-                уровня и профили печати остаются навсегда.
+                <strong className="text-white">Пакет «Всё включено»</strong> — все
+                платные курсы сайта со скидкой {formatPrice(BUNDLE_SAVING)} ₽:{" "}
+                {formatPrice(BUNDLE_PRICE)} ₽ вместо{" "}
+                {formatPrice(BUNDLE_SEPARATE_PRICE)} ₽. Сертификат после
+                каждого курса, доступ навсегда.
               </span>
             </div>
 

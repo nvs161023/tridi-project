@@ -1,3 +1,4 @@
+import { PlanButton } from "@/app/subscription/PlanButton";
 import { ButtonLink, Card } from "@/components/ui";
 import coursesData from "@/data/courses.json";
 import {
@@ -13,12 +14,18 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
-import { profileCount } from "@/lib/profiles";
 
 const { pro: proCourse } = coursesData;
 
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("ru-RU").format(price);
+
+/** Цена трёх курсов по отдельности и выгода пакета в рублях. */
+const BUNDLE_SEPARATE_PRICE = PAID_LEVELS.reduce(
+  (sum, level) => sum + level.price,
+  0,
+);
+const BUNDLE_SAVING = BUNDLE_SEPARATE_PRICE - proCourse.price;
 
 /** Названия платных уровней в описании пакета не дублируем вручную. */
 const BUNDLE_COURSES = PAID_LEVELS.map((level) => level.shortTitle).join(", ");
@@ -30,7 +37,7 @@ const BUNDLE_ARTIFACTS = new Set(
   ),
 ).size;
 
-const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) — навсегда. Пакет даёт доступ только к курсам.`;
+const BUNDLE_DESCRIPTION = `Все платные курсы сайта (${BUNDLE_COURSES}) — навсегда, одним пакетом со скидкой. Бесплатный «Новичок» открыт каждому и без пакета.`;
 
 const BUNDLE_FEATURES = [
   ...PAID_LEVELS.map(
@@ -38,18 +45,18 @@ const BUNDLE_FEATURES = [
       `${level.shortTitle} — ${level.lessons} ${pluralize(level.lessons, LESSON_FORMS)}`,
   ),
   "Коммерческая лицензия (можно продавать напечатанное)",
-  "Курсы остаются навсегда",
+  "Доступ к курсам навсегда",
 ];
 
 /**
- * Главные фишки пакета — отдельными зелёными строками.
+ * Главные преимущества пакета — отдельными зелёными строками.
  *
- * Пакет больше не продаётся, но у купивших остаются сертификат, профили и
- * файлы. Число профилей берётся из каталога, а не вписано руками.
+ * Сертификаты выдаются за каждый завершённый курс, а не одним документом за
+ * весь пакет. Количество файлов к урокам берётся из каталога уровней.
  */
 const BUNDLE_HIGHLIGHTS = [
-  "Именной сертификат",
-  `Доступ к ${profileCount} профилям печати сохранён у покупателей`,
+  "Все 3 платных курса сайта",
+  "Сертификат после завершения каждого курса",
   ...(BUNDLE_ARTIFACTS > 0
     ? [
         `${BUNDLE_ARTIFACTS} ${pluralize(BUNDLE_ARTIFACTS, FILE_FORMS)} к урокам`,
@@ -65,12 +72,11 @@ type ProBundleCardProps = {
 };
 
 /**
- * Карточка архивного пакета «Всё включено» для главной и страницы тарифов.
+ * Карточка пакета «Всё включено» для страницы курсов.
  *
- * Пакет больше не продаётся (R2): новых ссылок на оплату нет, поэтому вместо
- * PlanButton здесь только статус и переход к отдельным курсам.
- * Купившим показываем «Доступ открыт»: их права сохранены через
- * legacy_pro_users.
+ * Пакет продаётся как единая покупка трёх платных курсов со скидкой. Оплата
+ * идёт через тот же PlanButton, что у отдельных уровней: цену и доступ
+ * проверяет сервер. Купившим показываем «Доступ открыт».
  */
 export function ProBundleCard({
   hasBundle,
@@ -93,10 +99,10 @@ export function ProBundleCard({
 
       <div className="relative flex flex-wrap items-center gap-3">
         <span className="text-xs font-semibold tracking-[0.16em] text-violet-300 uppercase">
-          Архивный пакет «{proCourse.bundleTitle}»
+          Пакет «{proCourse.bundleTitle}»
         </span>
         <span className="rounded-full bg-gradient-to-r from-amber-300 to-amber-500 px-3 py-1 text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/25">
-          Продажи завершены
+          {proCourse.badge}
         </span>
       </div>
 
@@ -123,20 +129,26 @@ export function ProBundleCard({
             ))}
           </ul>
 
-          <p className="mt-4 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <p className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-3xl font-extrabold text-white">
               {formatPrice(proCourse.price)} ₽
             </span>
-            <span className="text-xs text-slate-300">
-              историческая цена, новых продаж нет
+            <span className="text-sm text-slate-400 line-through">
+              {formatPrice(BUNDLE_SEPARATE_PRICE)} ₽
             </span>
+            <span className="text-xs text-slate-300">разово, навсегда</span>
           </p>
 
           <p className="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 px-3 py-2 text-xs text-slate-300">
             <span className="font-semibold text-emerald-200">
-              Покупателям пакета
+              Скидка {formatPrice(BUNDLE_SAVING)} ₽
             </span>
-            <span>только курсы — навсегда</span>
+            <span>по сравнению с покупкой трёх курсов по отдельности</span>
+          </p>
+
+          <p className="mt-3 text-xs leading-relaxed text-slate-300">
+            Пакет открывает только курсы. Подписка Pro на мастерскую, профили и
+            генератор продаётся отдельно.
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">
@@ -195,19 +207,15 @@ export function ProBundleCard({
               </>
             ) : (
               <>
-                <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs leading-relaxed text-slate-300">
-                  Новые покупки пакета закрыты. Курсы можно взять по
-                  отдельности — доступ остаётся навсегда.
-                </p>
-                <ButtonLink
-                  href="/subscription#pricing"
+                <PlanButton
+                  label="Купить все курсы"
+                  courseId="pro"
                   variant="gold"
-                  fullWidth
-                  className="mt-3"
-                >
-                  Выбрать курсы
-                  <span aria-hidden>→</span>
-                </ButtonLink>
+                  size="compact"
+                />
+                <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-300">
+                  {formatPrice(proCourse.price)} ₽ разово · доступ навсегда
+                </p>
               </>
             )}
           </div>

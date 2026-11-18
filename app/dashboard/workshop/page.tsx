@@ -333,7 +333,7 @@ function LockedWorkshop() {
             id="workshop-locked-title"
             className="text-xl font-extrabold tracking-tight text-white sm:text-2xl"
           >
-            Мастерская открывается пакетом «Всё включено»
+            Мастерская входит в подписку Pro
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-slate-300 sm:text-base">
             Калькулятор считает себестоимость заказа по вашему тарифу на

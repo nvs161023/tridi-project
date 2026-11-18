@@ -208,9 +208,8 @@ export type CertificateProgram = {
  * Что напечатать на сертификате.
  *
  * Для отдельного уровня берём название из data/courses.json и объём из
- * totalLessons / estimated_hours. Для пакета pro показываем все три платных
- * уровня и их суммарный объём — иначе сертификат за пакет выглядел бы как
- * сертификат за один курс.
+ * totalLessons / estimated_hours. Ветка `fullCourse` поддерживает старые
+ * сертификаты за пакет: новые бланки выдаются за каждый завершённый курс.
  */
 export function getCertificateProgram(
   level: CourseLevel,

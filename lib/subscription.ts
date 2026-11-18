@@ -3,9 +3,9 @@
  *
  * После оплаты Robokassa вебхук записывает покупку:
  *   - confident / engineer / profit — один уровень навсегда;
- *   - pro — исторический пакет «Всё включено»: три уровня навсегда. Продажи
- *     остановлены (R2), новые покупки невозможны. Инструменты он больше не
- *     открывает: только явный грант в legacy_pro_users у тех, кто купил раньше;
+ *   - pro — пакет «Всё включено»: три платных уровня навсегда. С 17 ноября
+ *     2026 он снова продаётся, но открывает только курсы: инструменты Pro
+ *     остаются у старых покупателей через явный грант legacy_pro_users;
  *   - pro-subscription — подписка Pro на 30 дней: инструменты платформы и
  *     месячные лимиты генераций, без доступа к урокам.
  *
@@ -39,6 +39,14 @@ export const PAID_COURSE_IDS = ["confident", "engineer", "profit"] as const;
 
 export type PaidCourseId = (typeof PAID_COURSE_IDS)[number];
 
+/**
+ * До этой даты пакет `pro` включал инструменты Pro, после — только курсы.
+ *
+ * Отсечение нужно и в fallback до применения `legacy_pro.sql`, и в SQL-backfill:
+ * иначе новые покупатели пакета получили бы мастерскую и профили бесплатно.
+ */
+const PRO_TOOLS_LEGACY_CUTOFF = "2026-11-17T00:00:00Z";
+
 /** Все ключи, которые встречаются в purchases.course_id. */
 export type AccessCourseId = PaidCourseId | "pro" | "pro-subscription";
 
@@ -46,6 +54,8 @@ export type AccessCourseId = PaidCourseId | "pro" | "pro-subscription";
 type PurchaseRow = {
   course_id: string;
   expires_at: string | null;
+  /** Нужна, чтобы отличить старый пакет с инструментами от нового. */
+  created_at: string | null;
 };
 
 /** Из subscriptions читаем статус, конец пробного периода и срок оплаты. */
@@ -110,13 +120,28 @@ function isSubscriptionPurchaseActive(purchase: PurchaseRow): boolean {
 }
 
 /**
- * Старая покупка пакета `pro` с бессрочным доступом.
+ * Старая покупка пакета `pro` с бессрочным доступом к инструментам.
  *
  * Используется только как fallback, пока таблицы legacy_pro_users нет в базе.
- * После миграции пожизненный доступ подтверждает явная строка гранта.
+ * После миграции пожизненный доступ подтверждает явная строка гранта. Покупки
+ * после 17 ноября 2026 инструментов не открывают: с этой даты пакет продаётся
+ * только как доступ к трём курсам.
  */
 function isLifetimeBundlePurchase(purchase: PurchaseRow): boolean {
-  return purchase.course_id === "pro" && purchase.expires_at === null;
+  if (
+    purchase.course_id !== "pro" ||
+    purchase.expires_at !== null ||
+    purchase.created_at === null
+  ) {
+    return false;
+  }
+
+  const createdAt = new Date(purchase.created_at);
+
+  return (
+    !Number.isNaN(createdAt.getTime()) &&
+    createdAt < new Date(PRO_TOOLS_LEGACY_CUTOFF)
+  );
 }
 
 /**
@@ -364,9 +389,10 @@ export type ActiveSubscription = {
  *   3. subscriptions active/trial с действующим сроком — та же подписка и
  *      явные ручные гранты.
  *
- * Покупка курса (`confident`, `engineer`, `profit`) и покупка `pro` без строки
- * legacy_pro_users инструментов не открывают. Пока таблицы legacy_pro_users нет
- * в базе, действует fallback: бессрочная покупка `pro` считается грантом.
+ * Покупка курса (`confident`, `engineer`, `profit`) и новая покупка `pro` без
+ * строки legacy_pro_users инструментов не открывают. Пока таблицы
+ * legacy_pro_users нет в базе, действует fallback: бессрочная покупка `pro`
+ * до 17 ноября 2026 считается грантом.
  *
  * Если подписок несколько, показываем самую позднюю дату; бессрочный грант
  * важнее любой даты.
@@ -380,7 +406,7 @@ export async function getActiveSubscription(
       readLegacyProGrant(supabase, userId),
       supabase
         .from("purchases")
-        .select("course_id, expires_at")
+        .select("course_id, expires_at, created_at")
         .eq("user_id", userId)
         .in("course_id", ["pro", "pro-subscription"]),
       readSubscriptions(supabase, userId),
@@ -399,8 +425,9 @@ export async function getActiveSubscription(
     const rows = (purchasesResult.data as PurchaseRow[] | null) ?? [];
 
     // Выкат раньше SQL: явного гранта ещё нет, поэтому сохраняем старую
-    // бессрочную покупку `pro`. После применения legacy_pro.sql ветка не
-    // выполняется и новые покупки `pro` инструментов не открывают.
+    // бессрочную покупку `pro` до 17 ноября 2026. После применения
+    // legacy_pro.sql ветка не выполняется, а новые покупки пакета инструментов
+    // не открывают в любом случае.
     if (
       !legacyGrant.tableAvailable &&
       rows.some(isLifetimeBundlePurchase)
@@ -548,13 +575,14 @@ export async function getPurchasedCourses(
  * Действующий доступ Pro для инструментов (профили, конструктор, генератор).
  *
  * Проверяет три источника:
- *   1. legacy_pro_users — пожизненный грант купивших `pro` до остановки продаж;
+ *   1. legacy_pro_users — пожизненный грант купивших `pro` до 17 ноября 2026;
  *   2. purchases — запись `pro-subscription` со сроком в expires_at;
  *   3. subscriptions — статус active или неистёкший trial.
  *
- * Покупка курса и покупка `pro` без legacy-гранта сюда не входят: уроки и
- * инструменты разделены. Пока legacy_pro_users нет в базе, fallback сохраняет
- * старую бессрочную покупку `pro`, чтобы выкат не отобрал уже оплаченное.
+ * Покупка курса и новая покупка `pro` без legacy-гранта сюда не входят: уроки
+ * и инструменты разделены. Пока legacy_pro_users нет в базе, fallback сохраняет
+ * бессрочную покупку `pro` до 17 ноября 2026, чтобы выкат не отобрал уже
+ * оплаченное.
  *
  * Дата окончания не нужна — только факт доступа. Если нужна и дата, используйте
  * getActiveSubscription(): это та же проверка с подробностями.

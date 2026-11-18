@@ -31,8 +31,8 @@ export const LEGAL_PRIVACY_UPDATED_AT = "16.11.2026";
 /** Дата редакции Согласия на обработку персональных данных. */
 export const LEGAL_CONSENT_UPDATED_AT = "16.11.2026";
 
-/** Дата редакции Публичной оферты: подписка, токены и возвраты. */
-export const LEGAL_OFFER_UPDATED_AT = "16.11.2026";
+/** Дата редакции Публичной оферты: курсы, пакет, подписка и возвраты. */
+export const LEGAL_OFFER_UPDATED_AT = "17.11.2026";
 
 /** Юридический документ: адрес и названия для меню, футера и страниц. */
 export type LegalDocument = {

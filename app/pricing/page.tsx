@@ -19,6 +19,8 @@ import { OG_IMAGE } from "@/lib/seo";
  * Мастерская: заказы с маркетплейсов, склад пластика, принтеры, документы.
  * Конструктор, профили печати и лимиты генератора идут в том же пакете, но
  * перечислены после мастерской, потому что рутину снимает именно она.
+ * Сценарии мастерской (`WORKSHOP_SCENARIOS`) объясняют, кому она нужна и что
+ * перестаёт делаться вручную. Часов экономии там нет: замеров не было.
  *
  * Пакетов токенов на этой странице больше нет: разовую докупку генераций
  * показываем только в генераторе по фото (`/3d-generator`), где виден остаток
@@ -137,6 +139,45 @@ const TOOL_CARDS = [
     description:
       "Разборы печати, настройки от участников и ответы на вопросы по конкретной модели.",
     cta: "Открыть форум",
+  },
+] as const;
+
+/**
+ * Сценарии мастерской: не список возможностей, а повторяемые задачи.
+ *
+ * У каждой карточки есть строка «что перестаёте делать вручную» — она
+ * показывает, откуда берётся выигрыш по времени. Конкретных часов здесь нет:
+ * замеров на реальных мастерских не было, а обещать цифру без подтверждения
+ * нельзя. Оговорка об этом стоит под сеткой.
+ */
+const WORKSHOP_SCENARIOS = [
+  {
+    tag: "Маркетплейсы",
+    title: "Заказы не теряются между кабинетами",
+    summary:
+      "Ozon, Wildberries и Яндекс Маркет — на одной доске. Видно, что печатать, что упаковывать и куда отправлять, не собирая статусы из трёх кабинетов и таблицы.",
+    manual: "перенос заказов, сверку статусов и сроков, подготовку спецификаций.",
+  },
+  {
+    tag: "Склад",
+    title: "Материал виден до запуска печати",
+    summary:
+      "Катушки и остатки связаны с заказами: пластик списывается на печать, а нехватка видна до того, как задание встанет.",
+    manual: "поиск остатков по памяти, пересчёт расхода и закупку после простоя.",
+  },
+  {
+    tag: "Несколько принтеров",
+    title: "Очередь печати не живёт в голове",
+    summary:
+      "Задания распределяются по принтерам, у каждого видна наработка и обслуживание. Понятно, какая машина свободна и что пора проверить.",
+    manual: "ежедневную сверку занятости и записей об обслуживании.",
+  },
+  {
+    tag: "Свои изделия",
+    title: "Цена и документы собираются из заказа",
+    summary:
+      "Себестоимость считается из материала и времени, а спецификация и накладная — из того же заказа. Модель можно построить в Конструкторе или получить по фото.",
+    manual: "отдельный калькулятор, пересчёт цены и ручную сборку документов.",
   },
 ] as const;
 
@@ -289,6 +330,112 @@ export default function PricingPage() {
               </ul>
             </div>
           </div>
+        </section>
+
+        <section aria-labelledby="pricing-scenarios-title" className="mt-10">
+          <p className="text-xs font-semibold tracking-widest text-amber-300 uppercase">
+            Сценарии
+          </p>
+          <h2
+            className="mt-2 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
+            id="pricing-scenarios-title"
+          >
+            Кому нужна мастерская
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-relaxed text-slate-300">
+            Мастерская нужна не для разовой печати. Она заметнее всего там, где
+            заказы повторяются, принтеров больше одного или пластик нужно
+            считать до запуска. Ниже — четыре ситуации, в которых она забирает
+            рутину.
+          </p>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {WORKSHOP_SCENARIOS.map((scenario) => (
+              <article
+                key={scenario.title}
+                className="flex h-full flex-col rounded-3xl border border-white/[0.07] bg-[#0a0a0a]/60 p-5 sm:p-6"
+              >
+                <span className="text-[11px] font-semibold tracking-wide text-amber-300 uppercase">
+                  {scenario.tag}
+                </span>
+                <h3 className="mt-2 text-lg font-bold tracking-tight text-white">
+                  {scenario.title}
+                </h3>
+                <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-300">
+                  {scenario.summary}
+                </p>
+                <p className="mt-5 border-t border-white/[0.07] pt-4 text-xs leading-relaxed text-zinc-400">
+                  <strong className="font-semibold text-zinc-200">
+                    Что перестаёте делать вручную:
+                  </strong>{" "}
+                  {scenario.manual}
+                </p>
+              </article>
+            ))}
+          </div>
+
+          <aside
+            aria-labelledby="pricing-time-title"
+            className="mt-4 rounded-3xl border border-white/[0.07] bg-white/[0.02] p-5 sm:p-6"
+          >
+            <div className="grid gap-6 md:grid-cols-2 md:gap-8">
+              <div>
+                <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                  Честно о времени
+                </p>
+                <h3
+                  className="mt-2 text-lg font-bold tracking-tight text-white"
+                  id="pricing-time-title"
+                >
+                  Среднюю экономию в часах не обещаем
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                  У нас нет замера средней экономии на реальных мастерских,
+                  поэтому мы не выводим её цифрой на витрине. Время зависит от
+                  числа заказов, принтеров и того, сколько таблиц вы ведёте
+                  сейчас. Pro убирает не саму печать, а переключения между
+                  кабинетами, складом, калькулятором и документами — насколько
+                  это заметно, проще увидеть в демо.
+                </p>
+              </div>
+              <div className="border-t border-white/[0.07] pt-6 md:border-t-0 md:border-l md:pt-0 md:pl-8">
+                <p className="text-[11px] font-semibold tracking-wide text-slate-400 uppercase">
+                  Без подписки
+                </p>
+                <h3 className="mt-2 text-lg font-bold tracking-tight text-white">
+                  Когда Pro можно не покупать
+                </h3>
+                <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                  Если принтер один, а заказы редкие, подписка может быть не
+                  нужна. Начните с бесплатного уровня курса и диагностики
+                  дефектов: они открыты без Pro.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold">
+                  <Link
+                    className="inline-flex min-h-8 items-center gap-1.5 text-slate-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                    href="/start"
+                  >
+                    Бесплатный курс
+                    <span aria-hidden>→</span>
+                  </Link>
+                  <Link
+                    className="inline-flex min-h-8 items-center gap-1.5 text-slate-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                    href="/tools/defects"
+                  >
+                    Диагностика дефектов
+                    <span aria-hidden>→</span>
+                  </Link>
+                  <Link
+                    className="inline-flex min-h-8 items-center gap-1.5 text-slate-200 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                    href="/tools/workshop"
+                  >
+                    Демо и скриншоты
+                    <span aria-hidden>→</span>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </aside>
         </section>
 
         <section aria-labelledby="pricing-tools-title" className="mt-10">

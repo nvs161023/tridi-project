@@ -274,16 +274,13 @@ export default async function CertificatePage({
   }
 
   const courseKey = level.key;
-  const [progress, courseAccess, fullCourse] = await Promise.all([
+  const [progress, courseAccess] = await Promise.all([
     readCourseProgressRows(supabase, identity.id, courseKey),
     // Сертификат платного уровня выдаётся только при доступе: покупка или
     // промокод. Бесплатный курс проверки не требует.
     courseKey === "basic"
       ? Promise.resolve(true)
       : hasCourseAccess(supabase, identity.id, courseKey),
-    // Пакет pro — это три платных уровня. На бланке он подписывается как
-    // «Полный курс», поэтому флаг входит в HMAC-токен и не меняется задним числом.
-    hasCourseAccess(supabase, identity.id, "pro"),
   ]);
 
   if (!courseAccess) {
@@ -307,7 +304,6 @@ export default async function CertificatePage({
       userId: identity.id,
       name: identity.name ?? "",
       course: level.key,
-      fullCourse,
       issuedAt: completion.issuedAt,
     });
   } catch (error) {

@@ -5,18 +5,22 @@
 -- SQL Editor (проект wxzwyirrqophfnltsapj). Автоматически не выполняется.
 --
 -- Зачем таблица:
---   1. пакет `pro` больше не продаётся: новые покупки невозможны, а у тех, кто
---      уже заплатил 9 900 ₽, доступ к инструментам должен остаться навсегда;
---   2. `hasActiveSubscription` читает эту таблицу первой: строка здесь — явный
+--   1. до 17 ноября 2026 пакет `pro` включал инструменты: у тех, кто заплатил
+--      9 900 ₽, доступ к ним должен остаться навсегда;
+--   2. с 17 ноября 2026 пакет снова продаётся, но открывает только три курса:
+--      новые покупатели инструментов не получают;
+--   3. `hasActiveSubscription` читает эту таблицу первой: строка здесь — явный
 --      пожизненный грант, а не случайный `active` с пустым `expires_at`;
---   3. без строки покупка `pro` открывает только три курса: Конструктор,
+--   4. без строки покупка `pro` открывает только три курса: Конструктор,
 --      Профили, Мастерская и месячные генерации требуют `pro-subscription` или
 --      будущий entitlement.
 --
 -- Кого переносим:
 --   всех, у кого есть действующая покупка `pro` (`expires_at is null` или дата
---   в будущем). Возвращённая покупка закрыта датой возврата и сюда не попадает:
---   иначе refund снова открыл бы инструменты через legacy-грант.
+--   в будущем), созданная до 17 ноября 2026. Возвращённая покупка закрыта датой
+--   возврата и сюда не попадает: иначе refund снова открыл бы инструменты через
+--   legacy-грант. Дата отсечения не даёт повторному запуску файла выдать
+--   инструменты новым покупателям пакета.
 --
 -- Структура:
 --   user_id    uuid        primary key — покупатель
@@ -33,7 +37,7 @@
 create table if not exists public.legacy_pro_users (
   user_id uuid primary key references auth.users (id) on delete cascade,
   granted_at timestamptz not null default now(),
-  reason text not null default 'Пакет «Всё включено» куплен до остановки продаж'
+  reason text not null default 'Пакет «Всё включено» куплен до 17 ноября 2026'
 );
 
 -- Свежие гранты первыми: по этому индексу читается отчёт «кто получил legacy».
@@ -46,10 +50,11 @@ insert into public.legacy_pro_users (user_id, granted_at, reason)
 select
   p.user_id,
   min(p.created_at),
-  'Пакет «Всё включено» куплен до остановки продаж'
+  'Пакет «Всё включено» куплен до 17 ноября 2026'
 from public.purchases p
 where p.course_id = 'pro'
   and (p.expires_at is null or p.expires_at > now())
+  and p.created_at < '2026-11-17T00:00:00Z'::timestamptz
 group by p.user_id
 on conflict (user_id) do nothing;
 
@@ -78,12 +83,13 @@ notify pgrst, 'reload schema';
 --        from public.legacy_pro_users
 --       order by granted_at;
 --
--- 2) У каждого legacy-пользователя есть действующая покупка `pro`:
+-- 2) У каждого legacy-пользователя есть действующая покупка `pro` до 17.11.2026:
 --      select l.user_id
 --        from public.legacy_pro_users l
 --        left join public.purchases p
 --          on p.user_id = l.user_id
 --         and p.course_id = 'pro'
+--         and p.created_at < '2026-11-17T00:00:00Z'::timestamptz
 --         and (p.expires_at is null or p.expires_at > now())
 --       where p.id is null;
 --
