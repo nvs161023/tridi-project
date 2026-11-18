@@ -21,6 +21,33 @@ type BlogPostPageProps = {
 };
 
 /**
+ * Куда ещё пойти после статьи. Все адреса — существующие разделы TriDi:
+ * подсказка должна вести к инструменту, а не в пустую страницу.
+ */
+const USEFUL_SECTIONS = [
+  {
+    href: "/profiles",
+    title: "Библиотека профилей",
+    description: "Проверенные настройки слайсера для популярных принтеров и материалов.",
+  },
+  {
+    href: "/tools/defects",
+    title: "Справочник дефектов",
+    description: "Причины брака FDM-печати и пошаговые решения с фотографиями.",
+  },
+  {
+    href: "/constructor",
+    title: "Конструктор",
+    description: "Параметрические 3D-модели: ваза, брелок, подставка и другие заготовки.",
+  },
+  {
+    href: "/tools/workshop",
+    title: "Мастерская",
+    description: "Очередь печати и учёт заказов для домашней 3D-фермы.",
+  },
+] as const;
+
+/**
  * Метаданные статьи.
  *
  * `seoTitle` короче H1: полный заголовок в `<title>` обрезается в выдаче, а
@@ -55,6 +82,7 @@ export async function generateMetadata({
       description: post.description,
       publishedTime: post.date,
       modifiedTime: post.updated,
+      authors: [post.author],
       images: [
         {
           ...OG_IMAGE,
@@ -79,12 +107,20 @@ export async function generateMetadata({
 /**
  * JSON-LD статьи.
  *
- * `Article` связывает текст с организацией по `@id` из корневого layout, а
- * `BreadcrumbList` показывает в выдаче путь «Главная → Блог → статья».
+ * `Article` называет автора как `Person`, а с организацией связан через
+ * `publisher` по `@id` из корневого layout. `BreadcrumbList` показывает в
+ * выдаче путь «Главная → Блог → статья».
  */
 function buildArticleJsonLd(
   siteUrl: string,
-  post: { slug: string; title: string; description: string; date: string; updated: string },
+  post: {
+    slug: string;
+    title: string;
+    description: string;
+    date: string;
+    updated: string;
+    author: string;
+  },
 ) {
   const url = `${siteUrl}/blog/${post.slug}`;
 
@@ -101,7 +137,7 @@ function buildArticleJsonLd(
         inLanguage: "ru-RU",
         mainEntityOfPage: { "@type": "WebPage", "@id": url },
         image: absoluteUrl(OG_IMAGE.url, siteUrl),
-        author: { "@id": `${siteUrl}/#organization` },
+        author: { "@type": "Person", name: post.author },
         publisher: { "@id": `${siteUrl}/#organization` },
         isPartOf: {
           "@type": "Blog",
@@ -204,6 +240,8 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
               <p className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-semibold text-slate-400">
                 <time dateTime={post.date}>{formatPostDate(post.date)}</time>
                 <span aria-hidden>•</span>
+                <span>Автор: {post.author}</span>
+                <span aria-hidden>•</span>
                 <span>{post.readingMinutes} мин чтения</span>
                 {post.updated !== post.date ? (
                   <>
@@ -221,6 +259,48 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
 
           <div className="mx-auto max-w-3xl px-5 py-12 sm:px-8 sm:py-14">
             <Markdown content={post.content} />
+
+            <section
+              aria-labelledby="post-useful-sections"
+              className="mt-12 rounded-3xl border border-white/10 bg-white/[0.04] p-6 sm:p-8"
+            >
+              <h2
+                id="post-useful-sections"
+                className="text-xl font-extrabold tracking-tight text-white"
+              >
+                Полезные разделы
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-400">
+                Инструменты TriDi, которые дополняют статью.
+              </p>
+
+              <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+                {USEFUL_SECTIONS.map((section) => (
+                  <li key={section.href} className="h-full">
+                    <Link
+                      href={section.href}
+                      className="group flex h-full flex-col rounded-2xl border border-white/10 bg-slate-950/40 p-4 transition duration-200 hover:-translate-y-0.5 hover:border-blue-400/30 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    >
+                      <span className="text-base font-bold text-white">
+                        {section.title}
+                      </span>
+                      <span className="mt-1 flex-1 text-sm leading-relaxed text-slate-300">
+                        {section.description}
+                      </span>
+                      <span className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-blue-400 transition-colors group-hover:text-blue-300">
+                        Перейти
+                        <span
+                          aria-hidden
+                          className="transition-transform duration-200 group-hover:translate-x-1"
+                        >
+                          →
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
 
             <aside className="mt-12 rounded-3xl border border-blue-400/20 bg-blue-500/[0.07] p-6 sm:p-8">
               <p className="text-sm font-semibold tracking-widest text-blue-400 uppercase">

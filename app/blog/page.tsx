@@ -116,6 +116,8 @@ export default function BlogPage() {
                           {formatPostDate(post.date)}
                         </time>
                         <span aria-hidden>•</span>
+                        <span>{post.author}</span>
+                        <span aria-hidden>•</span>
                         <span>{post.readingMinutes} мин чтения</span>
                       </span>
 

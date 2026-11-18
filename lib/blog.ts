@@ -11,6 +11,7 @@
  *   description: "Описание для списка и сниппета"
  *   date: "2026-11-01"
  *   updated: "2026-11-15"                            # необязательно
+ *   author: "Команда TriDi"                           # необязательно
  *   ---
  *
  *   ## Первый раздел
@@ -28,6 +29,9 @@ const BLOG_DIR = path.join(process.cwd(), "content", "blog");
 /** Сколько слов читает человек за минуту: по этому считаем время чтения. */
 const WORDS_PER_MINUTE = 180;
 
+/** Автор по умолчанию: статьи пишет команда, персональная подпись — по желанию. */
+const DEFAULT_AUTHOR = "Команда TriDi";
+
 /** Плоский frontmatter: только строки «ключ: значение». */
 type FrontMatter = Record<string, string>;
 
@@ -40,6 +44,8 @@ export type BlogPostSummary = {
   slug: string;
   /** Заголовок H1 и подпись карточки. */
   title: string;
+  /** Автор статьи; если во frontmatter не указан — «Команда TriDi». */
+  author: string;
   /** Короткий заголовок для `<title>`, если полный слишком длинный. */
   seoTitle?: string;
   /** Описание для карточки, сниппета и OpenGraph. */
@@ -153,6 +159,7 @@ function toSummary(
   return {
     slug,
     title: data.title,
+    author: data.author || DEFAULT_AUTHOR,
     seoTitle: data.seoTitle || undefined,
     description: data.description,
     date: data.date,
