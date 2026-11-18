@@ -46,6 +46,8 @@
           "slicer": "PrusaSlicer",
           "format": "INI",
           "requires": "Бандл PrusaResearch 2.5.12",
+          "testedAt": "2026-11-18",
+          "testedNote": "Базовая проверка PLA",
           "file": "printers/prusa-mk3s-plus/Original Prusa i3 MK3S & MK3S+.ini"
         },
         {

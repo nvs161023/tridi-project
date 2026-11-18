@@ -216,6 +216,99 @@ export default async function ProfilesPage() {
           </section>
         )}
 
+        {/* Методика: откуда профили и что означает зелёный бейдж */}
+        <section
+          aria-labelledby="profiles-verification"
+          className="border-b border-white/10 bg-white/[0.02]"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-10 sm:px-8 sm:py-12">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-xs font-semibold tracking-widest text-emerald-300 uppercase">
+                  Прозрачно о данных
+                </p>
+                <h2
+                  id="profiles-verification"
+                  className="mt-2 text-2xl font-extrabold tracking-tight text-white sm:text-3xl"
+                >
+                  Как мы проверяем профили
+                </h2>
+              </div>
+              <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-xs font-semibold text-slate-300">
+                Каталог сверен {updatedAt}
+              </span>
+            </div>
+
+            <ol className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <li className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <span
+                  aria-hidden
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/10 text-xs font-bold text-emerald-200"
+                >
+                  1
+                </span>
+                <h3 className="mt-3 text-sm font-bold text-white">
+                  Источник профиля
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
+                  Заводские и community-пресеты Bambu Studio, OrcaSlicer и
+                  PrusaSlicer. Сохраняем имена, наследование и ссылки на
+                  источники.
+                </p>
+              </li>
+
+              <li className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <span
+                  aria-hidden
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/10 text-xs font-bold text-emerald-200"
+                >
+                  2
+                </span>
+                <h3 className="mt-3 text-sm font-bold text-white">
+                  Импорт в слайсер
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
+                  Проверяем, что файл импортируется в указанный слайсер и
+                  находит базовый профиль из поля «База».
+                </p>
+              </li>
+
+              <li className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <span
+                  aria-hidden
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/10 text-xs font-bold text-emerald-200"
+                >
+                  3
+                </span>
+                <h3 className="mt-3 text-sm font-bold text-white">
+                  Тестовая печать
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
+                  Дату и зелёный бейдж ставим только после реальной печати на
+                  указанном принтере и пластике. Непроверенные профили остаются
+                  без даты.
+                </p>
+              </li>
+
+              <li className="rounded-2xl border border-white/10 bg-white/5 p-5">
+                <span
+                  aria-hidden
+                  className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/10 text-xs font-bold text-emerald-200"
+                >
+                  4
+                </span>
+                <h3 className="mt-3 text-sm font-bold text-white">
+                  Обновление каталога
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
+                  Общая дата последней сверки — {updatedAt} Она относится ко
+                  всему набору файлов, а не к каждой тестовой печати.
+                </p>
+              </li>
+            </ol>
+          </div>
+        </section>
+
         <ProfilesClient categories={profileCategories} hasPro={hasPro} />
 
         {/* Инструкция: как импортировать и что проверить перед печатью */}

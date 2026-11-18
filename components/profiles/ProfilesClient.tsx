@@ -51,6 +51,22 @@ function orderIndex(value: string, order: readonly string[]): number {
   return index === -1 ? order.length : index;
 }
 
+/** «18.11.2026» — дата реальной тестовой печати. */
+function formatTestedAt(isoDate: string): string {
+  const date = new Date(isoDate);
+
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
+}
+
 /** Русская форма слова по числу: 1 профиль, 2 профиля, 5 профилей. */
 function pluralize(count: number, forms: readonly [string, string, string]) {
   const mod100 = count % 100;
@@ -153,6 +169,27 @@ function LockIcon({ className = "h-4 w-4" }: { className?: string }) {
         stroke="currentColor"
         strokeLinecap="round"
         strokeWidth="1.3"
+      />
+    </svg>
+  );
+}
+
+/** Галочка для бейджа проверки на печати. */
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-3.5 w-3.5"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 16 16"
+    >
+      <path
+        d="m3.5 8.4 2.8 2.8 6.2-6.4"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.6"
       />
     </svg>
   );
@@ -452,6 +489,26 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                         key={profile.id}
                         className="relative flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6"
                       >
+                        {profile.testedAt ? (
+                          <div className="relative z-20 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span
+                              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-emerald-200"
+                              title={profile.testedNote}
+                            >
+                              <CheckIcon />
+                              Проверен на печати
+                              <span className="font-medium text-emerald-300">
+                                · {formatTestedAt(profile.testedAt)}
+                              </span>
+                            </span>
+                            {profile.testedNote ? (
+                              <span className="text-[11px] leading-snug text-emerald-200/80">
+                                {profile.testedNote}
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+
                         <div
                           className={
                             locked

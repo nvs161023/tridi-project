@@ -36,6 +36,10 @@ export type PrintProfile = {
   format: ProfileFormat;
   /** Базовый профиль, который должен быть установлен в слайсере. */
   requires: string;
+  /** Дата реальной тестовой печати в ISO-формате (YYYY-MM-DD). */
+  testedAt?: string;
+  /** Принтер, материал, слайсер и что именно проверяли. */
+  testedNote?: string;
   /** Путь относительно корня profiles/. */
   file: string;
 };
