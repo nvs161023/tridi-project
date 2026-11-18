@@ -15,7 +15,7 @@ import { SignUpForm } from "./SignUpForm";
 export const metadata: Metadata = {
   title: "Регистрация",
   description:
-    "Создайте аккаунт TriDi, чтобы сохранять прогресс курса по 3D-печати, собирать модели в конструкторе и скачивать STL.",
+    "Создайте аккаунт TriDi для доступа к инструментам и обучению: бесплатный уровень курса, конструктор и диагностика дефектов.",
   robots: { index: false, follow: false },
 };
 
@@ -55,7 +55,11 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             Регистрация
           </h1>
           <p className="mt-3 text-base leading-relaxed text-slate-300">
-            Создайте аккаунт, чтобы сохранять прогресс курса
+            Создайте аккаунт для доступа к инструментам и обучению
+          </p>
+          <p className="mt-2 text-xs leading-relaxed text-slate-400">
+            Бесплатный уровень курса и диагностика дефектов доступны сразу после
+            регистрации.
           </p>
 
           <SignUpForm next={next} />
