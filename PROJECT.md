@@ -80,6 +80,7 @@
 | `SUPABASE_SERVICE_ROLE_KEY` | Приватный ключ service_role: вебхук Robokassa записывает покупки в обход RLS, админ-панель форума меняет статусы и баны |
 | `FILE_SIGNING_SECRET` | Секрет HMAC для ссылок на готовые STL (`/api/generated-stl`). В production задайте отдельную длинную строку; без неё используется `SUPABASE_SERVICE_ROLE_KEY`, и его ротация ломает выданные ссылки |
 | `ADMIN_EMAIL` | Email администратора (можно несколько через запятую): доступ к `/admin/forum`, `/admin/promo` и получатель ежедневного отчёта. Если пусто, админки недоступны, а отчёт не отправляется |
+| `FORUM_SEED_EMAIL` | Необязательный email автора стартовых тем для `npm run seed:forum`. Если пусто, скрипт берёт первый адрес из `ADMIN_EMAIL`; если аккаунт не найден — создаёт служебный `team@tridi-print.ru` с профилем «Команда TriDi» |
 | `ROBOKASSA_LOGIN` | Логин магазина из технических настроек Robokassa |
 | `ROBOKASSA_PASSWORD1` | Пароль №1: подпись ссылки на оплату |
 | `ROBOKASSA_PASSWORD2` | Пароль №2: проверка уведомления ResultURL |
@@ -116,6 +117,7 @@
 | `npm run shots:vase` | Снимки вазы в PNG без браузера (`scripts/vase-render.mjs`): сетка строится тем же `createVaseGeometry`, что и в продукте, и рисуется по z-буферу с плоским затенением. `npm run shots:vase -- --shape classic --pattern honeycomb --freq 20 --size 900 --out .fonttmp/shots/a.png` — одно сочетание, без `--shape`/`--pattern` — лист 12 силуэтов × 6 узоров. Файлы кладутся в `.fonttmp/shots/` (папка в `.gitignore`) |
 | `npm run seed:demo` | Демо-аккаунт Мастерской (`scripts/seed-demo-workshop.mjs`): создаёт или обновляет пользователя `demo@tridi-print.ru` с флагом `is_demo`, подписку Pro на год, настройки и реквизиты, 5 клиентов, 6 товаров, 7 катушек, 4 принтера, 11 заказов с позициями и три задания печати. Идемпотентно: данные демо удаляются и создаются заново. Пароль берётся из `DEMO_WORKSHOP_PASSWORD`, а если переменной нет — генерируется и дописывается в `.env.local` |
 | `npm run shots:workshop` | Скриншоты демо-мастерской для витрины (`scripts/workshop-shots.mjs`, Playwright): входит через `/api/demo/workshop`, кликает вкладки «Заказы», «Склад», «Принтеры», «Клиенты», «Калькулятор» и кладёт JPEG в `public/workshop/`. Нужен запущенный сервер (`npm run build && npm run start`); адрес переопределяется `SHOTS_BASE_URL`, тур и cookie-баннер отключаются через `localStorage` |
+| `npm run seed:forum` | Стартовое наполнение форума (`scripts/seed-forum.mjs`): пять категорий из `data/forum-seed-topics.mjs` и пятнадцать approved-тем от «Команды TriDi» с нулевыми просмотрами. Нужны `NEXT_PUBLIC_SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY`; автор берётся из `FORUM_SEED_EMAIL` или `ADMIN_EMAIL`, иначе создаётся служебный `team@tridi-print.ru`. Категории обновляются по `slug`, темы вставляются с `ignoreDuplicates`, поэтому повторный запуск не создаёт дубли |
 
 | `npm run ensure:tsconfig` | Восстанавливает `tsconfig.json` с алиасом `@/*`, если файл не доехал до сборочного дерева |
 | `npm run clean` | Удаляет `.next` |
@@ -2268,7 +2270,17 @@ M117, моторы) и правило «без отвода — вмятина �
 - **Схема:** `supabase/forum.sql` — `forum_categories`, `forum_threads`, `forum_replies`,
   `forum_bans` и представление `forum_authors` (только `id` и `display_name`, без email).
   Файл, как и остальные `supabase/*.sql`, применяется вручную в SQL Editor. Категории в миграцию
-  намеренно не зашиты: их добавляют отдельным запросом.
+  намеренно не зашиты: их добавляет отдельный идемпотентный `supabase/forum_categories.sql`
+  (`insert ... on conflict (slug) do update`).
+- **Стартовое наполнение:** `npm run seed:forum` (`scripts/seed-forum.mjs`) берёт пять категорий
+  и пятнадцать approved-тем из `data/forum-seed-topics.mjs`, обновляет категории по `slug`,
+  убирает пятнадцать известных пустых легаси-разделов старого набора и вставляет темы с
+  детерминированными `forum-seed-NN-…` и `ignoreDuplicates`. Просмотры
+  остаются нулевыми, ответы не создаются, автор — один: `FORUM_SEED_EMAIL`, первый адрес из
+  `ADMIN_EMAIL` или служебный `team@tridi-print.ru` с профилем «Команда TriDi». Нужны
+  `NEXT_PUBLIC_SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY`. SQL применяется до первого запуска;
+  повторный запуск ничего не дублирует. Проверка — `select count(*) from public.forum_threads
+  where status = 'approved';` и живой `/forum`.
 - **RLS:** анонимный и вошедший читатель видят только `approved`; автор дополнительно видит свои
   `pending`/`rejected`. При вставке политика требует `author_id = auth.uid()`: для темы —
   `status = 'pending'`, для ответа — `status = 'approved'`. Подменить автора или опубликовать тему
@@ -3864,7 +3876,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
 | `site_visits` | `id uuid`, `path text`, `created_at timestamptz` | Обезличенный счётчик просмотров публичных страниц: путь без query-строки (1–512 символов) и время, без IP и `user_id`. Политик RLS нет вовсе, у `anon` и `authenticated` отозваны гранты — пишет и читает только `service_role` из middleware и ежедневного отчёта. Схема — `supabase/site_visits.sql` |
 | `constructor_generations` | `id uuid`, `user_id uuid not null`, `model_type text`, `details jsonb`, `created_at timestamptz` | Журнал успешных выдач STL (бесплатные и с активным доступом): тип модели и время, `user_id` с `on delete cascade` — удаление аккаунта удаляет и его генерации, обезличенной истории не остаётся. В отличие от `constructor_downloads` это не лимит, а аналитика: ошибка записи не мешает отдать файл. Доступ только у `service_role`. Схема — `supabase/constructor_generations.sql`. Колонка `details` — параметры модели на момент генерации (у вазы силуэт, узор, деформации и сид): по ней видно, какие формы реально качают, а `null` означает старую запись или базу без применённого `alter table` |
 | `generations` | `id uuid`, `user_id uuid not null`, `task_id text unique`, `service text`, `stl_url text`, `is_public boolean not null default false`, `category text not null default 'other'`, `created_at timestamptz` | История генераций 3D по фото: строка появляется в `/api/generate-3d` ещё до ответа сети, `task_id` — номер задачи Tripo или Meshy (по нему `/api/check-3d-status` находит строку и после постобработки дописывает `stl_url` — путь в закрытом бакете `generated-models`, `null` пока модель не готова), `service` — `tripo`/`meshy`. `is_public = false` по умолчанию: модель видит только владелец, публикацию включает он сам в «Моих моделях». `category` — категория модели (`toy`, `figure`, `decor`, `functional`, `other`) с CHECK `generations_category_check`: её выбирают в генераторе, она приходит в теле `/api/generate-3d`, пишется вместе со строкой и меняется в «Моих моделях»; по ней фильтруется галерея. RLS: владелец `select`/`insert`/`update`/`delete` только своих строк (политика `update` не по колонкам, поэтому `category` меняется тем же правом, что `is_public`), `anon` и `authenticated` дополнительно читают строки `is_public and stl_url is not null` — публичную ленту; запись идёт `service_role`. Индексы `(user_id, created_at desc)`, частичный `(created_at desc) where is_public and stl_url is not null` и `generations_category_created_idx` — `(category, created_at desc)` под фильтр галереи; `user_id` — `on delete cascade`. Бакет создаёт `generations.sql` (`insert ... on conflict`), колонку категории и её индекс — `generations_category.sql`. Схема — `supabase/generations.sql` |
-| `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; наполняются отдельно после применения `supabase/forum.sql` |
+| `forum_categories` | `id uuid`, `slug text unique`, `title`, `description`, `"order" integer` | Разделы форума; базовые пять добавляет `supabase/forum_categories.sql` или `npm run seed:forum` (upsert по `slug`) |
 | `forum_threads` | `id uuid`, `category_id`, `slug text unique`, `title`, `content`, `author_id`, `created_at`, `views`, `status` | Темы форума; публично видны только `approved`, автор видит свои |
 | `forum_replies` | `id uuid`, `thread_id`, `content`, `author_id`, `created_at`, `status` | Ответы; публикуются сразу (`approved`), проверяются после публикации, нарушения удаляются из админки |
 | `forum_bans` | `id uuid`, `user_id`, `reason`, `expires_at`, `created_at` | Баны **только форума**; `expires_at = null` — бессрочно. Не влияет на курсы и доступ к инструментам |
@@ -3958,6 +3970,7 @@ Self-hosted Supabase на сервере в РФ: используются то�
   индекс по ней — без него вебхук не продлевает подписку), `legacy_pro.sql` (таблица
   `legacy_pro_users`, backfill действующих покупателей `pro`, RLS на свой грант и отчёт по
   выдаче), `refund_audit.sql` (журнал возвратов), `forum.sql` (таблицы и RLS форума),
+  `forum_categories.sql` (пять стартовых категорий, upsert по `slug`),
   `constructor_downloads.sql` (месячный счётчик бесплатных STL, RLS и гранты),
   `saved_projects.sql` (таблица сохранённых проектов, индекс, RLS на свои строки и гранты),
   `constructor_feedback.sql` (оценки после скачивания: CHECK 1–5, длина комментария, RLS
