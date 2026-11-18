@@ -37,13 +37,14 @@ const BUNDLE_ARTIFACTS = new Set(
   ),
 ).size;
 
-const BUNDLE_DESCRIPTION = `Все платные курсы сайта (${BUNDLE_COURSES}) — навсегда, одним пакетом со скидкой. Бесплатный «Новичок» открыт каждому и без пакета.`;
+const BUNDLE_DESCRIPTION = `Покупайте все три курса (${BUNDLE_COURSES}) вместе со скидкой: это выгоднее, чем покупать их по отдельности. Бесплатный «Новичок» открыт каждому и без пакета.`;
 
 const BUNDLE_FEATURES = [
   ...PAID_LEVELS.map(
     (level) =>
       `${level.shortTitle} — ${level.lessons} ${pluralize(level.lessons, LESSON_FORMS)}`,
   ),
+  "Именной сертификат по каждому из 3 курсов",
   "Коммерческая лицензия (можно продавать напечатанное)",
   "Доступ к курсам навсегда",
 ];
@@ -55,8 +56,8 @@ const BUNDLE_FEATURES = [
  * весь пакет. Количество файлов к урокам берётся из каталога уровней.
  */
 const BUNDLE_HIGHLIGHTS = [
-  "Все 3 платных курса сайта",
-  "Сертификат после завершения каждого курса",
+  `Все 3 курса (${BUNDLE_COURSES}) навсегда`,
+  "Именной сертификат об окончании по КАЖДОМУ из 3 курсов",
   ...(BUNDLE_ARTIFACTS > 0
     ? [
         `${BUNDLE_ARTIFACTS} ${pluralize(BUNDLE_ARTIFACTS, FILE_FORMS)} к урокам`,
@@ -147,8 +148,8 @@ export function ProBundleCard({
           </p>
 
           <p className="mt-3 text-xs leading-relaxed text-slate-300">
-            Пакет открывает только курсы. Подписка Pro на мастерскую, профили и
-            генератор продаётся отдельно.
+            В пакет входят только курсы: уроки, тесты модулей и именные
+            сертификаты.
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">
