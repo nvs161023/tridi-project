@@ -584,10 +584,12 @@ export default async function DashboardPage() {
   const hasDataError = Boolean(profileResult.error || progressError);
   const hasPro = subscription.active;
   const subscriptionDate = formatDate(subscription.expiresAt);
+  // Новый пакет курсов (`pro` после 17.11.2026) инструментов не открывает:
+  // source === "bundle" означает только legacy-грант старого пакета.
   const hasBundle = hasPro && subscription.source === "bundle";
   const subscriptionTitle = hasPro
     ? hasBundle
-      ? "Пакет «Всё включено» активен навсегда"
+      ? "Пожизненный доступ к инструментам (старый пакет)"
       : subscriptionDate
         ? `Доступ к инструментам открыт до ${subscriptionDate}`
         : "Доступ к инструментам открыт"
@@ -627,7 +629,7 @@ export default async function DashboardPage() {
                       className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"
                     />
                     {hasBundle
-                      ? "Пакет «Всё включено»"
+                      ? "Старый пакет «Всё включено»"
                       : "Доступ к инструментам открыт"}
                   </span>
                 ) : (
@@ -717,7 +719,7 @@ export default async function DashboardPage() {
               <p className="mt-3 max-w-2xl text-sm leading-relaxed text-zinc-400 sm:text-base">
                 {hasPro
                   ? hasBundle
-                    ? "Все три платных курса и инструменты платформы открыты навсегда. Это разовая покупка пакета — продлевать ничего не нужно."
+                    ? "Старый пакет дал пожизненный доступ к трём платным курсам и инструментам платформы. Продлевать ничего не нужно; на новые покупки пакета курсов доступ к Pro-инструментам не распространяется."
                     : "Библиотека профилей открыта. Доступ действует на инструменты платформы, курсы остаются доступны навсегда после покупки."
                   : "Курсы можно купить навсегда, а инструменты платформы открывает подписка Pro. Начните с бесплатного уровня — карта не нужна."}
               </p>
@@ -730,7 +732,7 @@ export default async function DashboardPage() {
                     aria-hidden
                     className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.9)]"
                   />
-                  {hasBundle ? "Пакет активен" : "Доступ открыт"}
+                  {hasBundle ? "Старый пакет активен" : "Доступ открыт"}
                 </span>
               ) : (
                 <Link
