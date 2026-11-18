@@ -796,65 +796,10 @@ export default async function SubscriptionPage() {
           </div>
         </section>
 
-        {/* Отзывы: честные плейсхолдеры, без выдуманных историй */}
-        <section
-          aria-labelledby="reviews-title"
-          className="border-b border-white/10"
-        >
-          <div className="mx-auto max-w-6xl px-5 py-20 sm:px-8 sm:py-24">
-            <p className="text-sm font-semibold tracking-widest text-violet-400 uppercase">
-              Отзывы
-            </p>
-            <h2
-              id="reviews-title"
-              className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-white sm:text-5xl"
-            >
-              Здесь будут реальные истории
-            </h2>
-            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg">
-              Мы не публикуем выдуманные отзывы. Места подготовлены под первые
-              потоки: человек расскажет, что напечатал, где застрял и что
-              изменилось в его мастерской.
-            </p>
-
-            <div className="mt-10 grid gap-4 sm:grid-cols-3 lg:gap-5">
-              {["Первый", "Второй", "Третий"].map((slot) => (
-                <Card
-                  as="figure"
-                  key={slot}
-                  className="flex h-full flex-col rounded-3xl border-dashed border-white/15 bg-white/[0.03]"
-                >
-                  <div
-                    aria-hidden
-                    className="text-sm tracking-[0.2em] text-amber-400/40"
-                  >
-                    ★★★★★
-                  </div>
-                  <blockquote className="mt-4 text-sm leading-relaxed text-slate-300 italic">
-                    «{slot} отзыв: что получилось напечатать, что оказалось
-                    сложным и чем помог курс».
-                  </blockquote>
-                  <figcaption className="mt-auto flex items-center gap-3 pt-6">
-                    <span
-                      aria-hidden
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-sm text-slate-300"
-                    >
-                      ?
-                    </span>
-                    <span className="text-xs text-slate-300">
-                      Имя · уровень · дата
-                    </span>
-                  </figcaption>
-                </Card>
-              ))}
-            </div>
-
-            <p className="mt-6 text-xs leading-relaxed text-slate-300">
-              Плейсхолдеры уберём, когда появятся настоящие отзывы с согласием
-              авторов на публикацию.
-            </p>
-          </div>
-        </section>
+        <p className="mx-auto max-w-6xl px-5 py-8 text-sm leading-relaxed text-slate-300 sm:px-8">
+          Отзывы появятся после завершения курсов: они публикуются в „Центре
+          выпускника“ и только с согласия авторов.
+        </p>
 
         {/* FAQ: нативные details — работают без клиентского JS */}
         <section aria-labelledby="faq-title">
