@@ -31,8 +31,8 @@ import { OG_IMAGE } from "@/lib/seo";
  *   — один CTA на блок, остальное — карточки и текстовые ссылки;
  *   — в каждом блоке не больше трёх предложений подряд;
  *   — все цифры считаются из lib/* и data/*, а не пишутся руками;
- *   — изображения — реальный продукт: модели Конструктора и скриншоты
- *     Мастерской из public, у каждого есть alt.
+ *   — изображения — реальный продукт: фотография готового изделия,
+ *     модели Конструктора и скриншоты Мастерской из public, у каждого есть alt.
  */
 
 /** Формы склонения: 10 моделей, 193 профиля, 6 дефектов. */
@@ -304,10 +304,6 @@ function FeatureIcon({
   );
 }
 
-
-/** Модель для hero: самый «продающий» результат Конструктора. */
-const HERO_MODEL =
-  VASE_RECIPES.find((recipe) => recipe.id === "japandi-ribs") ?? VASE_RECIPES[0];
 
 /**
  * Результаты Конструктора рядом с шагами: доказательство вместо отдельной
@@ -589,25 +585,22 @@ export default function Home() {
                 </p>
               </div>
 
-              <figure className="relative mx-auto w-full max-w-sm lg:max-w-md">
+              <figure className="relative mx-auto w-full max-w-xl">
                 <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-gradient-to-b from-white/[0.06] to-white/[0.01] p-3">
                   <Image
-                    src={vaseRecipeImagePath(HERO_MODEL.id)}
-                    alt={`Пример 3D-модели из Конструктора TriDi: ваза ${HERO_MODEL.name}`}
-                    width={320}
-                    height={400}
+                    src="/hero-real-vase.png"
+                    alt="Готовая 3D-печатная ваза с растением на столе рядом с 3D-принтером"
+                    width={1536}
+                    height={1024}
                     priority
-                    sizes="(max-width: 1024px) 70vw, 420px"
-                    className="h-auto w-full rounded-[1.5rem] bg-[#0d0d0d] object-cover"
+                    sizes="(max-width: 1024px) 92vw, 560px"
+                    className="aspect-[3/2] h-auto w-full rounded-[1.5rem] bg-[#0d0d0d] object-cover"
                   />
                 </div>
                 <figcaption className="mt-3 text-center text-xs text-white/30">
-                  Результат Конструктора: форма, рельеф и высота меняются
-                  слайдерами
+                  Напечатано на 3D-принтере. Готовый STL можно скачать в
+                  Конструкторе
                 </figcaption>
-                <span className="absolute right-5 top-5 rounded-full border border-white/10 bg-[#030303]/80 px-3 py-1.5 text-[11px] font-semibold text-white/70 backdrop-blur">
-                  STL готов · 120 мм
-                </span>
               </figure>
             </div>
           </div>
