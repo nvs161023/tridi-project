@@ -52,6 +52,23 @@ export type LandingProgramGroup = {
   modules: LandingModule[];
 };
 
+/**
+ * Пример урока на лендинге: первый урок с готовым материалом.
+ *
+ * `title` и `duration` не пишутся в разметке руками — они приходят из
+ * программы, поэтому пример не может разойтись с фактическим курсом.
+ */
+export type LandingSample = {
+  /** Название первого урока с материалом. */
+  title: string;
+  /** Длительность этого урока из данных курса. */
+  duration: string;
+  /** Что ученик делает руками. */
+  practice: string;
+  /** Что получает в итоге. */
+  result: string;
+};
+
 /** Портрет ученика: короткий заголовок и пояснение. */
 export type LandingAudience = {
   title: string;
@@ -101,6 +118,7 @@ export type CourseLanding = {
   audience: LandingAudience[];
   results: string[];
   program: LandingProgramGroup[];
+  sample: LandingSample;
   theme: LandingTheme;
 };
 
@@ -279,6 +297,36 @@ const COURSE_COPY: Record<
   },
 };
 
+/**
+ * Практика и результат примера урока.
+ *
+ * Это маркетинговый текст, которого нет в JSON уроков. Название и
+ * длительность сюда не дублируются: их берёт `buildSample` из программы.
+ */
+const SAMPLE_COPY: Record<
+  PaidLevelKey,
+  { practice: string; result: string }
+> = {
+  confident: {
+    practice:
+      "Собираете домашний тест воздуха: замеряете частицы до, во время и после печати, проверяете проветривание и вытяжку.",
+    result:
+      "Готовая схема защиты мастерской: где ставить принтер, когда включать вытяжку и какой фильтр нужен.",
+  },
+  engineer: {
+    practice:
+      "Сравниваете три пластика по теплостойкости и нагрузке, выбираете материал под условия детали и считаете запас.",
+    result:
+      "Карточка материала с обоснованием: почему выбранный пластик выдержит температуру и нагрузку.",
+  },
+  profit: {
+    practice:
+      "Считаете маржу для трёх идей продукта и оставляете одну нишу с понятным покупателем.",
+    result:
+      "Короткий список: что продавать, кому и сколько останется с одной детали.",
+  },
+};
+
 /** Модули курса по порядку, уроки внутри — тоже по порядку. */
 function buildModules(rawModules: RawModule[]): LandingModule[] {
   return [...rawModules]
@@ -296,6 +344,23 @@ function buildModules(rawModules: RawModule[]): LandingModule[] {
           hasMaterial: lesson.blocks.length > 0,
         })),
     }));
+}
+
+/** Первый урок с готовым материалом — пример для блока «Как выглядит урок». */
+function buildSample(key: PaidLevelKey): LandingSample {
+  const lesson = buildModules(LEVEL_MODULES[key])
+    .flatMap((courseModule) => courseModule.lessons)
+    .find((item) => item.hasMaterial);
+
+  if (!lesson) {
+    throw new Error(`В курсе ${key} нет урока с материалом для примера`);
+  }
+
+  return {
+    title: lesson.title,
+    duration: lesson.duration,
+    ...SAMPLE_COPY[key],
+  };
 }
 
 /** Уровень витрины по ключу: PAID_LEVELS всегда содержит все три. */
@@ -347,6 +412,7 @@ function buildLevelLanding(key: PaidLevelKey): CourseLanding {
     audience: copy.audience,
     results: copy.results,
     program,
+    sample: buildSample(key),
     theme: LEVEL_THEMES[key],
   };
 }
@@ -384,6 +450,8 @@ function buildProLanding(): CourseLanding {
     audience: copy.audience,
     results: copy.results,
     program: levels,
+    // Пакет начинается с «Уверенного уровня», поэтому пример берётся оттуда.
+    sample: buildSample("confident"),
     theme: LEVEL_THEMES.pro,
   };
 }

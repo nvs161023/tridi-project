@@ -546,6 +546,88 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
           </div>
         </section>
 
+        {/* Пример урока: первый готовый урок программы, без обещания бесплатного доступа */}
+        <section
+          id="sample"
+          aria-labelledby="sample-title"
+          className="border-b border-white/10 bg-slate-900/30"
+        >
+          <div className="mx-auto max-w-6xl px-5 py-16 sm:px-8 sm:py-20">
+            <p
+              className={`text-sm font-semibold tracking-widest uppercase ${course.theme.text}`}
+            >
+              Пример урока
+            </p>
+            <h2
+              id="sample-title"
+              className="mt-3 text-3xl font-extrabold tracking-tight text-white sm:text-5xl"
+            >
+              Как выглядит урок
+            </h2>
+            <p className="mt-4 max-w-3xl text-base leading-relaxed text-slate-300">
+              Первый урок с готовым материалом из программы —{" "}
+              «{course.sample.title}». Здесь видно, что именно вы будете
+              разбирать и делать руками.
+            </p>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-3">
+              {[
+                {
+                  label: "Разбираем",
+                  title: course.sample.title,
+                  text: `${course.sample.duration}: теория, примеры и разбор ошибок.`,
+                },
+                {
+                  label: "Делаете",
+                  title: "Практика на своём принтере",
+                  text: course.sample.practice,
+                },
+                {
+                  label: "Получаете",
+                  title: "Результат урока",
+                  text: course.sample.result,
+                },
+              ].map((item) => (
+                <article
+                  key={item.label}
+                  className={`rounded-3xl border bg-slate-950/70 p-6 ${course.theme.border}`}
+                >
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-bold tracking-wide uppercase ${course.theme.soft} ${course.theme.text}`}
+                  >
+                    {item.label}
+                  </span>
+                  <h3 className="mt-4 text-lg font-bold text-white">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-300">
+                    {item.text}
+                  </p>
+                </article>
+              ))}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-4 rounded-3xl border border-white/10 bg-slate-950/60 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <div>
+                <p className="text-sm font-bold text-white">
+                  Хотите сначала посмотреть формат?
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-slate-300">
+                  Полный урок курса открывается после покупки. Начать можно с
+                  бесплатного курса — он покажет формат занятий.
+                </p>
+              </div>
+              <ButtonLink
+                href="/start"
+                variant="secondary"
+                className="shrink-0"
+              >
+                Посмотреть бесплатный урок
+              </ButtonLink>
+            </div>
+          </div>
+        </section>
+
         {/* Аудитория: три портрета, чтобы человек узнал себя */}
         <section
           id="audience"
