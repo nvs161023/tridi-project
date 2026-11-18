@@ -157,43 +157,44 @@ const LESSONS: Lesson[] = BASIC_LESSONS.map((lesson, index) => ({
   hasPractice: lesson.blocks.some((block) => block.title.startsWith("Практика")),
 }));
 
-type Review = {
+type StudentExample = {
   initials: string;
   name: string;
   role: string;
-  /** Что человек уже сделал и чем пользовался — только то, что есть в его тексте. */
+  /** Контекст примера: что уже есть у ученика. */
   tags: string[];
+  /** Собирательная задача, а не цитата реального человека. */
   text: string;
 };
 
 /**
- * Истории учеников, а не агрегированный рейтинг.
+ * Собирательные примеры задач, а не отзывы.
  *
- * Оценки и новые отзывы живут в «Центре выпускника» и публикуются после
- * прохождения уровня. Поэтому на лендинге нет выдуманного «4,8 из 5»:
- * доверие здесь держится на конкретных деталях историй и цифрах программы.
+ * Оценки и реальные истории живут в «Центре выпускника» и публикуются после
+ * прохождения уровня с согласия автора. Поэтому на лендинге нет выдуманного
+ * «4,8 из 5»: здесь только типовые ситуации новичка и цифры программы.
  */
-const REVIEWS: Review[] = [
+const STUDENT_EXAMPLES: StudentExample[] = [
   {
-    initials: "ДМ",
-    name: "Дмитрий",
-    role: "новичок",
+    initials: "НВ",
+    name: "Новичок",
+    role: "первая печать после простоя",
     tags: ["Ender 3", "3 урока"],
-    text: "Купил Ender 3, месяц стоял. Прошёл 3 урока — наконец-то настроил стол и напечатал нормальную вазу!",
+    text: "Принтер куплен, но месяц стоит без дела. Задача — настроить стол и напечатать первую вазу.",
   },
   {
-    initials: "АС",
-    name: "Анна",
-    role: "дизайнер",
+    initials: "ДЗ",
+    name: "Дизайнер",
+    role: "визуальные схемы",
     tags: ["Схемы", "Без тонны текста"],
-    text: "Очень круто, что все схемы нарисованы. Не надо читать тонну текста, просто смотришь и делаешь.",
+    text: "Нужно разобраться в настройках без тонны текста: по схемам проще повторять шаги и сразу проверять результат.",
   },
   {
-    initials: "МК",
-    name: "Максим",
-    role: "инженер",
+    initials: "ИН",
+    name: "Инженер",
+    role: "настройка ретракта",
     tags: ["Ретракт", "Чек-листы"],
-    text: "Наконец-то понял, что такое ретракт. Спасибо за практику и понятные чек-листы!",
+    text: "Печать с паутиной и соплями. Задача — разобраться с ретрактом по чек-листу и убрать дефект.",
   },
 ];
 
@@ -257,7 +258,7 @@ export default function StartPage() {
 
           <nav className={styles.headerNav} aria-label="Разделы лендинга">
             <a href="#program">Программа</a>
-            <a href="#reviews">Отзывы</a>
+            <a href="#examples">Примеры</a>
             <a href="#faq">Вопросы</a>
           </nav>
 
@@ -324,7 +325,9 @@ export default function StartPage() {
               {BASIC_LEVEL.questions} вопросов
             </span>
             <span>Без карты</span>
-            <a href="#reviews">{REVIEWS.length} истории учеников</a>
+            <a href="#examples">
+              {STUDENT_EXAMPLES.length} примера ситуаций
+            </a>
           </div>
 
           <div className={styles.heroVisual}>
@@ -472,19 +475,18 @@ export default function StartPage() {
         </div>
       </section>
 
-      <section className={styles.section} id="reviews">
+      <section className={styles.section} id="examples">
         <div className={styles.container}>
-          <p className={styles.eyebrow}>Истории учеников</p>
-          <h2 className={styles.sectionTitle}>Они уже начали печатать</h2>
+          <p className={styles.eyebrow}>Примеры ситуаций</p>
+          <h2 className={styles.sectionTitle}>С чем приходят ученики</h2>
           <p className={styles.sectionSubtitle}>
-            {REVIEWS.length} истории людей, у которых принтер тоже когда-то стоял
-            без дела.
+            Три собирательных примера задач, а не отзывы реальных людей.
           </p>
 
           <div className={styles.reviewsStats}>
             <div className={styles.reviewsStat}>
-              <strong>{REVIEWS.length}</strong>
-              <span>истории учеников</span>
+              <strong>{STUDENT_EXAMPLES.length}</strong>
+              <span>примера ситуаций</span>
             </div>
             <div className={styles.reviewsStat}>
               <strong>{BASIC_LEVEL.visuals}</strong>
@@ -497,35 +499,37 @@ export default function StartPage() {
           </div>
 
           <div className={styles.reviewsGrid}>
-            {REVIEWS.map((review) => (
+            {STUDENT_EXAMPLES.map((example) => (
               <article
-                key={review.name}
+                key={example.name}
                 className={`${styles.glassCard} ${styles.reviewCard}`}
               >
                 <div className={styles.reviewHeader}>
                   <div className={styles.reviewAvatar} aria-hidden="true">
-                    {review.initials}
+                    {example.initials}
                   </div>
                   <div>
-                    <div className={styles.reviewName}>{review.name}</div>
-                    <div className={styles.reviewRole}>{review.role}</div>
+                    <div className={styles.reviewName}>{example.name}</div>
+                    <div className={styles.reviewRole}>{example.role}</div>
                   </div>
+                  <span className={styles.exampleBadge}>Пример</span>
                 </div>
                 <div className={styles.reviewTags}>
-                  {review.tags.map((tag) => (
+                  {example.tags.map((tag) => (
                     <span key={tag} className={styles.reviewTag}>
                       {tag}
                     </span>
                   ))}
                 </div>
-                <p className={styles.reviewText}>«{review.text}»</p>
+                <p className={styles.reviewText}>{example.text}</p>
               </article>
             ))}
           </div>
 
           <p className={styles.reviewsNote}>
-            Оценки и новые отзывы публикуются в «Центре выпускника» после
-            прохождения уровня.
+            Это примеры задач, а не отзывы. Реальные истории публикуются в
+            „Центре выпускника“ после завершения уровня и только с согласия
+            автора.
           </p>
         </div>
       </section>

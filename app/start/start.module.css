@@ -934,9 +934,9 @@
   line-height: 1.6;
 }
 
-/* Отзывы */
+/* Примеры задач */
 /*
- * Сводка: число историй и проверяемые цифры программы вместо «4,8 из 5».
+ * Сводка: число примеров и проверяемые цифры программы вместо «4,8 из 5».
  * Рейтинг без реальной выборки был бы обещанием, которое нечем подтвердить.
  */
 .pageWrapper .reviewsStats {
@@ -2088,12 +2088,12 @@
 
 
 /* ------------------------------------------------------------------ *
- * Карточки отзывов (Шаг 5.1)
+ * Карточки примеров задач
  *
  * .reviewCard и .reviewText уже есть в разметке: правила ниже намеренно
  * дополняют их (padding 32, курсив текста), hover и transition остаются
- * из блока «Отзывы». .reviewHeader / .reviewAvatar / .reviewName /
- * .reviewRole / .reviewTags подключаются на Шаге 5.2.
+ * из блока «Примеры задач». .reviewHeader / .reviewAvatar / .reviewName /
+ * .reviewRole / .reviewTags / .exampleBadge подключаются здесь.
  * ------------------------------------------------------------------ */
 .pageWrapper .reviewCard {
   display: flex;
@@ -2135,7 +2135,22 @@
   font-size: 13px;
 }
 
-/* Теги истории: конкретика из текста вместо выдуманного рейтинга. */
+/* Бейдж «Пример»: сразу отделяет собирательную задачу от отзыва. */
+.pageWrapper .exampleBadge {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 4px 9px;
+  color: #fcd34d;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  white-space: nowrap;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 999px;
+}
+
+/* Теги примера: контекст задачи вместо выдуманного рейтинга. */
 .pageWrapper .reviewTags {
   display: flex;
   flex-wrap: wrap;
