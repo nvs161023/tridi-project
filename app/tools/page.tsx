@@ -8,11 +8,12 @@ import { OG_IMAGE } from "@/lib/seo";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 
-const PAGE_TITLE = "3D-инструменты: конструктор, профили, дефекты и мастерская";
+const PAGE_TITLE =
+  "3D-инструменты: конструктор, профили, дефекты, генератор и мастерская";
 const PAGE_DESCRIPTION =
-  "Центр инструментов TriDi: конструктор 3D-моделей с предпросмотром и STL, библиотека профилей слайсеров, справочник дефектов печати и мастерская для 3D-фермы — заказы, принтеры и склад в одном окне.";
+  "Центр инструментов TriDi: конструктор 3D-моделей с предпросмотром и STL, генератор 3D по фото, библиотека профилей слайсеров, справочник дефектов печати и мастерская для 3D-фермы — заказы, принтеры и склад в одном окне.";
 const PAGE_IMAGE_ALT =
-  "TriDi: конструктор 3D-моделей, профили печати и мастерская";
+  "TriDi: конструктор 3D-моделей, генератор по фото, профили печати и мастерская";
 
 export const metadata: Metadata = {
   title: PAGE_TITLE,
@@ -51,7 +52,12 @@ export const metadata: Metadata = {
 /** Шапка читает cookies, поэтому страница собирается на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-type ToolIconName = "profiles" | "defects" | "workshop" | "constructor";
+type ToolIconName =
+  | "profiles"
+  | "defects"
+  | "workshop"
+  | "constructor"
+  | "generator";
 
 type Tool = {
   href: string;
@@ -197,6 +203,32 @@ function CubeIcon({ className }: { className?: string }) {
   );
 }
 
+/** Искры — генератор 3D по фото. */
+function SparklesIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M12 3.4 13.7 9l5.6 1.7-5.6 1.7L12 18l-1.7-5.6L4.7 10.7 10.3 9 12 3.4Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="1.5"
+      />
+      <path
+        d="M18.5 3v3.6M16.7 4.8h3.6M5.5 17.4v3.2M3.9 19h3.2"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="1.5"
+      />
+    </svg>
+  );
+}
+
 function ToolIcon({
   name,
   className,
@@ -220,6 +252,10 @@ function ToolIcon({
     return <CubeIcon className={className} />;
   }
 
+  if (name === "generator") {
+    return <SparklesIcon className={className} />;
+  }
+
   return null;
 }
 
@@ -241,6 +277,25 @@ const TOOLS: Tool[] = [
       icon: "border-emerald-400/30 bg-emerald-500/10 text-emerald-300",
       hover: "hover:border-emerald-400/50",
       cta: "text-emerald-300 group-hover:text-emerald-200",
+    },
+  },
+  {
+    href: "/3d-generator",
+    title: "Генератор 3D по фото",
+    description:
+      "Загрузите 1–4 фото предмета и получите 3D-модель для печати. Режимы «Стандарт» и «Ультра» — от быстрой формы до мелкой фактуры.",
+    icon: "generator",
+    badges: ["По токенам", "Лимиты Pro"],
+    bullets: [
+      "1–4 фотографии предмета и выбор качества",
+      "Очистка сетки и STL с сеткой, приведённой к 120 мм",
+      "Бесплатная генерация и пакеты токенов",
+    ],
+    cta: "Открыть генератор",
+    accent: {
+      icon: "border-fuchsia-400/30 bg-fuchsia-500/10 text-fuchsia-300",
+      hover: "hover:border-fuchsia-400/50",
+      cta: "text-fuchsia-300 group-hover:text-fuchsia-200",
     },
   },
   {
@@ -344,15 +399,15 @@ export default async function ToolsPage() {
             </h1>
 
             <p className="mt-6 max-w-3xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Четыре инструмента для практики: собрать модель в конструкторе и
-              скачать STL, подобрать профиль слайсера, разобраться, почему деталь
-              не получилась, и вести заказы мастерской. Начните с задачи, а не с
-              перебора настроек.
+              Пять инструментов для практики: собрать модель в конструкторе или
+              получить её из фото, скачать STL, подобрать профиль слайсера,
+              разобраться, почему деталь не получилась, и вести заказы
+              мастерской. Начните с задачи, а не с перебора настроек.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                {TOOL_COUNT} инструмента
+                {TOOL_COUNT} инструментов
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 {profileCount} профилей печати
@@ -382,9 +437,13 @@ export default async function ToolsPage() {
                 </h2>
               </div>
               <p className="max-w-md text-sm leading-relaxed text-slate-300 sm:text-base">
-                Мастерская и библиотека профилей открываются пакетом «Всё
-                включено», конструктор — сразу после входа, диагностика дефектов
-                доступна всем и без регистрации.
+                Мастерская и библиотека профилей открываются подпиской Pro.
+                Конструктор доступен после входа: три бесплатных STL в месяц, в
+                Pro — без лимита. Диагностика дефектов — бесплатно и без
+                регистрации. Генератор по фото: одна бесплатная генерация
+                Standard, дальше — токены или подписка Pro с тремя Standard и
+                одной Ultra в месяц. Пакет «Всё включено» — это только три курса,
+                инструменты в него не входят.
               </p>
             </div>
 
