@@ -13,16 +13,16 @@ import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Библиотека профилей печати — часть пакета «Всё включено».
+ * Библиотека профилей печати — Pro-инструмент.
  *
  * Страница открыта всем: она показывает, что лежит в библиотеке, и ведёт к
- * пакету. Сами карточки без доступа размыты, а скачивание защищено отдельно —
- * app/api/profiles/download/route.ts проверяет сессию и доступ. Прятать файлы
- * только за CSS нельзя: адрес API можно открыть и руками.
+ * подписке Pro. Сами карточки без доступа размыты, а скачивание защищено
+ * отдельно — app/api/profiles/download/route.ts проверяет сессию и доступ.
+ * Прятать файлы только за CSS нельзя: адрес API можно открыть и руками.
  *
- * Доступ проверяется через hasActiveSubscription() — это подписка Pro
- * `pro` «Всё включено» или легаси-подписка `pro-subscription`. Отдельные уровни
- * инструменты не открывают.
+ * Доступ проверяется через hasActiveSubscription(): это подписка Pro
+ * (`pro-subscription`) или легаси-грант покупателей архивного пакета `pro`.
+ * Отдельные уровни курсов инструменты не открывают.
  */
 export const metadata: Metadata = {
   title: "Библиотека профилей печати",
@@ -164,12 +164,13 @@ export default async function ProfilesPage() {
                 id="profiles-cta"
                 className="mt-4 max-w-4xl text-2xl font-extrabold tracking-tight text-white sm:text-4xl"
               >
-                Библиотека открывается пакетом «Всё включено»
+                Библиотека открывается подпиской Pro
               </h2>
               <p className="mt-5 max-w-3xl text-base leading-relaxed text-slate-300 sm:text-lg">
-                Пакет открывает все {profileCount} файлов библиотеки вместе с
-                тремя платными курсами — это разовый платёж, доступ остаётся
-                навсегда. Профили можно скачать сразу после оплаты.
+                Подписка Pro открывает все {profileCount}{" "}
+                {pluralize(profileCount, PROFILE_FORMS)} библиотеки и остальные
+                инструменты платформы. Курсы покупаются отдельно и остаются
+                доступны навсегда. Профили можно скачать сразу после оплаты.
               </p>
 
               <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">

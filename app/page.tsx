@@ -917,7 +917,7 @@ export default function Home() {
                     href="/api/demo/workshop"
                     className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 transition-colors hover:border-emerald-300/40 hover:bg-emerald-400/15 sm:w-auto"
                   >
-                    Открыть демо без оплаты
+                    Открыть демо-мастерскую
                     <span aria-hidden>→</span>
                   </a>
                   <Link
@@ -928,7 +928,9 @@ export default function Home() {
                   </Link>
                 </div>
                 <p className="mt-3 text-xs text-white/30">
-                  Демо открывается без оплаты и работает только на чтение.
+                  Демо бесплатное и работает только на чтение. Обычно сессия
+                  открывается автоматически; если браузер её не сохранил,
+                  понадобится войти или зарегистрироваться бесплатно.
                 </p>
               </div>
 

@@ -1,6 +1,6 @@
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { resolveSiteUrl } from "@/lib/site-url";
 import { demoWorkshopEmail } from "@/lib/workshop/demo";
@@ -32,14 +32,58 @@ type PendingCookie = {
   options?: CookieOptions;
 };
 
-export async function GET(): Promise<Response> {
-  // Адрес берём не из `request.url`: на Amvera приложение слушает внутренний
-  // порт 3000 за прокси, и в запросе приходит `https://run-…:3000/…`. Такой
-  // Location браузер открыть не может — кнопка демо молча ломалась бы.
-  // `resolveSiteUrl()` сначала смотрит NEXT_PUBLIC_SITE_URL, затем (в
-  // разработке) заголовки Host и только потом боевой домен. Так же устроен
-  // редирект в app/logout/route.ts.
-  const origin = await resolveSiteUrl();
+/** Первое значение заголовка: прокси может прислать список через запятую. */
+function firstHeader(value: string | null): string | null {
+  const first = value?.split(",")[0]?.trim();
+
+  return first || null;
+}
+
+/**
+ * Origin, на котором браузер открыл демо.
+ *
+ * Cookies сессии принадлежат конкретному хосту. Если увести человека на другой
+ * домен — например, с preview-сборки на боевой, — браузер не отправит туда
+ * cookie, и `/dashboard/workshop` встретит его формой входа. Поэтому берём
+ * текущий хост из `x-forwarded-host`/`Host`, а не только настроенный
+ * NEXT_PUBLIC_SITE_URL.
+ *
+ * На Amvera без `x-forwarded-host` в запросе оказывается внутренний
+ * `run-…:3000`; такой Location браузер открыть не может. В этом случае
+ * возвращаем null и падаем назад на `resolveSiteUrl()`.
+ */
+function requestOrigin(request: NextRequest): string | null {
+  const forwardedHost = firstHeader(request.headers.get("x-forwarded-host"));
+  const host = forwardedHost ?? firstHeader(request.headers.get("host"));
+
+  if (!host || (!forwardedHost && /:3000$/.test(host))) {
+    return null;
+  }
+
+  const forwardedProto = firstHeader(request.headers.get("x-forwarded-proto"));
+  const protocol =
+    forwardedProto === "https" || forwardedProto === "http"
+      ? forwardedProto
+      : request.nextUrl.protocol === "https:"
+        ? "https"
+        : "http";
+
+  try {
+    const url = new URL(`${protocol}://${host}`);
+
+    // Заголовок с логином/паролем (`user@host`) — не наш случай.
+    if (url.username || url.password) {
+      return null;
+    }
+
+    return url.origin;
+  } catch {
+    return null;
+  }
+}
+
+export async function GET(request: NextRequest): Promise<Response> {
+  const origin = requestOrigin(request) ?? (await resolveSiteUrl());
   const redirect = (path: string) =>
     NextResponse.redirect(new URL(path, origin), 303);
 

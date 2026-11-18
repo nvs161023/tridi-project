@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { loginIntroFor } from "@/lib/auth-login-copy";
 import { authHref, safeNextPath } from "@/lib/auth-redirect";
 
 import { LoginForm } from "./LoginForm";
@@ -16,7 +17,7 @@ import { LoginForm } from "./LoginForm";
 export const metadata: Metadata = {
   title: "Вход",
   description:
-    "Войдите в TriDi, чтобы продолжить курс с того места, где остановились, и открыть личный кабинет.",
+    "Войдите в TriDi, чтобы открыть 3D-генератор, конструктор, мастерскую или продолжить обучение.",
   robots: { index: false, follow: false },
 };
 
@@ -42,6 +43,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   // Путь из адреса проверяем: он приходит из браузера, и без проверки вход мог бы
   // выбрасывать человека на чужой сайт (см. lib/auth-redirect.ts).
   const next = safeNextPath((await searchParams).next);
+  // Текст зависит от next: человек, который шёл в генератор, не должен читать
+  // про продолжение курса. Само правило живёт в lib/auth-login-copy.ts.
+  const intro = loginIntroFor(next);
   return (
     <div className="min-h-screen text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
@@ -58,7 +62,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             Вход
           </h1>
           <p className="mt-3 text-base leading-relaxed text-slate-300">
-            Войдите, чтобы продолжить курс с того места, где остановились
+            {intro}
           </p>
 
           <LoginForm next={next} />

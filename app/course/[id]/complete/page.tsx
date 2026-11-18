@@ -481,7 +481,7 @@ export default async function GraduationPage({ params }: GraduationPageProps) {
           description={
             proActive
               ? "Подписка Pro активна — все профили принтеров и материалов доступны для скачивания без ограничений."
-              : "Проверенные профили принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer. Импорт занимает пару минут — доступ открывает пакет «Всё включено»."
+              : "Проверенные профили принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer. Импорт занимает пару минут — доступ открывает подписка Pro."
           }
           href="/profiles"
           linkLabel="Перейти в библиотеку"
