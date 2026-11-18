@@ -317,22 +317,13 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                     loginHref={loginHref}
                   />
                 ) : (
-                  <div className="space-y-2">
-                    <ButtonLink
-                      href="/subscription#pricing"
-                      variant="gold"
-                      fullWidth
-                    >
-                      Выбрать курсы по отдельности
-                    </ButtonLink>
-                    <ButtonLink
-                      href="/pricing"
-                      variant="secondary"
-                      fullWidth
-                    >
-                      Подписка Pro для инструментов
-                    </ButtonLink>
-                  </div>
+                  <ButtonLink
+                    href="/subscription#pricing"
+                    variant="gold"
+                    fullWidth
+                  >
+                    Выбрать курсы по отдельности
+                  </ButtonLink>
                 )}
               </div>
 
@@ -751,22 +742,13 @@ export default async function CourseLandingPage({ params }: CoursePageProps) {
                     loginHref={loginHref}
                   />
                 ) : (
-                  <div className="space-y-2">
-                    <ButtonLink
-                      href="/subscription#pricing"
-                      variant="gold"
-                      fullWidth
-                    >
-                      Выбрать курсы по отдельности
-                    </ButtonLink>
-                    <ButtonLink
-                      href="/pricing"
-                      variant="secondary"
-                      fullWidth
-                    >
-                      Подписка Pro для инструментов
-                    </ButtonLink>
-                  </div>
+                  <ButtonLink
+                    href="/subscription#pricing"
+                    variant="gold"
+                    fullWidth
+                  >
+                    Выбрать курсы по отдельности
+                  </ButtonLink>
                 )}
               </div>
 

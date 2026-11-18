@@ -30,7 +30,7 @@ const BUNDLE_ARTIFACTS = new Set(
   ),
 ).size;
 
-const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) — навсегда. Инструменты платформы теперь открывает подписка Pro`;
+const BUNDLE_DESCRIPTION = `Все ${PAID_LEVELS.length} платных курса (${BUNDLE_COURSES}) — навсегда. Пакет даёт доступ только к курсам.`;
 
 const BUNDLE_FEATURES = [
   ...PAID_LEVELS.map(
@@ -39,7 +39,6 @@ const BUNDLE_FEATURES = [
   ),
   "Коммерческая лицензия (можно продавать напечатанное)",
   "Курсы остаются навсегда",
-  "Инструменты — по подписке Pro",
 ];
 
 /**
@@ -69,7 +68,7 @@ type ProBundleCardProps = {
  * Карточка архивного пакета «Всё включено» для главной и страницы тарифов.
  *
  * Пакет больше не продаётся (R2): новых ссылок на оплату нет, поэтому вместо
- * PlanButton здесь только статус и переходы к отдельным курсам или подписке.
+ * PlanButton здесь только статус и переход к отдельным курсам.
  * Купившим показываем «Доступ открыт»: их права сохранены через
  * legacy_pro_users.
  */
@@ -137,7 +136,7 @@ export function ProBundleCard({
             <span className="font-semibold text-emerald-200">
               Покупателям пакета
             </span>
-            <span>курсы и инструменты сохранены навсегда</span>
+            <span>только курсы — навсегда</span>
           </p>
 
           <dl className="mt-5 grid grid-cols-3 gap-2 border-y border-white/10 py-4 text-center">
@@ -198,7 +197,7 @@ export function ProBundleCard({
               <>
                 <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-xs leading-relaxed text-slate-300">
                   Новые покупки пакета закрыты. Курсы можно взять по
-                  отдельности, инструменты — по подписке Pro.
+                  отдельности — доступ остаётся навсегда.
                 </p>
                 <ButtonLink
                   href="/subscription#pricing"
@@ -208,15 +207,6 @@ export function ProBundleCard({
                 >
                   Выбрать курсы
                   <span aria-hidden>→</span>
-                </ButtonLink>
-                <ButtonLink
-                  href="/pricing"
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  className="mt-2"
-                >
-                  Подписка Pro для инструментов
                 </ButtonLink>
               </>
             )}
