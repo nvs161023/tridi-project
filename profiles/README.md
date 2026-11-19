@@ -1,10 +1,11 @@
 # Библиотека профилей печати
 
 Курируемый склад профилей принтеров, материалов и настроек печати для слайсеров.
-Сейчас в библиотеке **193 профиля**: 92 принтера, 92 процесса и 9 материалов.
+Сейчас в библиотеке **223 профиля**: 107 принтеров, 107 процессов и 9 материалов.
 Основу составляют официальные профили OrcaSlicer для Anycubic, Elegoo, Sovol,
-Artillery, Flashforge и Qidi, а также ранее добавленные Bambu Lab X1 Carbon,
-Prusa MK3S+, Voron 2.4, Creality Ender-3 и Anycubic Kobra.
+Artillery, Flashforge, Qidi, Anker, FLSun, TwoTrees и Kingroon, а также Bambu
+Lab X1 Carbon, Prusa MK3S+/MK4S/CORE One/XL 5T, Voron 2.4/Trident, Creality
+Ender-3/K1C/K2 Plus/Ender-3 V3/Hi и Anycubic Kobra.
 Точные источники, версии и лицензии — в [`SOURCES.md`](./SOURCES.md).
 
 > Библиотека подключена к приложению: каталог `data/profiles.json` строит карточки на
@@ -18,38 +19,53 @@ profiles/
 ├── README.md
 ├── SOURCES.md
 ├── printers/
-│   ├── anycubic/         # 21 модель, сопло 0.4
+│   ├── anker/            # 2 модели, сопло 0.4
+│   ├── anycubic/         # 20 моделей, сопло 0.4
 │   ├── anycubic-kobra/   # ручной профиль первого этапа
 │   ├── artillery/        # 10 моделей
 │   ├── bambu-lab-x1c/
+│   ├── creality/         # 5 моделей: K1C, K2 Plus, Ender-3 V3, Hi
 │   ├── creality-ender-3/
 │   ├── elegoo/           # 18 моделей
 │   ├── flashforge/       # 13 моделей
+│   ├── flsun/            # T1
+│   ├── kingroon/         # KP3S PRO V2
+│   ├── prusa/            # MK4S, CORE One, XL 5T
 │   ├── prusa-mk3s-plus/
-│   ├── qidi/             # 12 моделей
+│   ├── qidi/             # 13 моделей
 │   ├── sovol/            # 13 моделей
-│   └── voron-2.4/
+│   ├── twotrees/         # SK1
+│   ├── voron-2.4/
+│   └── voron-trident/
 ├── process/
+│   ├── anker/            # штатный процесс M5/M5C
 │   ├── anycubic/         # штатный процесс каждой модели
 │   ├── anycubic-kobra/
 │   ├── artillery/
 │   ├── bambu-lab-x1c/
+│   ├── creality/         # штатные процессы новых моделей
 │   ├── creality-ender-3/
 │   ├── elegoo/
 │   ├── flashforge/
+│   ├── flsun/
+│   ├── kingroon/
+│   ├── prusa/            # процессы MK4S, CORE One, XL 5T
 │   ├── prusa-mk3s-plus/
 │   ├── qidi/
 │   ├── sovol/
-│   └── voron-2.4/
+│   ├── twotrees/
+│   └── voron-2.4/        # Standard и Draft; Standard общий для Trident
 └── filaments/
     ├── generic/          # Generic ABS, ASA, TPU и PA @System
     ├── polymaker/
     └── prusa/
 ```
 
-В каталогах брендов лежат все профили машин с соплом 0.4 из OrcaSlicer и
-штатный `default_print_profile` каждой машины. Для Elegoo исходные подпапки
-серий схлопнуты в один каталог; имена файлов сохранены.
+Для Anycubic, Elegoo, Sovol, Artillery, Flashforge и Qidi лежат все профили
+машин с соплом 0.4 из OrcaSlicer; для Prusa, Creality, Anker, FLSun, TwoTrees
+и Kingroon — выбранные современные модели. У каждой машины добавлен штатный
+`default_print_profile`. Для Elegoo исходные подпапки серий схлопнуты в один
+каталог; имена файлов сохранены.
 
 Правило именования: `<тип>/<принтер или производитель>/<исходное имя файла>`.
 Имя профиля внутри файла не переводится и не сокращается, иначе рвётся `inherits`
@@ -109,19 +125,23 @@ inherits = Original Prusa i3 MK3
 | Принтер | Профили принтера | Процессы | Материалы |
 | --- | --- | --- | --- |
 | Bambu Lab X1 Carbon, сопло 0.4 | `REDUCE CURRENT`, `REDUCE PURGE` | `0.20mm Standard - SLOWED` | — |
-| Prusa MK3S+ | `Original Prusa i3 MK3S & MK3S+` | `0.20mm QUALITY @MK3` | `Prusament PLA` |
-| Voron 2.4 300, сопло 0.4 | `Voron 2.4 300 0.4 nozzle` | `0.20mm Standard @Voron`, `0.24mm Draft @Voron` | — |
-| Creality Ender-3, сопло 0.4 | `Creality Ender-3 0.4 nozzle` | `0.20mm Standard @Creality Ender3` | — |
+| Prusa — MK3S+, MK4S, CORE One, XL 5T | 4 профиля машин | 4 штатных процесса | `Prusament PLA` |
+| Voron 2.4 300 и Trident 300, сопло 0.4 | 2 профиля машин | 3 процесса: `Standard` и `Draft`, общий `Standard` для Trident | — |
+| Creality — Ender-3, K1C, K2 Plus, Ender-3 V3 KE/SE, Hi | 6 профилей машин | 6 штатных процессов | — |
 | Anycubic Kobra, сопло 0.4 | `Anycubic Kobra 0.4 nozzle` | `0.20mm Standard @Anycubic Kobra` | — |
 | Anycubic — 21 модель, сопло 0.4 | 21 профиль машин | 21 штатный процесс | Generic ABS/ASA/TPU/PA |
 | Elegoo — 18 моделей, сопло 0.4 | 18 профилей машин | 18 штатных процессов | Generic ABS/ASA/TPU/PA |
 | Sovol — 13 моделей, сопло 0.4 | 13 профилей машин | 13 штатных процессов | Generic ABS/ASA/TPU/PA |
 | Artillery — 10 моделей, сопло 0.4 | 10 профилей машин | 10 штатных процессов | Generic ABS/ASA/TPU/PA |
 | Flashforge — 13 моделей, сопло 0.4 | 13 профилей машин | 13 штатных процессов | Generic ABS/ASA/TPU/PA |
-| Qidi — 12 моделей, сопло 0.4 | 12 профилей машин | 12 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Qidi — 13 моделей, сопло 0.4 | 13 профилей машин | 13 штатных процессов | Generic ABS/ASA/TPU/PA |
+| Anker — M5, M5C, сопло 0.4 | 2 профиля машин | 2 процесса (общий `0.20mm Standard @Anker`) | Generic ABS/ASA/TPU/PA |
+| FLSun — T1, сопло 0.4 | 1 профиль машины | 1 штатный процесс | Generic ABS/ASA/TPU/PA |
+| TwoTrees — SK1, сопло 0.4 | 1 профиль машины | 1 штатный процесс | Generic ABS/ASA/TPU/PA |
+| Kingroon — KP3S PRO V2, сопло 0.4 | 1 профиль машины | 1 штатный процесс | Generic ABS/ASA/TPU/PA |
 | Универсальные | — | — | Polymaker `PolyLite PLA`, `PolyLite PETG` (`@base` + `@System`), Generic `ABS`, `ASA`, `TPU`, `PA` |
 
-Итого 193 профиля: 92 принтера, 92 процесса и 9 материалов.
+Итого 223 профиля: 107 принтеров, 107 процессов и 9 материалов.
 Это не «лучшие настройки для вазы», а исходные заводские и community-пресеты:
 перед печатью их нужно проверить на конкретном принтере и пластике.
 
@@ -160,8 +180,8 @@ inherits = Original Prusa i3 MK3
   скопируйте секцию в пользовательский конфиг. Базовый бандл `PrusaResearch`
   версии 2.5.12 должен быть установлен: без него фрагменты MK3S+ неполны.
 - **Перед печатью.** Проверьте диаметр сопла, тип стола, температуру и
-  максимальный объёмный расход. Профили X1C рассчитаны на 0.4 мм, Voron — на
-  300 мм стол и 0.4 мм, MK3S+, Ender-3 и Kobra — на 0.4 мм.
+  максимальный объёмный расход. Все профили машин в каталоге рассчитаны на
+  сопло 0.4 мм; у Voron 2.4 300 — стол 300 мм, у Trident 300 — 300 мм.
 
 ## Источники
 
@@ -173,8 +193,8 @@ inherits = Original Prusa i3 MK3
   актуальный официальный бандл Prusa Research (2.5.12).
 - [PrusaSlicer legacy settings](https://github.com/prusa3d/PrusaSlicer-settings) —
   старый репозиторий, больше не обновляется для новых версий.
-- [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) — профили Voron и
-  библиотека `OrcaFilamentLibrary`, включая Polymaker.
+- [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) — профили принтеров,
+  Voron и библиотека `OrcaFilamentLibrary`, включая Polymaker.
 - [SimplyPrint slicer-profiles-db](https://github.com/SimplyPrint/slicer-profiles-db) —
   открытая база профилей для PrusaSlicer, Bambu Studio и OrcaSlicer; кандидат
   на следующий источник.

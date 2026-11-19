@@ -1,6 +1,6 @@
 # Источники и версии профилей
 
-Все профили зафиксированы на конкретных commit SHA. Дата сверки — 18.10.2026.
+Все профили зафиксированы на конкретных commit SHA. Дата сверки — 18.11.2026.
 Если обновляете профиль, меняйте и таблицу, и commit в шапке INI-файла.
 
 ## Bambu Lab X1 Carbon
@@ -81,6 +81,47 @@
 в один каталог бренда. Процессы, совместимые сразу с двумя моделями, хранятся
 одним файлом и описаны в каталоге для каждой модели.
 
+## Обновление от 18.11.2026: Prusa, Creality, Anker, FLSun, TwoTrees, Kingroon, Voron Trident
+
+- Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
+- Commit: `4f71398a0fc9719aeda72cc6a32997f304ca9da9` (18.11.2026)
+- Лицензия: AGPL-3.0
+- Формат: JSON OrcaSlicer
+- Каталоги: `resources/profiles/Prusa`, `Creality`, `Anker`, `Qidi`, `FLSun`,
+  `TwoTrees`, `Kingroon`, `Voron`
+- В библиотеке: 15 профилей машин и 15 записей процессов. Скопировано 13 новых
+  файлов процессов: M5 и M5C делят один файл, а Trident использует уже
+  существующий `0.20mm Standard @Voron` от Voron 2.4.
+
+| Принтер | Файл в библиотеке | Процесс |
+| --- | --- | --- |
+| Prusa MK4S | `profiles/printers/prusa/Prusa MK4S 0.4 nozzle.json` | `0.20mm SPEED @MK4S 0.4` |
+| Prusa CORE One | `profiles/printers/prusa/Prusa CORE One 0.4 nozzle.json` | `0.20mm SPEED @CORE One 0.4` |
+| Prusa XL 5T | `profiles/printers/prusa/Prusa XL 5T 0.4 nozzle.json` | `0.20mm Speed @Prusa XL 5T 0.4` |
+| Creality K1C | `profiles/printers/creality/Creality K1C 0.4 nozzle.json` | `0.20mm Standard @Creality K1C` |
+| Creality K2 Plus | `profiles/printers/creality/Creality K2 Plus 0.4 nozzle.json` | `0.16mm Optimal @Creality K2 Plus 0.4 nozzle` |
+| Creality Ender-3 V3 KE | `profiles/printers/creality/Creality Ender-3 V3 KE 0.4 nozzle.json` | `0.20mm Standard @Creality Ender3V3KE` |
+| Creality Ender-3 V3 SE | `profiles/printers/creality/Creality Ender-3 V3 SE 0.4 nozzle.json` | `0.20mm Standard @Creality Ender3V3SE 0.4` |
+| Creality Hi | `profiles/printers/creality/Creality Hi 0.4 nozzle.json` | `0.20mm Standard @Creality Hi` |
+| Anker M5 | `profiles/printers/anker/Anker M5 0.4 nozzle.json` | `0.20mm Standard @Anker` |
+| Anker M5C | `profiles/printers/anker/Anker M5C 0.4 nozzle.json` | `0.20mm Standard @Anker` |
+| Qidi X-Smart 5 | `profiles/printers/qidi/Qidi X-Smart 5 0.4 nozzle.json` | `0.20mm Standard @X-Smart 5` |
+| FLSun T1 | `profiles/printers/flsun/FLSun T1 0.4 nozzle.json` | `0.20mm Standard @FLSun T1` |
+| TwoTrees SK1 | `profiles/printers/twotrees/TwoTrees SK1 0.4 nozzle.json` | `0.20mm Standard @SK1` |
+| Kingroon KP3S PRO V2 | `profiles/printers/kingroon/Kingroon KP3S PRO V2 0.4 nozzle.json` | `0.20mm Standard @Kingroon KP3S PRO V2` |
+| Voron Trident 300 | `profiles/printers/voron-trident/Voron Trident 300 0.4 nozzle.json` | `0.20mm Standard @Voron` (общий с Voron 2.4) |
+
+Имена файлов сохранены. Для Prusa, Creality, Anker, Qidi, FLSun, TwoTrees и
+Kingroon путь машины в источнике — `resources/profiles/<Brand>/machine/<имя>`,
+процесса — `resources/profiles/<Brand>/process/<имя>`. Для Voron Trident:
+`resources/profiles/Voron/machine/Voron Trident 300 0.4 nozzle.json` и
+`resources/profiles/Voron/process/0.20mm Standard @Voron.json`.
+
+Официальные BBL-профили A1, P1S, X1 Carbon и H2D не добавлены: их machine JSON
+ссылается на 5–6 отдельных `include`-файлов с G-code, а карточка библиотеки
+отдаёт один файл. Без этих шаблонов импорт получится неполным, поэтому BBL
+оставлен на отдельный формат «пакет профилей».
+
 ## Generic ABS, ASA, TPU и PA
 
 - Репозиторий: [OrcaSlicer/OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer)
@@ -156,7 +197,7 @@
 ```bash
 git clone --depth 1 https://github.com/DRIgnazGortngschirl/bambulab-studio-orca-slicer-presets.git
 git clone --depth 1 --filter=blob:none --sparse https://github.com/OrcaSlicer/OrcaSlicer.git
-git -C OrcaSlicer sparse-checkout set resources/profiles/Anycubic/machine resources/profiles/Anycubic/process resources/profiles/Elegoo/machine resources/profiles/Elegoo/process resources/profiles/Sovol/machine resources/profiles/Sovol/process resources/profiles/Artillery/machine resources/profiles/Artillery/process resources/profiles/Flashforge/machine resources/profiles/Flashforge/process resources/profiles/Qidi/machine resources/profiles/Qidi/process resources/profiles/OrcaFilamentLibrary/filament
+git -C OrcaSlicer sparse-checkout set resources/profiles/Anycubic/machine resources/profiles/Anycubic/process resources/profiles/Elegoo/machine resources/profiles/Elegoo/process resources/profiles/Sovol/machine resources/profiles/Sovol/process resources/profiles/Artillery/machine resources/profiles/Artillery/process resources/profiles/Flashforge/machine resources/profiles/Flashforge/process resources/profiles/Qidi/machine resources/profiles/Qidi/process resources/profiles/Prusa/machine resources/profiles/Prusa/process resources/profiles/Creality/machine resources/profiles/Creality/process resources/profiles/Anker/machine resources/profiles/Anker/process resources/profiles/FLSun/machine resources/profiles/FLSun/process resources/profiles/TwoTrees/machine resources/profiles/TwoTrees/process resources/profiles/Kingroon/machine resources/profiles/Kingroon/process resources/profiles/Voron/machine resources/profiles/Voron/process resources/profiles/OrcaFilamentLibrary/filament
 git clone --depth 1 https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff.git
 ```
 
@@ -165,7 +206,9 @@ git clone --depth 1 https://github.com/prusa3d/PrusaSlicer-settings-prusa-fff.gi
 добавляются только комментарии с источником и commit. Для Orca/Bambu файлы
 копируются байт-в-байт, без переформатирования JSON.
 
-Для шести новых брендов берутся все файлы `machine/*0.4 nozzle*.json` и файл
-процесса с именем из `default_print_profile` этой машины. Вложенные каталоги
-Elegoo обходятся рекурсивно. `.ini` для PrusaSlicer и старые ручные профили
+Для брендов из OrcaSlicer берутся файлы машин с соплом 0.4 и процесс с именем
+из `default_print_profile` этой машины. Вложенные каталоги Elegoo обходятся
+рекурсивно. Для Prusa CORE One процесс наследует `0.20mm SPEED @MK4S 0.4`, а
+машина — `Prusa CORE One HF 0.4 nozzle`; эти базовые профили остаются в
+системной библиотеке слайсера. `.ini` для PrusaSlicer и старые ручные профили
 при повторном импорте не перезаписываются.

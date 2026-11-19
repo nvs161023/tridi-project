@@ -34,6 +34,10 @@ const BRAND_ORDER = [
   "Artillery",
   "Flashforge",
   "Qidi",
+  "Anker",
+  "FLSun",
+  "TwoTrees",
+  "Kingroon",
   "Generic",
 ] as const;
 

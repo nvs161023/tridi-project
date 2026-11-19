@@ -27,7 +27,7 @@ import { createClient } from "@/lib/supabase/server";
 export const metadata: Metadata = {
   title: "Библиотека профилей печати",
   description:
-    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в подписку Pro.",
+    "Готовые профили принтеров Anycubic, Elegoo, Sovol, Artillery, Flashforge, Qidi, Anker, FLSun, TwoTrees, Kingroon, Bambu Lab, Prusa и Creality, а также материалов PLA, PETG, ABS, ASA, TPU и PA для OrcaSlicer, Bambu Studio и PrusaSlicer. Скачивание входит в подписку Pro.",
   alternates: { canonical: "/profiles" },
   // Свой openGraph, а не унаследованный из корневого layout: иначе og:url
   // указывал бы на главную.
@@ -131,7 +131,7 @@ export default async function ProfilesPage() {
             </h1>
 
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Проверенные настройки принтеров, материалов и процессов для Bambu
+              Готовые настройки принтеров, материалов и процессов для Bambu
               Studio, OrcaSlicer и PrusaSlicer. Скачайте файл и импортируйте его
               в слайсер — без ручного перебора температур и скоростей.
             </p>
