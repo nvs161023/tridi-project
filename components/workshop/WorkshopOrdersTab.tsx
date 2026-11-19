@@ -34,6 +34,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
+import { scheduleWhenHydrated } from "@/lib/workshop/hydration";
 import { MARKETPLACE_META } from "@/lib/workshop/marketplace";
 import {
   ORDER_STATUS_META,
@@ -512,6 +513,7 @@ export function WorkshopOrdersTab({
     }
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let isMounted = true;
 
     const scheduleRefresh = () => {
       if (refreshTimer !== null) {
@@ -520,7 +522,15 @@ export function WorkshopOrdersTab({
 
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        router.refresh();
+
+        // Событие может прийти раньше, чем React закончит гидрировать
+        // разметку. Обновление дерева в этот момент срывает гидратацию
+        // (React #418), поэтому refresh ждёт первой паузы в главном потоке.
+        scheduleWhenHydrated(() => {
+          if (isMounted) {
+            router.refresh();
+          }
+        });
       }, REALTIME_REFRESH_DELAY_MS);
     };
 
@@ -539,6 +549,8 @@ export function WorkshopOrdersTab({
       .subscribe();
 
     return () => {
+      isMounted = false;
+
       // Таймер мог остаться от последнего события: после отписки refresh
       // перерисовал бы размонтированную страницу.
       if (refreshTimer !== null) {
@@ -906,10 +918,18 @@ export function WorkshopOrdersTab({
             </p>
           )}
 
+          {/*
+            Доска шире экрана: четыре колонки по 272 px прокручиваются внутри
+            этого контейнера, а не страницей. `contain: layout` обязателен:
+            без него Chromium учитывает внутреннюю ширину прокручиваемого
+            содержимого в `documentElement.scrollWidth` (замерено: 1152 px при
+            вьюпорте 390 px), и мобильный браузер расширяет layout viewport
+            вместо того, чтобы показать страницу по ширине экрана.
+          */}
           <div
             data-kanban-board
             hidden={statusFilter === "unmapped"}
-            className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-2 lg:overflow-visible"
+            className="mt-2 max-w-full overflow-x-auto overscroll-x-contain pb-2 [contain:layout] lg:overflow-visible"
           >
             <div
               className={`flex snap-x snap-mandatory gap-3 lg:grid lg:gap-4 ${

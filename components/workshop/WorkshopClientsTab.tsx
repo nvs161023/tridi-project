@@ -288,7 +288,14 @@ function ClientsTable({
       data-clients-table
       className="mt-4 overflow-hidden rounded-2xl border border-white/5 bg-[#0a0a0a]"
     >
-      <div className="overflow-x-auto">
+      {/*
+        Таблица шире мобильного экрана и прокручивается внутри этой обёртки.
+        `contain: layout` не даёт её ширине (800 px) попасть в
+        `documentElement.scrollWidth`: иначе мобильный браузер расширяет
+        layout viewport и показывает страницу в уменьшенном масштабе. Та же
+        причина у доски заказов и таблицы товаров.
+      */}
+      <div className="overflow-x-auto [contain:layout]">
         <table className="w-full min-w-[800px] border-collapse text-sm">
           <caption className="sr-only">
             Клиенты: имя, телефон, email, адрес, история заказов и правка карточки

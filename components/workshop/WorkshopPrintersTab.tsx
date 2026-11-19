@@ -13,6 +13,7 @@ import { DiscoverPrintersDialog } from "@/components/workshop/DiscoverPrintersDi
 import { PrinterDetailsDialog } from "@/components/workshop/PrinterDetailsDialog";
 import { RadarIcon } from "@/components/workshop/WorkshopIcons";
 import { createClient } from "@/lib/supabase/client";
+import { scheduleWhenHydrated } from "@/lib/workshop/hydration";
 import {
   countMaintenanceDue,
   formatPrinterDate,
@@ -260,6 +261,7 @@ export function WorkshopPrintersTab({
     }
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let isMounted = true;
 
     const scheduleRefresh = () => {
       if (refreshTimer !== null) {
@@ -268,7 +270,15 @@ export function WorkshopPrintersTab({
 
       refreshTimer = setTimeout(() => {
         refreshTimer = null;
-        router.refresh();
+
+        // Событие может прийти раньше, чем React закончит гидрировать
+        // разметку. Обновление дерева в этот момент срывает гидратацию
+        // (React #418), поэтому refresh ждёт первой паузы в главном потоке.
+        scheduleWhenHydrated(() => {
+          if (isMounted) {
+            router.refresh();
+          }
+        });
       }, REALTIME_REFRESH_DELAY_MS);
     };
 
@@ -287,6 +297,8 @@ export function WorkshopPrintersTab({
       .subscribe();
 
     return () => {
+      isMounted = false;
+
       // Таймер мог остаться от последнего события: после отписки refresh
       // перерисовал бы размонтированную страницу.
       if (refreshTimer !== null) {

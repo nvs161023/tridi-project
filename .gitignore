@@ -66,3 +66,6 @@ audit-screenshots/
 audit-e2e/
 audit-report.md
 audit-e2e-report.md
+
+# логи локального сервера (dev.out.log и т. п.)
+dev*.log

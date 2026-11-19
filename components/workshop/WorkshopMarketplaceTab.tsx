@@ -239,7 +239,12 @@ function LinksTable({
 }) {
   return (
     <div className="mt-4 overflow-hidden rounded-2xl border border-white/5 bg-[#0a0a0a]">
-      <div className="overflow-x-auto">
+      {/*
+        Прокручиваемая таблица шире экрана: `contain: layout` держит её ширину
+        (720 px) вне `documentElement.scrollWidth`, иначе мобильный браузер
+        расширяет layout viewport (см. доску заказов и таблицы мастерской).
+      */}
+      <div className="overflow-x-auto [contain:layout]">
         <table className="w-full min-w-[720px] border-collapse text-sm">
           <caption className="sr-only">
             Связи артикулов маркетплейсов с товарами каталога
