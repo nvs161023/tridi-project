@@ -33,7 +33,7 @@ const USEFUL_SECTIONS = [
   {
     href: "/tools/defects",
     title: "Справочник дефектов",
-    description: "Причины брака FDM-печати и пошаговые решения с фотографиями.",
+    description: "Причины брака FDM-печати и пошаговые решения с иллюстрациями.",
   },
   {
     href: "/constructor",

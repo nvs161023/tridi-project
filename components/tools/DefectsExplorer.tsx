@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { pluralize } from "@/lib/course-stats";
@@ -93,6 +94,29 @@ function SearchIcon({ className }: { className?: string }) {
  */
 function normalize(value: string): string {
   return value.toLowerCase().replace(/ё/g, "е").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Дата контрольной печати в читаемом виде.
+ *
+ * В данных дата хранится как `YYYY-MM-DD`, а часовой пояс фиксирован на UTC:
+ * иначе сервер и браузер могли бы показать соседние дни и React ругался бы на
+ * расхождение гидратации. Некорректную строку возвращаем как есть — лучше
+ * показать её, чем скрыть данные из-за опечатки.
+ */
+function formatTestedAt(value: string): string {
+  const date = new Date(`${value}T00:00:00Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(date);
 }
 
 /**
@@ -454,7 +478,25 @@ export function DefectsExplorer({ defects }: DefectsExplorerProps) {
                         {defect.title}
                       </span>
 
-                      <span className="mt-3 block flex-1 text-base leading-relaxed text-slate-200">
+                      {defect.image ? (
+                        <span className="mt-4 block overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
+                          <Image
+                            alt={defect.image.alt}
+                            className="h-auto w-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                            height={defect.image.height}
+                            loading="lazy"
+                            sizes="(min-width: 1280px) 360px, (min-width: 768px) 45vw, 100vw"
+                            src={defect.image.src}
+                            unoptimized
+                            width={defect.image.width}
+                          />
+                          <span className="block border-t border-white/10 px-3 py-1.5 text-[11px] font-semibold tracking-wide text-slate-400">
+                            Иллюстрация TriDi, не фотография печати
+                          </span>
+                        </span>
+                      ) : null}
+
+                      <span className="mt-4 block flex-1 text-base leading-relaxed text-slate-200">
                         {defect.description}
                       </span>
 
@@ -530,6 +572,40 @@ export function DefectsExplorer({ defects }: DefectsExplorerProps) {
             </div>
 
             <div className="px-5 py-6 sm:px-7 sm:py-7">
+              {activeDefect.image ? (
+                <figure className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/50">
+                  <Image
+                    alt={activeDefect.image.alt}
+                    className="h-auto w-full"
+                    height={activeDefect.image.height}
+                    sizes="(min-width: 672px) 672px, 100vw"
+                    src={activeDefect.image.src}
+                    unoptimized
+                    width={activeDefect.image.width}
+                  />
+                  <figcaption className="border-t border-white/10 px-4 py-3 text-sm leading-relaxed text-slate-300">
+                    <span className="block">
+                      {activeDefect.image.caption ?? "Иллюстрация TriDi"}
+                    </span>
+                    {activeDefect.testedAt ? (
+                      <span className="mt-1.5 block text-xs font-semibold text-emerald-200">
+                        Проверено на печати:{" "}
+                        <time dateTime={activeDefect.testedAt}>
+                          {formatTestedAt(activeDefect.testedAt)}
+                        </time>
+                      </span>
+                    ) : null}
+                  </figcaption>
+                </figure>
+              ) : activeDefect.testedAt ? (
+                <p className="mb-6 rounded-2xl border border-emerald-400/20 bg-emerald-500/[0.07] px-4 py-3 text-sm font-semibold text-emerald-200">
+                  Проверено на печати:{" "}
+                  <time dateTime={activeDefect.testedAt}>
+                    {formatTestedAt(activeDefect.testedAt)}
+                  </time>
+                </p>
+              ) : null}
+
               <p className="text-base leading-relaxed text-slate-200 sm:text-lg">
                 {activeDefect.description}
               </p>

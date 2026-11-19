@@ -62,6 +62,12 @@ function buildFaqJsonLd(siteUrl: string) {
     mainEntity: defects.map((defect) => ({
       "@type": "Question",
       name: defect.title,
+      // Абсолютный адрес: у `Question` в schema.org `image` — URL, а не путь
+      // от корня сайта. Поле необязательное, поэтому добавляем его только
+      // когда у дефекта действительно есть изображение.
+      ...(defect.image
+        ? { image: `${siteUrl}${defect.image.src}` }
+        : {}),
       acceptedAnswer: {
         "@type": "Answer",
         text: defect.solutions
