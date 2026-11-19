@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import { TabHelpButton } from "@/components/workshop/TabHelpButton";
 import { WorkshopCalculatorTab } from "@/components/workshop/WorkshopCalculatorTab";
@@ -24,6 +24,7 @@ import { WorkshopStockTab } from "@/components/workshop/WorkshopStockTab";
 import { TAB_HELP } from "@/components/workshop/workshop-tab-help";
 import type { WorkshopClient } from "@/lib/workshop/clients";
 import type { WorkshopFilament } from "@/lib/workshop/filaments";
+import { markWorkshopHydrated } from "@/lib/workshop/hydration";
 import type { WorkshopIntegrations } from "@/lib/workshop/integrations";
 import type { WorkshopOrder } from "@/lib/workshop/orders";
 import type {
@@ -179,6 +180,17 @@ export function WorkshopTabs({
 }: WorkshopTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>("orders");
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement | null>());
+
+  /**
+   * Отметка для realtime-вкладок: обновлять дерево (`router.refresh()`) можно
+   * только после того, как клиентское дерево собрано. Эффекты детей
+   * выполняются раньше родителя, поэтому подписки «Заказов» и «Принтеров» к
+   * этому моменту уже созданы, а refresh с них не сорвёт гидратацию (React
+   * #418).
+   */
+  useEffect(() => {
+    markWorkshopHydrated();
+  }, []);
 
   const activeTabMeta =
     TABS.find((tab) => tab.id === activeTab) ?? TABS[0];

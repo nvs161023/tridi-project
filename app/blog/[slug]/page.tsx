@@ -107,9 +107,10 @@ export async function generateMetadata({
 /**
  * JSON-LD статьи.
  *
- * `Article` называет автора как `Person`, а с организацией связан через
- * `publisher` по `@id` из корневого layout. `BreadcrumbList` показывает в
- * выдаче путь «Главная → Блог → статья».
+ * Автор статей — команда, поэтому в `author` стоит `Organization`, а не
+ * `Person`: коллективному автору соответствует организационная сущность.
+ * С `publisher` статья связана по `@id` из корневого layout. `BreadcrumbList`
+ * показывает в выдаче путь «Главная → Блог → статья».
  */
 function buildArticleJsonLd(
   siteUrl: string,
@@ -137,7 +138,7 @@ function buildArticleJsonLd(
         inLanguage: "ru-RU",
         mainEntityOfPage: { "@type": "WebPage", "@id": url },
         image: absoluteUrl(OG_IMAGE.url, siteUrl),
-        author: { "@type": "Person", name: post.author },
+        author: { "@type": "Organization", name: post.author },
         publisher: { "@id": `${siteUrl}/#organization` },
         isPartOf: {
           "@type": "Blog",

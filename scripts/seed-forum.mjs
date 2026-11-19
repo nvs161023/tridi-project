@@ -11,9 +11,10 @@
  * Требует в `NEXT_PUBLIC_SUPABASE_URL` и `SUPABASE_SERVICE_ROLE_KEY` (можно в
  * `.env.local`). Автор выбирается так:
  *   1. `FORUM_SEED_EMAIL`, если задан;
- *   2. первый адрес из `ADMIN_EMAIL`;
- *   3. если ни один не найден — сервисный аккаунт `team@tridi-print.ru`
- *      с профилем «Команда TriDi».
+ *   2. служебный аккаунт `team@tridi-print.ru` с профилем «Команда TriDi».
+ * `ADMIN_EMAIL` намеренно не используется: это адрес живого администратора, и
+ * стартовые темы не должны публиковаться от его лица. Если нужного аккаунта
+ * ещё нет, скрипт создаёт именно `team@tridi-print.ru`.
  * Демо-аккаунт мастерской намеренно не используется: middleware уводит
  * demo-сессию с форума, и такой автор выглядел бы странно.
  *
@@ -69,7 +70,7 @@ function envValue(key) {
   return (process.env[key] || readEnvValue(key) || "").trim();
 }
 
-/** ADMIN_EMAIL допускает несколько адресов через запятую. */
+/** FORUM_SEED_EMAIL допускает несколько адресов через запятую. */
 function parseEmails(value) {
   return value
     .split(/[,\s;]+/)
@@ -247,20 +248,16 @@ async function ensureProfile(admin, user, { name, forceName = false }) {
 /**
  * Автор стартовых тем.
  *
- * `FORUM_SEED_EMAIL` удобен, когда публиковать нужно от лица команды, даже
- * если ADMIN_EMAIL принадлежит живому администратору. Если ни один адрес не
- * найден, создаём служебный аккаунт с случайным паролем: входить под ним не
- * предполагается, он нужен только как автор тем.
+ * `FORUM_SEED_EMAIL` позволяет выбрать конкретного существующего автора, но
+ * новый аккаунт всегда создаётся как служебный `team@tridi-print.ru` с именем
+ * «Команда TriDi»: пароль случайный, вход под ним не предполагается. Адрес из
+ * `ADMIN_EMAIL` не используется, чтобы темы не публиковались от лица живого
+ * человека.
  */
 async function ensureSeedAuthor(admin) {
   const configuredSeedEmails = parseEmails(envValue("FORUM_SEED_EMAIL"));
-  // Явный FORUM_SEED_EMAIL — это выбор автора, а не первый кандидат. Если
-  // такого аккаунта ещё нет, создаём команду, а не подменяем автора админом.
-  const fallbackEmails =
-    configuredSeedEmails.length > 0
-      ? []
-      : parseEmails(envValue("ADMIN_EMAIL"));
-  const emails = [...configuredSeedEmails, ...fallbackEmails];
+  const emails =
+    configuredSeedEmails.length > 0 ? configuredSeedEmails : [TEAM_EMAIL];
 
   for (const email of emails) {
     const user = await findUserByEmail(admin, email);
@@ -278,7 +275,6 @@ async function ensureSeedAuthor(admin) {
       email: user.email ?? email,
       displayName,
       created: false,
-      usedFallback: false,
     };
   }
 
@@ -311,7 +307,6 @@ async function ensureSeedAuthor(admin) {
       email: TEAM_EMAIL,
       displayName,
       created: false,
-      usedFallback: true,
     };
   }
 
@@ -343,7 +338,6 @@ async function ensureSeedAuthor(admin) {
     email: TEAM_EMAIL,
     displayName,
     created: true,
-    usedFallback: true,
   };
 }
 
