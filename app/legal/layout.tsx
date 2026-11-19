@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Logo } from "@/components/Logo";
-import { LEGAL_DOCUMENTS, LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
+import { LEGAL_DOCUMENTS, LEGAL_OPERATOR } from "@/lib/legal";
 
 /**
  * Общий каркас раздела /legal: навигация по документам и реквизиты владельца.
@@ -82,7 +82,7 @@ export default function LegalLayout({
             >
               {LEGAL_OPERATOR.email}
             </a>
-            . Текущая редакция документов — от {LEGAL_UPDATED_AT}.
+            . Даты редакций указаны в начале каждого документа.
           </p>
         </footer>
       </main>

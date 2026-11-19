@@ -22,11 +22,14 @@ export const LEGAL_OPERATOR = {
   email: "nvs16@ya.ru",
 } as const;
 
-/** Дата редакции Правил и Политики. */
+/** Дата редакции Пользовательского соглашения. */
 export const LEGAL_UPDATED_AT = "02.11.2026";
 
+/** Дата редакции Политики использования cookie. */
+export const LEGAL_COOKIES_UPDATED_AT = "18.11.2026";
+
 /** Дата редакции Политики обработки персональных данных. */
-export const LEGAL_PRIVACY_UPDATED_AT = "16.11.2026";
+export const LEGAL_PRIVACY_UPDATED_AT = "18.11.2026";
 
 /** Дата редакции Согласия на обработку персональных данных. */
 export const LEGAL_CONSENT_UPDATED_AT = "16.11.2026";

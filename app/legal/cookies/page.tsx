@@ -8,7 +8,7 @@ import {
   LegalSection,
   LegalTerm,
 } from "@/components/legal/LegalText";
-import { LEGAL_OPERATOR, LEGAL_UPDATED_AT } from "@/lib/legal";
+import { LEGAL_COOKIES_UPDATED_AT, LEGAL_OPERATOR } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Политика использования cookie",
@@ -33,7 +33,7 @@ export default function CookiesPolicyPage() {
     <>
       <LegalDocumentHeader
         title="Политика использования cookie"
-        updatedAt={LEGAL_UPDATED_AT}
+        updatedAt={LEGAL_COOKIES_UPDATED_AT}
         description={
           <>
             Политика объясняет, что такое cookie, какие файлы использует сервис
@@ -193,7 +193,7 @@ export default function CookiesPolicyPage() {
           >
             Политике обработки персональных данных
           </Link>
-          , разделы 7.1 и 8.
+          , разделы 3.7, 7 и 8.
         </p>
         <p>
           Третий счётчик —{" "}
@@ -245,7 +245,7 @@ export default function CookiesPolicyPage() {
           >
             Политике обработки персональных данных
           </Link>
-          , разделы 7.1 и 8.
+          , разделы 3.7, 7 и 8.
         </p>
         <p>
           Все три счётчика загружаются{" "}

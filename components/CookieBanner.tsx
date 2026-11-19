@@ -13,9 +13,10 @@ import { Button } from "@/components/ui";
  * явным действием пользователя. Поэтому здесь две кнопки, и выбор запоминается.
  *
  * Что храним: в localStorage лежит выбранный вариант и дата выбора. Аналитика —
- * Яндекс.Метрика и Google Analytics 4 (components/analytics/Analytics.tsx): оба
- * счётчика загружаются только при scope = "all", то есть выбор пользователя
- * действительно управляет набором cookie, а не просто записывается.
+ * Яндекс.Метрика, Google Analytics 4 и пиксель VK Рекламы
+ * (components/analytics/Analytics.tsx): все три счётчика загружаются только при
+ * scope = "all", то есть выбор пользователя действительно управляет набором
+ * cookie, а не просто записывается.
  *
  * Баннер не показывается, если выбор уже сделан. Проверка идёт в useEffect, а не
  * при отрисовке: localStorage доступен только в браузере, и до гидратации мы не
@@ -38,8 +39,7 @@ type StoredConsent = {
 /**
  * Что пользователь выбрал раньше (или null, если ещё не выбирал).
  *
- * Функция пригодится, когда появится аналитика: подключать её можно только при
- * scope === "all".
+ * Функция нужна аналитике: подключать счётчики можно только при scope === "all".
  */
 export function readCookieConsent(): CookieConsentScope | null {
   if (typeof window === "undefined") {
@@ -131,7 +131,8 @@ export function CookieBanner() {
       <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <p className="text-sm leading-relaxed text-slate-300 sm:text-base">
           Мы используем cookie для работы авторизации. С выбором «Принять все»
-          подключается аналитика Яндекс.Метрики. Подробнее — в{" "}
+          подключается аналитика: Яндекс.Метрика, Google Analytics 4 и пиксель
+          VK Рекламы. Подробнее — в{" "}
           <Link
             href="/legal/cookies"
             className="font-semibold text-blue-300 underline underline-offset-4 transition-colors hover:text-blue-200"
