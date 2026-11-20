@@ -19,6 +19,7 @@
     "check:billing": "node --import ./scripts/register-alias.mjs scripts/test-billing-access.ts",
     "check:subscription": "node --experimental-test-module-mocks --import ./scripts/register-alias.mjs scripts/test-subscription-renewal.ts",
     "check:course-access": "node --import ./scripts/register-alias.mjs scripts/test-course-access-guard.ts",
+    "check:vk-goal": "node --import ./scripts/register-alias.mjs scripts/test-vk-signup-goal.ts",
     "check:promo-rls": "node scripts/test-promo-rls.mjs",
     "check:refund": "node --import ./scripts/register-alias.mjs scripts/test-refund-guard.ts",
     "check:keychain": "node --import ./scripts/register-alias.mjs scripts/test-keychain-image.ts",

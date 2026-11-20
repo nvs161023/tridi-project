@@ -2,6 +2,10 @@
 
 import { redirect } from "next/navigation";
 
+import {
+  isNewAccountSignUp,
+  withSignupMarker,
+} from "@/lib/analytics/signup-marker";
 import { resolveAfterAuthPath } from "@/lib/auth-redirect";
 import {
   formatFullName,
@@ -218,6 +222,9 @@ export async function signUpAction(
   // Флаг вместо redirect() внутри try: redirect бросает служебное исключение, и
   // catch перехватил бы его, отменив переход.
   let needsEmailConfirmation = false;
+  // Создан ли действительно новый аккаунт: от этого зависит маркер `signup=1`
+  // в адресе перехода, по которому аналитика отправит цель в пиксель VK.
+  let isNewAccount = false;
 
   try {
     const { data, error } = await supabase.auth.signUp({
@@ -248,6 +255,11 @@ export async function signUpAction(
       return { error: translateSignUpError(error.message), values };
     }
 
+    // Supabase при включённой защите от перебора адресов не отвечает ошибкой на
+    // уже зарегистрированный email, а возвращает пользователя с пустым
+    // `identities`. Такую попытку регистрацией не считаем: иначе цель в пикселе
+    // VK засчитывала бы повторные отправки формы на существующий адрес.
+    isNewAccount = isNewAccountSignUp(data.user);
     needsEmailConfirmation = !data.session;
   } catch {
     return { error: NETWORK_ERROR_MESSAGE, values };
@@ -256,11 +268,14 @@ export async function signUpAction(
   if (needsEmailConfirmation) {
     // Подтверждение email включено: аккаунт создан, сессии пока нет. Уводим на
     // страницу «проверьте почту» — там объяснение и повторная отправка письма.
-    redirect(verifyEmailHref(afterAuth));
+    // Маркер `signup=1` уходит вместе с адресом: цель в пикселе VK отправляется
+    // на странице, а не здесь — Server Action не знает про уже загруженный в
+    // браузере пиксель и не должен отправлять событие повторно при перезагрузке.
+    redirect(withSignupMarker(verifyEmailHref(afterAuth), isNewAccount));
   }
 
   // Та же причина, что и во входе: кириллический путь кодируем для заголовка Location.
-  redirect(encodeURI(afterAuth));
+  redirect(encodeURI(withSignupMarker(afterAuth, isNewAccount)));
 }
 
 /**

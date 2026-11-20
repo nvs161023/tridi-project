@@ -5,7 +5,9 @@ import { usePathname } from "next/navigation";
 import Script from "next/script";
 import { useEffect, useRef, useState } from "react";
 
+import { trackVkGoal, VK_SIGNUP_GOAL } from "@/components/analytics/vk-goal";
 import { readCookieConsent } from "@/components/CookieBanner";
+import { hasSignupMarker, withoutSignupMarker } from "@/lib/analytics/signup-marker";
 
 /**
  * Вся аналитика сайта в одном компоненте: Яндекс.Метрика, Google Analytics 4 и
@@ -199,6 +201,42 @@ export function Analytics() {
     });
     lastGaPath.current = url;
   }, [pathname, isAllowed]);
+
+  /**
+   * Цель «регистрация» для пикселя VK Рекламы (`reachGoal signup_success`).
+   *
+   * Маркер `signup=1` в адресе ставит только signUpAction (app/actions/auth.ts) и
+   * только тогда, когда Supabase действительно создал новый аккаунт. Здесь
+   * событие отправляется один раз на появление маркера: цель привязана к факту
+   * регистрации, а не к нажатию кнопки, поэтому ни открытие формы, ни ошибка
+   * валидации, ни повторная регистрация на существующий email её не вызывают.
+   *
+   * Согласие читаем напрямую, а не через `isAllowed`: состояние из эффекта выше
+   * обновляется в том же проходе, и от порядка эффектов не должно зависеть,
+   * уйдёт событие или нет. При «Только необходимые» и пока выбора нет цель не
+   * отправляется и не откладывается — маркер просто снимается с адреса.
+   *
+   * Маркер удаляется через replaceState: перезагрузка той же страницы (F5) уже
+   * ничего не отправит, а helpers цели дополнительно помнят отправку в
+   * sessionStorage — на случай повторного запуска эффекта или возврата адреса.
+   */
+  useEffect(() => {
+    if (!hasSignupMarker(window.location.search)) {
+      return;
+    }
+
+    if (readCookieConsent() === "all") {
+      trackVkGoal(VK_SIGNUP_GOAL, { once: VK_SIGNUP_GOAL });
+    }
+
+    const nextSearch = withoutSignupMarker(window.location.search);
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${nextSearch}${window.location.hash}`,
+    );
+  }, [pathname]);
 
   /**
    * Просмотры VK-пикселя на клиентские переходы. `code.js` сам считает только
