@@ -558,7 +558,12 @@ export default function Home() {
                     className="w-full sm:w-auto"
                   >
                     Сделать модель по фото
-                    <span aria-hidden>→</span>
+                    <span
+                      aria-hidden
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none"
+                    >
+                      →
+                    </span>
                   </CtaLink>
                   <Link
                     href="/constructor"
@@ -867,7 +872,12 @@ export default function Home() {
                       className="relative mt-6 self-start"
                     >
                       {card.cta}
-                      <span aria-hidden>→</span>
+                      <span
+                        aria-hidden
+                        className="inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none"
+                      >
+                        →
+                      </span>
                     </CtaLink>
                   </article>
                 );
@@ -926,7 +936,12 @@ export default function Home() {
                     className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-6 py-3 text-sm font-semibold text-emerald-200 transition-colors hover:border-emerald-300/40 hover:bg-emerald-400/15 sm:w-auto"
                   >
                     Открыть демо-мастерскую
-                    <span aria-hidden>→</span>
+                    <span
+                      aria-hidden
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none"
+                    >
+                      →
+                    </span>
                   </a>
                   <Link
                     href="/tools/workshop"
@@ -1211,7 +1226,12 @@ export default function Home() {
                     className="w-full sm:w-auto"
                   >
                     Начать бесплатно
-                    <span aria-hidden>→</span>
+                    <span
+                      aria-hidden
+                      className="inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none"
+                    >
+                      →
+                    </span>
                   </CtaLink>
                 </div>
                 <p className="mt-4 text-xs text-white/35">

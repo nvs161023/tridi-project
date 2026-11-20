@@ -335,8 +335,15 @@ export function CertificateSheet({
               </p>
             </div>
 
-            <footer className="grid shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)_auto] items-end gap-[2.5%] border-t border-amber-400/35 pt-[1.6%]">
-              <div className="min-w-0">
+            {/*
+              * Нижний ряд держим на сетке из трёх зон: дата слева, подпись
+              * строго по центру листа, QR справа. Раньше центральная колонка
+              * была шире боковых (1.35fr), поэтому подпись уезжала вправо и
+              * «плавала» относительно печати и QR. Две равные колонки по краям
+              * фиксируют её центр, а items-end ставит все зоны на одну линию.
+              */}
+            <footer className="grid shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-end justify-between gap-[2.5%] border-t border-amber-400/35 pt-[1.6%]">
+              <div className="min-w-0 justify-self-start">
                 <p className="text-[clamp(0.38rem,0.82cqw,0.64rem)] tracking-[0.16em] text-slate-400 uppercase">
                   Дата выдачи
                 </p>
@@ -347,7 +354,12 @@ export function CertificateSheet({
 
               <div className="flex min-w-0 items-center justify-center gap-[clamp(4px,1.1cqw,14px)]">
                 <CertificateSeal className="h-[clamp(37px,8.4cqw,94px)] w-[clamp(37px,8.4cqw,94px)] shrink-0 -rotate-6 opacity-90" />
-                <div className="min-w-0 text-center">
+                {/*
+                  * Ширина колонки подписи равна ширине самого изображения:
+                  * имя и должность центрируются ровно под графической
+                  * подписью, а не под более широкой ячейкой грида.
+                  */}
+                <div className="flex w-[clamp(80px,21cqw,250px)] max-w-full min-w-0 flex-col items-center text-center">
                   <Image
                     src="/signature.png"
                     alt="Подпись Вадима Накорякова"
@@ -356,16 +368,16 @@ export function CertificateSheet({
                     priority
                     className="certificate-signature-image mx-auto"
                   />
-                  <p className="mt-[0.45em] text-[clamp(0.5rem,1.15cqw,1rem)] leading-tight font-bold text-white">
+                  <p className="mt-[0.45em] w-full text-[clamp(0.5rem,1.15cqw,1rem)] leading-tight font-bold text-white">
                     Накоряков В.С.
                   </p>
-                  <p className="mt-[0.35em] text-[clamp(0.34rem,0.78cqw,0.6rem)] tracking-[0.1em] text-slate-400 uppercase">
+                  <p className="mt-[0.35em] w-full text-[clamp(0.34rem,0.78cqw,0.6rem)] tracking-[0.1em] text-slate-400 uppercase">
                     Основатель школы 3D-печати tridi-print.ru
                   </p>
                 </div>
               </div>
 
-              <div className="flex min-w-0 flex-col items-end">
+              <div className="flex min-w-0 flex-col items-end justify-self-end">
                 <CertificateQr
                   value={verifyUrl}
                   className="w-[clamp(43px,9.7cqw,108px)]"

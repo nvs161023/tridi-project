@@ -125,6 +125,13 @@ const PRIMARY_ACTION =
 const SECONDARY_ACTION =
   "inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] text-sm font-semibold text-zinc-200 transition-colors hover:border-white/20 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0a0a0a]";
 
+/**
+ * Стрелка внутри кнопки. Фиксированный квадрат 16×16 не даёт глифу
+ * растягивать строку и наезжать на скруглённый край кнопки.
+ */
+const BUTTON_ICON =
+  "inline-flex h-4 w-4 shrink-0 items-center justify-center leading-none";
+
 /** Подпись над заголовком секции. */
 const SECTION_EYEBROW =
   "text-[11px] font-semibold tracking-[0.16em] text-zinc-500 uppercase";
@@ -336,7 +343,9 @@ function CourseCard({
               className={`mt-5 min-h-12 w-full ${PRIMARY_ACTION}`}
             >
               Продолжить
-              <span aria-hidden>→</span>
+              <span aria-hidden className={BUTTON_ICON}>
+                →
+              </span>
             </Link>
 
             {completion.isComplete ? (
@@ -367,7 +376,9 @@ function CourseCard({
               className={`mt-3 min-h-12 w-full ${PRIMARY_ACTION}`}
             >
               Купить курс
-              <span aria-hidden>→</span>
+              <span aria-hidden className={BUTTON_ICON}>
+                →
+              </span>
             </Link>
           </>
         )}
@@ -692,10 +703,12 @@ export default async function DashboardPage() {
 
           <Link
             href="/activate"
-            className={`min-h-11 shrink-0 ${PRIMARY_ACTION}`}
+            className={`min-h-11 shrink-0 px-5 ${PRIMARY_ACTION}`}
           >
             Активировать код
-            <span aria-hidden>→</span>
+            <span aria-hidden className={BUTTON_ICON}>
+              →
+            </span>
           </Link>
         </section>
 
@@ -740,7 +753,9 @@ export default async function DashboardPage() {
                   className={`min-h-12 px-7 text-base ${PRIMARY_ACTION}`}
                 >
                   Оформить подписку Pro
-                  <span aria-hidden>→</span>
+                  <span aria-hidden className={BUTTON_ICON}>
+                    →
+                  </span>
                 </Link>
               )}
             </div>
@@ -798,14 +813,19 @@ export default async function DashboardPage() {
                   проверку, а ответы публикуются сразу.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2.5">
-                <Link href="/forum" className={`min-h-11 ${PRIMARY_ACTION}`}>
+              <div className="flex flex-wrap items-stretch gap-2.5">
+                <Link
+                  href="/forum"
+                  className={`min-h-11 px-5 ${PRIMARY_ACTION}`}
+                >
                   Открыть форум
-                  <span aria-hidden>→</span>
+                  <span aria-hidden className={BUTTON_ICON}>
+                    →
+                  </span>
                 </Link>
                 <Link
                   href="/forum/new"
-                  className={`min-h-11 ${SECONDARY_ACTION}`}
+                  className={`min-h-11 px-5 ${SECONDARY_ACTION}`}
                 >
                   Создать тему
                 </Link>
@@ -924,7 +944,9 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
         {isPro ? (
           <Link href={tool.href} className={`mt-6 min-h-12 w-full ${PRIMARY_ACTION}`}>
             {tool.cta}
-            <span aria-hidden>→</span>
+            <span aria-hidden className={BUTTON_ICON}>
+              →
+            </span>
           </Link>
         ) : (
           <span
@@ -951,7 +973,9 @@ function ProToolCard({ tool, isPro }: { tool: ProTool; isPro: boolean }) {
             className={`mt-1 min-h-11 px-6 ${PRIMARY_ACTION}`}
           >
             Оформить подписку
-            <span aria-hidden>→</span>
+            <span aria-hidden className={BUTTON_ICON}>
+              →
+            </span>
           </Link>
         </div>
       ) : null}
@@ -1006,7 +1030,9 @@ function AdminCard({ icon, title, description, href, action }: AdminCardProps) {
           className={`min-h-12 w-full sm:w-auto sm:px-6 ${PRIMARY_ACTION}`}
         >
           {action}
-          <span aria-hidden>→</span>
+          <span aria-hidden className={BUTTON_ICON}>
+            →
+          </span>
         </Link>
       </div>
     </article>
