@@ -138,7 +138,8 @@ function getWaybillSender(requisites: WorkshopRequisites): WaybillSender {
       inn: LEGAL_OPERATOR.inn,
       ogrn: null,
       address: null,
-      phone: LEGAL_OPERATOR.phone,
+      // Телефона у владельца сервиса нет — контакт остаётся по email.
+      phone: null,
       email: LEGAL_OPERATOR.email,
       isFallback: true,
     };

@@ -135,7 +135,9 @@ function getSpecificationCustomer(
       inn: LEGAL_OPERATOR.inn,
       ogrn: null,
       address: null,
-      phone: LEGAL_OPERATOR.phone,
+      // Телефона у владельца сервиса нет: для связи остаётся email из подвала
+      // и юридических документов.
+      phone: null,
       isFallback: true,
     };
   }

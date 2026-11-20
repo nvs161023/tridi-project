@@ -3,9 +3,6 @@ import Link from "next/link";
 import { Logo } from "@/components/Logo";
 import { LEGAL_DOCUMENTS, LEGAL_OPERATOR } from "@/lib/legal";
 
-/** Телефон для ссылки `tel:`: оставляем только цифры и ведущий плюс. */
-const PHONE_HREF = `tel:${LEGAL_OPERATOR.phone.replace(/[^\d+]/g, "")}`;
-
 /** Готовая строка реквизитов: её проверяют платёжные сервисы при активации. */
 const SELLER_REQUISITES = `Самозанятый ${LEGAL_OPERATOR.shortName}, ИНН ${LEGAL_OPERATOR.inn}`;
 
@@ -157,17 +154,6 @@ export function Footer() {
                 </dt>
                 <dd className="font-mono text-base font-semibold tracking-wide text-white/90">
                   {LEGAL_OPERATOR.inn}
-                </dd>
-              </div>
-
-              <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
-                  Телефон
-                </dt>
-                <dd className="mt-1">
-                  <a href={PHONE_HREF} className={contactLinkClassName}>
-                    {LEGAL_OPERATOR.phone}
-                  </a>
                 </dd>
               </div>
 

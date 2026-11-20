@@ -51,14 +51,12 @@ export function organizationJsonLd(siteUrl: string) {
     logo: absoluteUrl("/icon.svg", base),
     image: absoluteUrl("/icon.svg", base),
     email: LEGAL_OPERATOR.email,
-    telephone: LEGAL_OPERATOR.phone,
     legalName: LEGAL_OPERATOR.fullName,
     taxID: LEGAL_OPERATOR.inn,
     contactPoint: {
       "@type": "ContactPoint",
       contactType: "customer support",
       email: LEGAL_OPERATOR.email,
-      telephone: LEGAL_OPERATOR.phone,
       availableLanguage: ["ru"],
     },
   };
