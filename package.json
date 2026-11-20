@@ -22,6 +22,7 @@
     "check:vk-goal": "node --import ./scripts/register-alias.mjs scripts/test-vk-signup-goal.ts",
     "check:promo-rls": "node scripts/test-promo-rls.mjs",
     "check:refund": "node --import ./scripts/register-alias.mjs scripts/test-refund-guard.ts",
+    "check:payments": "node scripts/test-payments.mjs",
     "check:keychain": "node --import ./scripts/register-alias.mjs scripts/test-keychain-image.ts",
     "check:lithophane": "node --import ./scripts/register-alias.mjs scripts/test-lithophane-geometry.ts",
     "check:box": "node --import ./scripts/register-alias.mjs scripts/test-box-geometry.ts",
