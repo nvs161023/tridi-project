@@ -13,10 +13,12 @@
  *   1. синтетическая шумная сфера: замкнутость, плоская база, объём в пределах
  *      пары процентов, медиана двугранного угла ниже 8°, ноль микроостровов;
  *   2. ось Y из glTF уходит в Z: стоящий по Y брусок после подготовки выше по Z;
- *   3. «крошка» меньше 20 мм³ отбрасывается, а тело остаётся;
- *   4. реальный `cat.stl` из витрины: замкнутость, контакт со столом не меньше
- *      5 см², ноль микроостровов, медиана ниже 8°, объём в пределах 10 % от
- *      исходного, габарит 120 мм по высоте;
+ *   3. «крошка» меньше 20 мм³ отбрасывается, а тело остаётся; плоская плита
+ *      12 × 12 × 1 мм (144 мм³) отбрасывается по высоте — в первом слое она
+ *      печаталась бы линией;
+ *   4. реальный `cat.stl` из витрины: замкнутость, ровно одна оболочка, контакт
+ *      со столом не меньше 5 см², ноль микроостровов, медиана ниже 8°, объём в
+ *      пределах 10 % от исходного, габарит 120 мм по высоте;
  *   5. у сетки без треугольников — понятная ошибка, а не падение;
  *   6. мост в «мясорубку»: `printPrepare` принимает геометрию three.js (в том
  *      числе неиндексированную от STLLoader) и отдаёт сетку на столе.
@@ -114,7 +116,7 @@ function weld(mesh: PrintMesh): PrintMesh {
   return { positions: new Float32Array(positions), indices };
 }
 
-/** Сводка по сетке: манифолдность, гладкость, объём, габарит, база. */
+/** Сводка по сетке: манифолдность, гладкость, объём, габарит, база, оболочки. */
 type MeshMetrics = {
   triangles: number;
   unpairedEdges: number;
@@ -123,6 +125,7 @@ type MeshMetrics = {
   size: [number, number, number];
   minZ: number;
   baseAreaMm2: number;
+  shells: number;
 };
 
 /** Считает метрики печати: всё, что важно слайсеру, кроме островов. */
@@ -242,6 +245,51 @@ function analyzeMesh(mesh: PrintMesh): MeshMetrics {
       0.5 * Math.hypot(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx);
   }
 
+  // Оболочки: слайсер печатает каждую отдельно, лишняя — мусор на столе.
+  const parent = new Int32Array(vertices);
+
+  for (let v = 0; v < vertices; v += 1) {
+    parent[v] = v;
+  }
+
+  const rootOf = (vertex: number): number => {
+    let root = vertex;
+
+    while (parent[root] !== root) {
+      root = parent[root];
+    }
+
+    let walk = vertex;
+
+    while (parent[walk] !== root) {
+      const next = parent[walk];
+      parent[walk] = root;
+      walk = next;
+    }
+
+    return root;
+  };
+
+  for (let t = 0; t < triangles; t += 1) {
+    const a = rootOf(indices[t * 3]);
+    const b = rootOf(indices[t * 3 + 1]);
+    const c = rootOf(indices[t * 3 + 2]);
+
+    if (b !== a) {
+      parent[b] = a;
+    }
+
+    if (rootOf(c) !== a) {
+      parent[rootOf(c)] = a;
+    }
+  }
+
+  const shells = new Set<number>();
+
+  for (let t = 0; t < triangles; t += 1) {
+    shells.add(rootOf(indices[t * 3]));
+  }
+
   return {
     triangles,
     unpairedEdges,
@@ -251,6 +299,7 @@ function analyzeMesh(mesh: PrintMesh): MeshMetrics {
     size: [max[0] - min[0], max[1] - min[1], max[2] - min[2]],
     minZ: min[2],
     baseAreaMm2,
+    shells: shells.size,
   };
 }
 
@@ -599,6 +648,7 @@ check(
   true,
 );
 check("шумная сфера: сетка замкнута", smoothed.unpairedEdges, 0);
+check("шумная сфера: одна оболочка", smoothed.shells, 1);
 check("шумная сфера: микроостровов нет", smoothedSlices.microPerLayer, 0);
 check("шумная сфера: низ ровно на столе", smoothed.minZ, 0);
 checkRange("шумная сфера: медиана двугранного угла", smoothed.dihedralMedian, 0.5, 8);
@@ -623,6 +673,7 @@ checkRange("брусок: ширина по X", tallMetrics.size[0], 19.6, 20.4)
 checkRange("брусок: глубина по Y", tallMetrics.size[1], 19.6, 20.4);
 checkRange("брусок: база — всё сечение, см²", tallMetrics.baseAreaMm2 / 100, 3.6, 4.4);
 check("брусок: сетка замкнута", tallMetrics.unpairedEdges, 0);
+check("брусок: одна оболочка", tallMetrics.shells, 1);
 
 console.log("");
 
@@ -639,12 +690,38 @@ const withCrumbMetrics = analyzeMesh(withCrumb.mesh);
 console.log(
   `  тело с крошкой 2 мм: габарит ` +
     `${withCrumbMetrics.size.map((value) => value.toFixed(1)).join(" × ")} мм, ` +
-    `отброшено оболочек ${withCrumb.removedParts}`,
+    `отброшено оболочек ${withCrumb.removedParts}, осталось ${withCrumbMetrics.shells}`,
 );
 
 check("крошка: отброшена", withCrumb.removedParts >= 1, true);
 checkRange("крошка: габарит остался от тела", withCrumbMetrics.size[0], 39.2, 40.8);
 check("крошка: сетка замкнута", withCrumbMetrics.unpairedEdges, 0);
+check("крошка: осталась одна оболочка", withCrumbMetrics.shells, 1);
+
+console.log("");
+
+// Плоская крошка: плита 12 × 12 × 1 мм весит 144 мм³ и проходит по объёму, но
+// в первом слое это линия. После ремеша высота остаётся ниже 1.2 мм, и плита
+// отбрасывается по высоте, а не по объёму.
+const pancake = boxMesh(12, 1, 12);
+
+for (let i = 0; i < pancake.positions.length; i += 3) {
+  pancake.positions[i] += 25;
+}
+
+const withPancake = makePrintReady(merge(noisySphere(14, 24, 48, 0.01), pancake));
+const withPancakeMetrics = analyzeMesh(withPancake.mesh);
+
+console.log(
+  `  тело с плоской плитой 12 × 12 × 1 мм: габарит ` +
+    `${withPancakeMetrics.size.map((value) => value.toFixed(1)).join(" × ")} мм, ` +
+    `отброшено оболочек ${withPancake.removedParts}, осталось ${withPancakeMetrics.shells}`,
+);
+
+check("плита: отброшена", withPancake.removedParts >= 1, true);
+check("плита: осталась одна оболочка", withPancakeMetrics.shells, 1);
+checkRange("плита: габарит остался от тела", withPancakeMetrics.size[0], 27.5, 30);
+check("плита: сетка замкнута", withPancakeMetrics.unpairedEdges, 0);
 
 console.log("");
 
@@ -698,11 +775,12 @@ if (!existsSync(catFile)) {
       `${catSlices.contoursPerLayer.toFixed(1)}, островов ` +
       `${catSlices.microPerLayer.toFixed(1)}, контакт ` +
       `${(catMetrics.baseAreaMm2 / 100).toFixed(1)} см², объём ` +
-      `${catMetrics.volumeCm3.toFixed(1)} см³, габарит ` +
+      `${catMetrics.volumeCm3.toFixed(1)} см³, оболочек ${catMetrics.shells}, габарит ` +
       `${catMetrics.size.map((value) => value.toFixed(1)).join(" × ")} мм`,
   );
 
   check("cat.stl: сетка замкнута", catMetrics.unpairedEdges, 0);
+  check("cat.stl: одна оболочка", catMetrics.shells, 1);
   // В исходном коте есть настоящая щель 0.3 мм между лапой и корпусом: срез
   // видит её как микро-контур. Это не рельеф от шума, поэтому допускаем один
   // такой контур на все слои (у исходника 3.8 на слой).

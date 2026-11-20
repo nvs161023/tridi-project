@@ -50,7 +50,14 @@ export type PrintPrepResult = {
   baseAreaMm2: number;
 };
 
-/** Шаг воксельной сетки, мм: полтора сопла 0.4 — рельеф мельче уже не нужен. */
+/**
+ * Шаг воксельной сетки, мм: полтора сопла 0.4 — рельеф мельче уже не нужен.
+ *
+ * Шаг 0.45 проверен на коте и откачен: детализация выше, но настоящая щель
+ * 0.3 мм между лапой и корпусом перестаёт схлопываться и даёт 2.6 контура на
+ * слой вместо 1.6 — слайсер рисует её отдельной петлёй. 0.55 такую щель
+ * закрывает сам, и печать чище.
+ */
 export const PRINT_CELL_MM = 0.55;
 
 /** Сколько срезается снизу, чтобы пятно контакта стало плоским, мм. */
@@ -62,7 +69,15 @@ const BAND_CELLS = 1.6;
 /** Оболочки меньше этого объёма — мусор генерации, мм³. */
 const MIN_PART_MM3 = 20;
 
-/** Итерации Таубина: два прохода снимают гранёность тетраэдров. */
+/**
+ * Оболочки ниже этого слоя — плоская крошка, мм.
+ *
+ * Тонкий «блинчик» площадью в сантиметр и высотой в полмиллиметра весит больше
+ * 20 мм³ и проходит по объёму, но печатается мусорной линией в первом слое.
+ */
+const MIN_PART_HEIGHT_MM = 1.2;
+
+/** Итерации Таубина: три прохода снимают гранёность, пять — уже без выигрыша. */
 const SMOOTH_PASSES = 3;
 
 /** Коэффициенты Таубина: вперёд сглаживает, назад возвращает объём. */
@@ -132,7 +147,7 @@ export function makePrintReady(mesh: PrintMesh): PrintPrepResult {
   const cutZ = bounds.min[2] + Math.min(BED_CUT_MM, height / 4);
   const field = buildField(oriented, cell, cutZ);
   const isosurface = marchingTetrahedra(field);
-  const smoothed = taubin(isosurface, cutZ);
+  const smoothed = taubin(isosurface, cutZ, cell);
   const kept = dropSmallParts(smoothed);
   const placed = sitOnBed(kept.mesh);
 
@@ -857,9 +872,11 @@ function pickCell(bounds: Bounds): number {
  * миллиметры объёма. Пара λ = 0.5, μ = −0.53 объём почти сохраняет.
  *
  * Вершины базы закреплены, иначе плоское пятно контакта превратилось бы в
- * линзу и модель снова встала бы на одну точку.
+ * линзу и модель снова встала бы на одну точку. Захватывается слой в одну
+ * ячейку: без него соседи плоскости проседают и у основания вырастает валик,
+ * который потом печатается утолщением первого слоя.
  */
-function taubin(mesh: PrintMesh, cutZ: number): PrintMesh {
+function taubin(mesh: PrintMesh, cutZ: number, cell: number): PrintMesh {
   const { positions, indices } = mesh;
   const count = Math.floor(positions.length / 3);
 
@@ -903,9 +920,10 @@ function taubin(mesh: PrintMesh, cutZ: number): PrintMesh {
   }
 
   const locked = new Uint8Array(count);
+  const lockZ = cutZ + cell;
 
   for (let v = 0; v < count; v += 1) {
-    if (positions[v * 3 + 2] <= cutZ + BASE_EPSILON_MM) {
+    if (positions[v * 3 + 2] <= lockZ) {
       locked[v] = 1;
     }
   }
@@ -969,6 +987,9 @@ function taubin(mesh: PrintMesh, cutZ: number): PrintMesh {
 
 /**
  * Отбрасывает мелкие оболочки — «крошки» генерации.
+ *
+ * Порог двойной: по объёму и по высоте. Тонкий блинчик в сантиметр площадью
+ * весит больше 20 мм³, но в первом слое это мусорная линия, а не деталь.
  *
  * Самая большая оболочка остаётся всегда: даже если модель целиком меньше
  * порога, печатать что-то надо.
@@ -1036,6 +1057,26 @@ function dropSmallParts(mesh: PrintMesh): { mesh: PrintMesh; dropped: number } {
     triangles[root] += 1;
   }
 
+  // Высота оболочки: плоский «блинчик» проходит по объёму, но не по высоте.
+  const minZ = new Float32Array(count).fill(Number.POSITIVE_INFINITY);
+  const maxZ = new Float32Array(count).fill(Number.NEGATIVE_INFINITY);
+
+  for (let t = 0; t < indices.length; t += 3) {
+    const root = find(indices[t]);
+
+    for (let n = 0; n < 3; n += 1) {
+      const z = positions[indices[t + n] * 3 + 2];
+
+      if (z < minZ[root]) {
+        minZ[root] = z;
+      }
+
+      if (z > maxZ[root]) {
+        maxZ[root] = z;
+      }
+    }
+  }
+
   let biggestRoot = -1;
   let biggestVolume = 0;
 
@@ -1060,7 +1101,11 @@ function dropSmallParts(mesh: PrintMesh): { mesh: PrintMesh; dropped: number } {
       continue;
     }
 
-    if (root === biggestRoot || Math.abs(volume[root]) >= MIN_PART_MM3) {
+    const height = maxZ[root] - minZ[root];
+    const flat = height < MIN_PART_HEIGHT_MM;
+    const solid = !flat && Math.abs(volume[root]) >= MIN_PART_MM3;
+
+    if (root === biggestRoot || solid) {
       keep[root] = 1;
     } else {
       dropped += 1;
