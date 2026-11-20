@@ -1,10 +1,43 @@
+import type { SVGProps } from "react";
 import Link from "next/link";
 
 import { Logo } from "@/components/Logo";
 import { LEGAL_DOCUMENTS, LEGAL_OPERATOR } from "@/lib/legal";
 
-/** Готовая строка реквизитов: её проверяют платёжные сервисы при активации. */
-const SELLER_REQUISITES = `Самозанятый ${LEGAL_OPERATOR.shortName}, ИНН ${LEGAL_OPERATOR.inn}`;
+/** Иконки подвала: линейные SVG, наследуют цвет и размер от текста рядом. */
+type FooterIconProps = SVGProps<SVGSVGElement>;
+
+const footerIconProps = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.7,
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+/** ИНН: документ с текстовыми строками — реквизиты продавца в подвале. */
+function DocumentIcon(props: FooterIconProps) {
+  return (
+    <svg {...footerIconProps} {...props}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
+      <path d="M14 2v6h6" />
+      <path d="M8 13h8" />
+      <path d="M8 17h5" />
+    </svg>
+  );
+}
+
+/** Email: конверт рядом со ссылкой `mailto:`. */
+function MailIcon(props: FooterIconProps) {
+  return (
+    <svg {...footerIconProps} {...props}>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </svg>
+  );
+}
 
 /**
  * Продуктовые разделы в футере.
@@ -31,10 +64,23 @@ const PLATFORM_LINKS = [
 const footerHeadingClassName =
   "text-xs font-semibold tracking-[0.14em] text-white/90 uppercase";
 
+/** Заголовок карточки реквизитов: мельче и тише остальных колонок. */
+const footerCardHeadingClassName =
+  "text-xs font-semibold tracking-[0.14em] text-slate-400 uppercase";
+
 const footerLinkClassName =
   "w-fit text-zinc-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]";
 
-const contactLinkClassName = `${footerLinkClassName} text-base font-medium`;
+/** Метка строки реквизитов: мелкая, тёмная, с иконкой слева. */
+const footerTermClassName =
+  "inline-flex items-center gap-1.5 text-[11px] font-semibold tracking-[0.1em] text-slate-500 uppercase";
+
+/** Значение строки реквизитов: светлое и читаемое. */
+const footerValueClassName = "text-sm font-semibold text-slate-200";
+
+/** Email-ссылка: подчёркивание проявляется при наведении. */
+const footerEmailClassName =
+  "break-all text-sm font-medium text-slate-200 underline decoration-transparent underline-offset-4 transition-colors hover:text-blue-300 hover:decoration-current focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303]";
 
 /**
  * Футер сайта со ссылками на юридические документы и реквизитами продавца.
@@ -42,8 +88,8 @@ const contactLinkClassName = `${footerLinkClassName} text-base font-medium`;
  * Показывается на всех страницах (подключён в app/layout.tsx): ссылки на политику,
  * согласие, соглашение и оферту должны быть доступны с любой страницы, а не только
  * с регистрации. Реквизиты берутся из lib/legal.ts — того же источника, что и в
- * самих документах. Телефон, ИНН и email вынесены в отдельную карточку: их
- * проверяют платёжные сервисы при активации магазина.
+ * самих документах. ИНН и email вынесены в отдельную карточку: их проверяют
+ * платёжные сервисы при активации магазина.
  *
  * Кроме пяти документов в футере стоят ссылка на их оглавление `/legal` и
  * ссылка на лендинг бесплатного уровня `/start`: обе страницы были сиротами —
@@ -130,47 +176,51 @@ export function Footer() {
             aria-labelledby="footer-requisites-heading"
             className="rounded-2xl border border-white/10 bg-white/[0.02] p-6 md:col-span-2 lg:col-span-1"
           >
-            <h2 id="footer-requisites-heading" className={footerHeadingClassName}>
+            <h2
+              id="footer-requisites-heading"
+              className={footerCardHeadingClassName}
+            >
               Реквизиты и контакты
             </h2>
 
-            <p className="mt-4 text-base font-semibold leading-relaxed text-white/90">
-              {SELLER_REQUISITES}
-            </p>
+            <div className="mt-4 flex flex-col gap-3">
+              <p className="text-lg leading-snug font-semibold text-white">
+                {LEGAL_OPERATOR.shortName}
+              </p>
 
-            <dl className="mt-5 grid gap-x-8 gap-y-4 text-sm md:grid-cols-2 lg:grid-cols-1">
-              <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
-                  Статус
-                </dt>
-                <dd className="mt-1 leading-relaxed text-zinc-400">
-                  {LEGAL_OPERATOR.sellerStatus}
-                </dd>
-              </div>
+              <p className="text-sm leading-relaxed text-slate-400">
+                {LEGAL_OPERATOR.sellerStatus}
+              </p>
 
-              <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
-                  ИНН
-                </dt>
-                <dd className="font-mono text-base font-semibold tracking-wide text-white/90">
-                  {LEGAL_OPERATOR.inn}
-                </dd>
-              </div>
-
-              <div>
-                <dt className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">
-                  Email
-                </dt>
-                <dd className="mt-1">
-                  <a
-                    href={`mailto:${LEGAL_OPERATOR.email}`}
-                    className={`${contactLinkClassName} break-all`}
+              <dl className="flex flex-col gap-2 pt-1 text-sm">
+                <div className="flex items-center gap-2.5">
+                  <dt className={footerTermClassName}>
+                    <DocumentIcon className="h-3.5 w-3.5 shrink-0" />
+                    ИНН
+                  </dt>
+                  <dd
+                    className={`${footerValueClassName} font-mono tracking-wide`}
                   >
-                    {LEGAL_OPERATOR.email}
-                  </a>
-                </dd>
-              </div>
-            </dl>
+                    {LEGAL_OPERATOR.inn}
+                  </dd>
+                </div>
+
+                <div className="flex items-center gap-2.5">
+                  <dt className={footerTermClassName}>
+                    <MailIcon className="h-3.5 w-3.5 shrink-0" />
+                    Email
+                  </dt>
+                  <dd className="min-w-0">
+                    <a
+                      href={`mailto:${LEGAL_OPERATOR.email}`}
+                      className={footerEmailClassName}
+                    >
+                      {LEGAL_OPERATOR.email}
+                    </a>
+                  </dd>
+                </div>
+              </dl>
+            </div>
           </section>
         </div>
 
