@@ -29,12 +29,20 @@ export const HOUR_FORMS: [string, string, string] = ["час", "часа", "ча
 export const VISUAL_FORMS: [string, string, string] = ["схема", "схемы", "схем"];
 export const TEST_FORMS: [string, string, string] = ["тест", "теста", "тестов"];
 export const FILE_FORMS: [string, string, string] = ["файл", "файла", "файлов"];
+/** Формы счётчиков витрин: используются и на сервере, и в клиентских фильтрах. */
+export const MODEL_FORMS: [string, string, string] = ["модель", "модели", "моделей"];
+export const PROFILE_FORMS: [string, string, string] = ["профиль", "профиля", "профилей"];
+export const DEFECT_FORMS: [string, string, string] = ["дефект", "дефекта", "дефектов"];
+export const TOOL_FORMS: [string, string, string] = ["инструмент", "инструмента", "инструментов"];
 
 /**
  * Русская форма слова по числу: 1 урок, 2 урока, 5 уроков.
  * forms — это [для 1, для 2–4, для 5 и больше].
  */
-export function pluralize(count: number, forms: [string, string, string]): string {
+export function pluralize(
+  count: number,
+  forms: readonly [string, string, string],
+): string {
   const mod100 = count % 100;
   const mod10 = count % 10;
 

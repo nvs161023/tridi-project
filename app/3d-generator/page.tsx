@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { Header } from "@/components/Header";
+import { GeneratorPhotoExample } from "@/components/generator/GeneratorPhotoExample";
 import { Image3DGenerator } from "@/components/generator/Image3DGenerator";
 import { PlanButton } from "@/app/subscription/PlanButton";
 import { authHref } from "@/lib/auth-redirect";
@@ -62,7 +63,7 @@ export const dynamic = "force-dynamic";
 const GENERATOR_STEPS = [
   {
     title: "Загрузите фото",
-    text: "1–4 снимка предмета: спереди, слева, сзади и справа. Браузер сожмёт кадры сам.",
+    text: "1–4 снимка предмета: спереди, слева, сзади и справа. Браузер сожмёт кадры сам. Симметричному предмету хватит одного.",
   },
   {
     title: "Выберите качество",
@@ -362,6 +363,8 @@ export default async function ThreeDGeneratorPage() {
             сервере временно — скачайте файл сразу после генерации.
           </p>
         </section>
+
+        <GeneratorPhotoExample />
       </main>
     </div>
   );

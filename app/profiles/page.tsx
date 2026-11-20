@@ -3,12 +3,16 @@ import Link from "next/link";
 
 import { Header } from "@/components/Header";
 import { ProfilesClient } from "@/components/profiles/ProfilesClient";
+import { pluralize } from "@/lib/course-stats";
 import { resolveUserId } from "@/lib/current-user";
 import {
   profileCategories,
   profileCount,
+  profileImportedCount,
+  profileTestedCount,
   profilesUpdatedAt,
 } from "@/lib/profiles";
+import { PROFILE_FORMS } from "@/lib/stats";
 import { hasActiveSubscription } from "@/lib/subscription";
 import { createClient } from "@/lib/supabase/server";
 
@@ -45,7 +49,6 @@ export const metadata: Metadata = {
 /** Страница зависит от cookies пользователя — собираем её на каждый запрос. */
 export const dynamic = "force-dynamic";
 
-const PROFILE_FORMS = ["профиль", "профиля", "профилей"] as const;
 const BRAND_FORMS = ["бренд", "бренда", "брендов"] as const;
 
 const brandCount = new Set(
@@ -53,26 +56,6 @@ const brandCount = new Set(
     category.profiles.map((profile) => profile.manufacturer),
   ),
 ).size;
-
-/** Русская форма слова по числу: 1 профиль, 2 профиля, 5 профилей. */
-function pluralize(count: number, forms: readonly [string, string, string]) {
-  const mod100 = count % 100;
-  const mod10 = count % 10;
-
-  if (mod100 >= 11 && mod100 <= 14) {
-    return forms[2];
-  }
-
-  if (mod10 === 1) {
-    return forms[0];
-  }
-
-  if (mod10 >= 2 && mod10 <= 4) {
-    return forms[1];
-  }
-
-  return forms[2];
-}
 
 /** «18 октября 2026» — дата сверки библиотеки с источниками. */
 function formatUpdatedAt(isoDate: string): string {
@@ -145,6 +128,12 @@ export default async function ProfilesPage() {
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
                 {brandCount} {pluralize(brandCount, BRAND_FORMS)}
+              </span>
+              <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3.5 py-1.5 text-emerald-200">
+                Проверено на печати: {profileTestedCount}
+              </span>
+              <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-3.5 py-1.5 text-sky-200">
+                Проверено импортом: {profileImportedCount}
               </span>
             </div>
           </div>
@@ -269,7 +258,8 @@ export default async function ProfilesPage() {
                 </h3>
                 <p className="mt-2 text-xs leading-relaxed text-slate-300 sm:text-sm">
                   Проверяем, что файл импортируется в указанный слайсер и
-                  находит базовый профиль из поля «База».
+                  находит базовый профиль из поля «База». После сверки профиль
+                  получает голубой бейдж «Импортирован».
                 </p>
               </li>
 

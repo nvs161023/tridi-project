@@ -4,11 +4,16 @@
  * Формулы живут в одном месте, чтобы вкладка «Калькулятор» и будущие заказы
  * считали одинаково:
  *   материал      = вес / 1000 × цена за килограмм;
- *   электричество = мощность / 1000 × часы × цена кВт·ч;
- *   амортизация   = часы × амортизация за час;
- *   работа        = часы × стоимость часа;
- *   себестоимость = сумма четырёх строк;
+ *   электричество = мощность / 1000 × часы печати × цена кВт·ч;
+ *   амортизация   = часы печати × амортизация за час;
+ *   печать        = электричество + амортизация;
+ *   работа        = минуты мастера / 60 × стоимость часа мастера;
+ *   себестоимость = материал + печать + работа;
  *   рекомендуемая цена = себестоимость × (1 + наценка / 100).
+ *
+ * Время печати и время мастера — разные вещи: принтер может печатать 6 часов,
+ * пока мастер занят моделью 15 минут. Раньше работа считалась по часам печати,
+ * и калькулятор завышал себестоимость в разы.
  *
  * Наценку мастер вводит сам: по умолчанию 150 % (цена × 2,5), 0 % — продажа по
  * себестоимости. Значение живёт в состоянии вкладки, колонки в
@@ -33,11 +38,13 @@ export const MARKUP_PERCENT_MAX = 1000;
 /** Цена пластика по умолчанию: типичная катушка PLA 1 кг. */
 export const DEFAULT_PLASTIC_PRICE_PER_KG = 1500;
 
-/** Что вводит пользователь. Считается от веса, времени печати и цены пластика. */
+/** Что вводит пользователь. Считается от веса, времени и цены пластика. */
 export type CalculatorInput = {
   weightGrams: number;
   printHours: number;
   plasticPricePerKg: number;
+  /** Сколько минут мастер занят заказом: подготовка, снятие, обработка. */
+  laborMinutes: number;
 };
 
 export type CalculatorFieldKey = keyof CalculatorInput;
@@ -85,6 +92,15 @@ export const CALCULATOR_FIELDS: readonly CalculatorField[] = [
     min: 0,
     max: 100000,
   },
+  {
+    key: "laborMinutes",
+    label: "Время работы мастера",
+    unit: "мин",
+    placeholder: "15",
+    step: "1",
+    min: 0,
+    max: 10080,
+  },
 ];
 
 /** Поле «Наценка (%)»: подпись, единица, пределы и шаг — как у полей расчёта. */
@@ -115,11 +131,13 @@ export function markupFactor(percent: number): number {
   return 1 + percent / 100;
 }
 
-/** Разбивка себестоимости: четыре строки, итог, цена и прибыль. */
+/** Разбивка себестоимости: материал, печать, работа, итог, цена и прибыль. */
 export type CalculatorBreakdown = {
   material: number;
   electricity: number;
   depreciation: number;
+  /** Электричество + амортизация: стоимость собственно печати. */
+  printingCost: number;
   labor: number;
   costPrice: number;
   recommendedPrice: number;
@@ -201,10 +219,9 @@ export function calculateWorkshopCost(
   const depreciation = roundMoney(
     input.printHours * settings.depreciationCostHour,
   );
-  const labor = roundMoney(input.printHours * settings.laborCostHour);
-  const costPrice = roundMoney(
-    material + electricity + depreciation + labor,
-  );
+  const printingCost = roundMoney(electricity + depreciation);
+  const labor = roundMoney((input.laborMinutes / 60) * settings.laborCostHour);
+  const costPrice = roundMoney(material + printingCost + labor);
   const recommendedPrice = roundMoney(costPrice * markupFactor(markupPercent));
   const profit = roundMoney(recommendedPrice - costPrice);
 
@@ -212,6 +229,7 @@ export function calculateWorkshopCost(
     material,
     electricity,
     depreciation,
+    printingCost,
     labor,
     costPrice,
     recommendedPrice,
@@ -236,6 +254,7 @@ export function readCalculatorInput(
     weightGrams: 0,
     printHours: 0,
     plasticPricePerKg: 0,
+    laborMinutes: 0,
   };
 
   for (const field of CALCULATOR_FIELDS) {

@@ -11,6 +11,8 @@ import { BufferAttribute, BufferGeometry, Matrix4, Mesh, Vector3 } from "three";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
+import { makePrintReady, type PrintMesh } from "./print-prep";
+
 /**
  * Постобработка сгенерированной 3D-модели: GLB → печатный STL.
  *
@@ -25,7 +27,9 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
  *      `@gltf-transform/functions`, алгоритм meshoptimizer);
  *   5. геометрия переносится в `three.js`, масштабируется так, чтобы самый
  *      большой габарит был ровно 120 мм;
- *   6. результат пишется бинарным STL через серверный `STLExporter`.
+ *   6. сетка пересобирается печатной подготовкой (`print-prep`): ось Z вверх,
+ *      плоская база на столе, воксельный ремеш без суб-соплового рельефа;
+ *   7. результат пишется бинарным STL через серверный `STLExporter`.
  *
  * STL-файл живёт во временной папке (`<tmp>/tridi-3d`). Имя — SHA-256 от
  * ссылки на GLB, поэтому повторный опрос статуса готовой задачи не запускает
@@ -443,6 +447,60 @@ function buildPrintableGeometry(document: Document): BufferGeometry {
   return merged;
 }
 
+/**
+ * Пересобирает геометрию в печатную: Z вверх, плоская база, воксельный ремеш.
+ *
+ * Упрощение и сварка чистят сетку, но рельеф поверхности остаётся: у
+ * скульптурных сеток генерации медианный двугранный угол 15°, и слайсер честно
+ * режет такой рельеф на десяток микроконтуров на слой. `makePrintReady` строит
+ * поле расстояний и вытягивает изоповерхность заново — так же, как это делает
+ * ремешер внутри слайсера.
+ */
+export function printPrepare(geometry: BufferGeometry): BufferGeometry {
+  const position = geometry.getAttribute("position");
+  const index = geometry.getIndex();
+
+  if (!position || !index) {
+    throw new MeshFixerError("В модели нет индексированной треугольной сетки.");
+  }
+
+  const source: PrintMesh = {
+    positions: new Float32Array(position.array as ArrayLike<number>),
+    indices: new Uint32Array(index.array as ArrayLike<number>),
+  };
+  const started = performance.now();
+  const prepared = makePrintReady(source);
+  const elapsed = (performance.now() - started) / 1000;
+
+  console.info(
+    "[mesh-fixer] Печатная подготовка:",
+    prepared.trianglesBefore,
+    "→",
+    prepared.trianglesAfter,
+    "треугольников, шаг",
+    prepared.cellMm.toFixed(2),
+    "мм, объём",
+    prepared.volumeCm3.toFixed(1),
+    "см³, контакт",
+    (prepared.baseAreaMm2 / 100).toFixed(1),
+    "см², оболочек отброшено",
+    prepared.removedParts,
+    "за",
+    elapsed.toFixed(1),
+    "с",
+  );
+
+  const printable = new BufferGeometry();
+
+  printable.setAttribute(
+    "position",
+    new BufferAttribute(prepared.mesh.positions, 3),
+  );
+  printable.setIndex(new BufferAttribute(prepared.mesh.indices, 1));
+
+  return printable;
+}
+
 /** Экспортирует геометрию бинарным STL через серверный STLExporter. */
 function exportStl(geometry: BufferGeometry): Uint8Array {
   const mesh = new Mesh(geometry);
@@ -493,7 +551,8 @@ export async function processGeneratedMesh(glbUrl: string): Promise<string> {
   await prepareMesh(document);
 
   const geometry = buildPrintableGeometry(document);
-  const stl = exportStl(geometry);
+  const printable = printPrepare(geometry);
+  const stl = exportStl(printable);
 
   await saveStl(target, stl);
 

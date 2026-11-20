@@ -91,7 +91,7 @@ export const WORKSHOP_FIELDS: readonly WorkshopField[] = [
     formName: "laborCostHour",
     column: "labor_cost_hour",
     label: "Стоимость часа работы (₽/час)",
-    hint: "Сколько стоит час вашей работы: подготовка модели, снятие, обработка.",
+    hint: "Сколько стоит час работы мастера: подготовка модели, снятие, обработка. Это не время печати — оно считается отдельно.",
     step: "0.01",
     min: 0,
     max: 100000,

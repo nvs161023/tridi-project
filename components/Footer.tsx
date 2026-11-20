@@ -18,8 +18,10 @@ const SELLER_REQUISITES = `Самозанятый ${LEGAL_OPERATOR.shortName}, �
  * ссылку и помогает поисковику обойти продукт целиком, а не одну главную.
  */
 const PLATFORM_LINKS = [
-  { href: "/constructor", label: "Конструктор 3D" },
-  { href: "/3d-generator", label: "Генератор по фото" },
+  // Витрины, а не рабочие страницы: они открыты гостю и индексируются,
+  // а /constructor и /3d-generator требуют входа.
+  { href: "/preview/constructor", label: "Конструктор 3D" },
+  { href: "/preview/generator", label: "Генератор по фото" },
   { href: "/tools/workshop", label: "Мастерская" },
   { href: "/gallery", label: "Галерея моделей" },
   { href: "/profiles", label: "Профили печати" },

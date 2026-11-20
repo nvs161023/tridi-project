@@ -14,28 +14,15 @@ import {
   VISUAL_FORMS,
   pluralize,
 } from "@/lib/course-stats";
+import { PRICES, SITE_STATS, formatPrice } from "@/lib/stats";
 
 const { pro: proCourse } = coursesData;
-
-const formatPrice = (price: number) =>
-  new Intl.NumberFormat("ru-RU").format(price);
-
-/** Цена трёх курсов по отдельности и выгода пакета в рублях. */
-const BUNDLE_SEPARATE_PRICE = PAID_LEVELS.reduce(
-  (sum, level) => sum + level.price,
-  0,
-);
-const BUNDLE_SAVING = BUNDLE_SEPARATE_PRICE - proCourse.price;
 
 /** Названия платных уровней в описании пакета не дублируем вручную. */
 const BUNDLE_COURSES = PAID_LEVELS.map((level) => level.shortTitle).join(", ");
 
 /** Файлы к урокам всех платных уровней: те же ссылки, что на карточках. */
-const BUNDLE_ARTIFACTS = new Set(
-  PAID_LEVELS.flatMap((level) =>
-    level.artifacts.map((artifact) => artifact.href),
-  ),
-).size;
+const BUNDLE_ARTIFACTS = SITE_STATS.artifactsPaid;
 
 const BUNDLE_DESCRIPTION = `Покупайте все три курса (${BUNDLE_COURSES}) вместе со скидкой: это выгоднее, чем покупать их по отдельности. Бесплатный «Новичок» открыт каждому и без пакета.`;
 
@@ -73,7 +60,7 @@ type ProBundleCardProps = {
 };
 
 /**
- * Карточка пакета «Всё включено» для страницы курсов.
+ * Карточка пакета «Все три курса» для страницы курсов.
  *
  * Пакет продаётся как единая покупка трёх платных курсов со скидкой. Оплата
  * идёт через тот же PlanButton, что у отдельных уровней: цену и доступ
@@ -132,17 +119,17 @@ export function ProBundleCard({
 
           <p className="mt-4 flex flex-wrap items-baseline gap-x-3 gap-y-1">
             <span className="text-3xl font-extrabold text-white">
-              {formatPrice(proCourse.price)} ₽
+              {formatPrice(PRICES.bundle)} ₽
             </span>
             <span className="text-sm text-slate-400 line-through">
-              {formatPrice(BUNDLE_SEPARATE_PRICE)} ₽
+              {formatPrice(PRICES.bundleSeparate)} ₽
             </span>
             <span className="text-xs text-slate-300">разово, навсегда</span>
           </p>
 
           <p className="mt-3 inline-flex flex-wrap items-center gap-x-2 gap-y-1 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 px-3 py-2 text-xs text-slate-300">
             <span className="font-semibold text-emerald-200">
-              Скидка {formatPrice(BUNDLE_SAVING)} ₽
+              Скидка {formatPrice(PRICES.bundleSaving)} ₽
             </span>
             <span>по сравнению с покупкой трёх курсов по отдельности</span>
           </p>
@@ -215,7 +202,7 @@ export function ProBundleCard({
                   size="compact"
                 />
                 <p className="mt-2 text-center text-[11px] leading-relaxed text-slate-300">
-                  {formatPrice(proCourse.price)} ₽ разово · доступ навсегда
+                  {formatPrice(PRICES.bundle)} ₽ разово · доступ навсегда
                 </p>
               </>
             )}

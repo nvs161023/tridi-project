@@ -10,11 +10,17 @@
  */
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { createClient } from "@/lib/supabase/server";
+import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/limits";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-/** Сколько раз Free-пользователь может скачать STL за календарный месяц. */
-export const FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH = 3;
+/**
+ * Сколько раз Free-пользователь может скачать STL за календарный месяц.
+ *
+ * Само число живёт в `lib/constructor/limits.ts`: витрины берут его без
+ * Supabase-клиента, а этот модуль реэкспортирует для существующих импортов.
+ */
+export { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH };
 
 /** Резерв слота: либо id записи для отката, либо причина отказа. */
 export type ConstructorDownloadReservation =

@@ -583,7 +583,7 @@ export function Image3DGenerator({
               Фото предмета
             </h2>
             <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-              1–4 кадра: чем больше видов, тем точнее силуэт
+              1–4 кадра: для симметричного предмета хватит одного
             </p>
           </div>
         </div>
@@ -688,6 +688,7 @@ export function Image3DGenerator({
         >
           Браузер сам сжимает снимок до {GENERATOR_PHOTO_MAX_SIDE_PX} px по
           длинной стороне. Порядок видов: {GENERATOR_PHOTO_VIEWS.join(", ")}.
+          Первого кадра хватит симметричному предмету.
         </p>
 
         {/* Отдельное согласие на обработку фото: фотография уходит внешнему

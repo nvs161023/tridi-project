@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import type { PrintProfile, ProfileCategory } from "@/lib/profiles";
+import { PROFILE_FORMS, pluralize } from "@/lib/course-stats";
 
 type ProfilesClientProps = {
   categories: ProfileCategory[];
@@ -16,8 +17,6 @@ const CATEGORY_ICONS: Record<string, string> = {
   materials: "🧵",
   "print-settings": "⚙️",
 };
-
-const PROFILE_FORMS = ["профиль", "профиля", "профилей"] as const;
 
 /**
  * Порядок брендов в выпадающем списке. Список только задаёт приоритет:
@@ -69,26 +68,6 @@ function formatTestedAt(isoDate: string): string {
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
-}
-
-/** Русская форма слова по числу: 1 профиль, 2 профиля, 5 профилей. */
-function pluralize(count: number, forms: readonly [string, string, string]) {
-  const mod100 = count % 100;
-  const mod10 = count % 10;
-
-  if (mod100 >= 11 && mod100 <= 14) {
-    return forms[2];
-  }
-
-  if (mod10 === 1) {
-    return forms[0];
-  }
-
-  if (mod10 >= 2 && mod10 <= 4) {
-    return forms[1];
-  }
-
-  return forms[2];
 }
 
 /**
@@ -227,6 +206,10 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [material, setMaterial] = useState("");
+  /** Быстрый фильтр по проверке: на печати или импортом в слайсер. */
+  const [verification, setVerification] = useState<"" | "tested" | "imported">(
+    "",
+  );
 
   /**
    * Бренды и модели собираются из каталога, а не из статического списка:
@@ -287,19 +270,45 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
   const models = brand
     ? brandOptions.find((option) => option.name === brand)?.models ?? []
     : [];
-  const hasFilters = Boolean(brand || model || material);
+  const hasFilters = Boolean(brand || model || material || verification);
+
+  /** Сколько профилей проверено печатью и импортом — для чипов фильтра. */
+  const testedCount = useMemo(
+    () =>
+      categories.reduce(
+        (count, category) =>
+          count + category.profiles.filter((profile) => profile.testedAt).length,
+        0,
+      ),
+    [categories],
+  );
+  const importedCount = useMemo(
+    () =>
+      categories.reduce(
+        (count, category) =>
+          count + category.profiles.filter((profile) => profile.importedAt).length,
+        0,
+      ),
+    [categories],
+  );
 
   const filteredCategories = useMemo(
     () =>
       categories
         .map((category) => ({
           ...category,
-          profiles: category.profiles.filter((profile) =>
-            matchesFilters(profile, brand, model, material),
+          profiles: category.profiles.filter(
+            (profile) =>
+              matchesFilters(profile, brand, model, material) &&
+              (verification === "tested"
+                ? Boolean(profile.testedAt)
+                : verification === "imported"
+                  ? Boolean(profile.importedAt)
+                  : true),
           ),
         }))
         .filter((category) => category.profiles.length > 0),
-    [brand, categories, material, model],
+    [brand, categories, material, model, verification],
   );
 
   const visibleCount = filteredCategories.reduce(
@@ -311,6 +320,7 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
     setBrand("");
     setModel("");
     setMaterial("");
+    setVerification("");
   }
 
   return (
@@ -408,6 +418,46 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
           </label>
         </div>
 
+        <div className="mt-5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            aria-pressed={verification === "tested"}
+            onClick={() =>
+              setVerification(verification === "tested" ? "" : "tested")
+            }
+            disabled={testedCount === 0}
+            className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 ${
+              verification === "tested"
+                ? "border-emerald-400/60 bg-emerald-500/20 text-emerald-100"
+                : "border-white/15 bg-white/5 text-slate-300 hover:border-emerald-400/40 hover:text-white"
+            }`}
+          >
+            <CheckIcon />
+            Проверен на печати · {testedCount}
+          </button>
+          <button
+            type="button"
+            aria-pressed={verification === "imported"}
+            onClick={() =>
+              setVerification(verification === "imported" ? "" : "imported")
+            }
+            disabled={importedCount === 0}
+            title={
+              importedCount === 0
+                ? "Пока ни один профиль не сверен импортом в слайсер — бейджи появятся после проверки"
+                : undefined
+            }
+            className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3.5 text-xs font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:opacity-40 ${
+              verification === "imported"
+                ? "border-sky-400/60 bg-sky-500/20 text-sky-100"
+                : "border-white/15 bg-white/5 text-slate-300 hover:border-sky-400/40 hover:text-white"
+            }`}
+          >
+            <CheckIcon />
+            Импортирован · {importedCount}
+          </button>
+        </div>
+
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
           <p
             aria-live="polite"
@@ -493,18 +543,36 @@ export function ProfilesClient({ categories, hasPro }: ProfilesClientProps) {
                         key={profile.id}
                         className="relative flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/5 p-6"
                       >
-                        {profile.testedAt ? (
+                        {profile.testedAt || profile.importedAt ? (
                           <div className="relative z-20 mb-4 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span
-                              className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-emerald-200"
-                              title={profile.testedNote}
-                            >
-                              <CheckIcon />
-                              Проверен на печати
-                              <span className="font-medium text-emerald-300">
-                                · {formatTestedAt(profile.testedAt)}
+                            {profile.testedAt ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-emerald-200"
+                                title={profile.testedNote}
+                              >
+                                <CheckIcon />
+                                Проверен на печати
+                                <span className="font-medium text-emerald-300">
+                                  · {formatTestedAt(profile.testedAt)}
+                                </span>
                               </span>
-                            </span>
+                            ) : null}
+                            {profile.importedAt ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full border border-sky-400/40 bg-sky-500/15 px-2.5 py-1 text-[11px] font-bold tracking-wide text-sky-200"
+                                title={
+                                  [profile.importedSlicer, profile.importedNote]
+                                    .filter(Boolean)
+                                    .join(" · ") || undefined
+                                }
+                              >
+                                <CheckIcon />
+                                Импортирован
+                                <span className="font-medium text-sky-300">
+                                  · {formatTestedAt(profile.importedAt)}
+                                </span>
+                              </span>
+                            ) : null}
                             {profile.testedNote ? (
                               <span className="text-[11px] leading-snug text-emerald-200/80">
                                 {profile.testedNote}

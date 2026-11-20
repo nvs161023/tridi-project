@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
  * поисковика — он перестаёт верить lastmod и обходит карту по своему графику.
  * При правках контента страницы дату меняем руками.
  */
-const CONTENT_REVIEWED_AT = new Date("2026-11-01");
+const CONTENT_REVIEWED_AT = new Date("2026-11-19");
 
 const STATIC_PAGES: {
   path: string;
@@ -35,12 +35,11 @@ const STATIC_PAGES: {
   // Витрина генератора: подписка и пакеты токенов. Публичная и индексируемая;
   // сам /3d-generator с 16 ноября 2026 тоже открыт для поиска, но требует входа.
   { path: "/pricing", changeFrequency: "monthly", priority: 0.8 },
-  // Витрины инструментов платформы. С 16 ноября 2026 открыты для индексации:
-  // noindex со страниц снят, запрет из robots.txt убран. Сам конструктор и
-  // генератор требуют входа, поэтому из поиска человек попадает на описание
-  // возможностей и на /pricing, где покупается доступ.
-  { path: "/constructor", changeFrequency: "monthly", priority: 0.8 },
-  { path: "/3d-generator", changeFrequency: "monthly", priority: 0.8 },
+  // Витрины инструментов. Сам /constructor и /3d-generator закрыты входом
+  // (PROTECTED_PATH_PREFIXES в lib/supabase/middleware.ts): гость получает 307
+  // на /auth/login, поэтому в карте сайта стоят открытые версии.
+  { path: "/preview/constructor", changeFrequency: "monthly", priority: 0.85 },
+  { path: "/preview/generator", changeFrequency: "monthly", priority: 0.85 },
   // Галерея обновляется с каждой публикацией модели, поэтому weekly.
   { path: "/gallery", changeFrequency: "weekly", priority: 0.8 },
   { path: "/forum", changeFrequency: "daily", priority: 0.7 },
@@ -76,10 +75,11 @@ const STATIC_PAGES: {
  * центр инструментов, библиотека профилей, блог, разделы и темы форума,
  * юридические документы.
  *
- * Закрытые разделы сюда не попадают: /dashboard, /course/* и /admin закрыты
- * middleware и закрыты в robots.txt, а личные страницы (/my-models, /activate,
- * /verify) держат noindex. `/verify` вдобавок проверяет конкретный сертификат
- * по токену — это не страница для поиска.
+ * Закрытые разделы сюда не попадают: /dashboard, /course/*, /constructor,
+ * /3d-generator и /admin закрыты middleware (гость получает 307), а личные
+ * страницы (/my-models, /activate, /verify) держат noindex. `/verify` вдобавок
+ * проверяет конкретный сертификат по токену — это не страница для поиска.
+ * Вместо закрытых инструментов в карте стоят открытые витрины /preview/*.
  */
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = await resolveSiteUrl();

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { Header } from "@/components/Header";
 import { ProBundleCard } from "@/components/landing/ProBundleCard";
 import { ButtonLink, Card } from "@/components/ui";
-import coursesData from "@/data/courses.json";
 import { authHref } from "@/lib/auth-redirect";
 import { resolveUserId } from "@/lib/current-user";
 import { LEGAL_OPERATOR } from "@/lib/legal";
@@ -28,6 +27,7 @@ import {
   pluralize,
 } from "@/lib/course-stats";
 import { getPurchasedCourses, hasCourseAccess } from "@/lib/subscription";
+import { PRICES, formatPrice } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
 
 import { PlanButton } from "./PlanButton";
@@ -52,9 +52,6 @@ export const metadata: Metadata = {
   },
 };
 
-const formatPrice = (price: number) =>
-  new Intl.NumberFormat("ru-RU").format(price);
-
 /** Единый стиль ярких бейджей на карточках тарифов. */
 const DISCOUNT_BADGE =
   "rounded-full bg-amber-400 px-2.5 py-1 text-center text-[10px] font-extrabold tracking-wide text-slate-950 uppercase shadow-lg shadow-amber-500/20";
@@ -62,13 +59,7 @@ const DISCOUNT_BADGE =
 /** Цена уровня для FAQ: «2 990 ₽». */
 const levelPrice = (level: CourseLevel) => `${formatPrice(level.price)} ₽`;
 
-/** Цена пакета и выгода против трёх отдельных покупок. */
-const BUNDLE_PRICE = coursesData.pro.price;
-const BUNDLE_SEPARATE_PRICE = PAID_LEVELS.reduce(
-  (sum, level) => sum + level.price,
-  0,
-);
-const BUNDLE_SAVING = BUNDLE_SEPARATE_PRICE - BUNDLE_PRICE;
+/** Цена пакета и выгода против трёх отдельных покупок — из lib/stats. */
 
 /** Бесплатный уровень: цена 0 ₽ и подпись вместо скидочного бейджа. */
 const basicLevel = LEVELS[0];
@@ -167,11 +158,11 @@ const FAQ: { question: string; answer: string }[] = [
   },
   {
     question: "Можно ли купить курс навсегда?",
-    answer: `Да. «Уверенный» стоит ${levelPrice(LEVELS[1])}, «Инженер» — ${levelPrice(LEVELS[2])}, «Заработок» — ${levelPrice(LEVELS[3])}. Это разовые платежи, доступ остаётся навсегда. Все три курса сразу можно взять пакетом «Всё включено» за ${formatPrice(BUNDLE_PRICE)} ₽ — на ${formatPrice(BUNDLE_SAVING)} ₽ дешевле покупки по отдельности.`,
+    answer: `Да. «Уверенный» стоит ${levelPrice(LEVELS[1])}, «Инженер» — ${levelPrice(LEVELS[2])}, «Заработок» — ${levelPrice(LEVELS[3])}. Это разовые платежи, доступ остаётся навсегда. Все три курса сразу можно взять пакетом «Все три курса» за ${formatPrice(PRICES.bundle)} ₽ — на ${formatPrice(PRICES.bundleSaving)} ₽ дешевле покупки по отдельности.`,
   },
   {
-    question: "Что входит в пакет «Всё включено»?",
-    answer: `Пакет открывает все платные курсы сайта — «Уверенный», «Инженер» и «Заработок» — навсегда. Он стоит ${formatPrice(BUNDLE_PRICE)} ₽ вместо ${formatPrice(BUNDLE_SEPARATE_PRICE)} ₽ при покупке по отдельности: скидка ${formatPrice(BUNDLE_SAVING)} ₽. Бесплатный «Новичок» доступен и без пакета. После завершения каждого курса выдаётся именной сертификат.`,
+    question: "Что входит в пакет «Все три курса»?",
+    answer: `Пакет открывает все платные курсы сайта — «Уверенный», «Инженер» и «Заработок» — навсегда. Он стоит ${formatPrice(PRICES.bundle)} ₽ вместо ${formatPrice(PRICES.bundleSeparate)} ₽ при покупке по отдельности: скидка ${formatPrice(PRICES.bundleSaving)} ₽. Бесплатный «Новичок» доступен и без пакета. После завершения каждого курса выдаётся именной сертификат.`,
   },
   {
     question: "Дают ли чек об оплате?",
@@ -300,10 +291,10 @@ export default async function SubscriptionPage() {
                 ◆
               </span>
               <span>
-                <strong className="text-white">Пакет «Всё включено»</strong> — все
-                платные курсы сайта со скидкой {formatPrice(BUNDLE_SAVING)} ₽:{" "}
-                {formatPrice(BUNDLE_PRICE)} ₽ вместо{" "}
-                {formatPrice(BUNDLE_SEPARATE_PRICE)} ₽. Именной сертификат по
+                <strong className="text-white">Пакет «Все три курса»</strong> — все
+                платные курсы сайта со скидкой {formatPrice(PRICES.bundleSaving)} ₽:{" "}
+                {formatPrice(PRICES.bundle)} ₽ вместо{" "}
+                {formatPrice(PRICES.bundleSeparate)} ₽. Именной сертификат по
                 каждому курсу, доступ навсегда.
               </span>
             </div>

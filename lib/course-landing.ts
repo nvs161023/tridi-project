@@ -22,6 +22,7 @@ import {
 } from "@/lib/course-levels";
 import { collectArtifacts, type CourseArtifact } from "@/lib/course-artifacts";
 import { formatAcademicHours } from "@/lib/course-stats";
+import { PRICES } from "@/lib/stats";
 
 /** Курсы, для которых есть отдельная продающая страница. */
 export type CourseLandingId = "confident" | "engineer" | "profit" | "pro";
@@ -271,7 +272,7 @@ const COURSE_COPY: Record<
     ],
   },
   pro: {
-    kicker: "Пакет «Всё включено»",
+    kicker: "Пакет «Все три курса»",
     problem:
       "Не хотите выбирать между уровнями и покупать по одному? Пакет собирает весь платный путь: от безопасности мастерской до продаж и оформления дохода.",
     audience: [
@@ -421,8 +422,7 @@ function buildLevelLanding(key: PaidLevelKey): CourseLanding {
 function buildProLanding(): CourseLanding {
   const copy = COURSE_COPY.pro;
   const levels = PAID_LEVELS.map((level) => buildProgramGroup(level.key));
-  const separatePrice = PAID_LEVELS.reduce((sum, level) => sum + level.price, 0);
-  const price = coursesData.pro.price;
+  const price = PRICES.bundle;
 
   return {
     id: "pro",
@@ -435,7 +435,7 @@ function buildProLanding(): CourseLanding {
     goal: coursesData.pro.goal,
     price,
     badge: coursesData.pro.badge,
-    saving: Math.max(0, separatePrice - price),
+    saving: PRICES.bundleSaving,
     modules: levels.reduce((sum, level) => sum + level.modules.length, 0),
     lessons: levels.reduce((sum, level) => sum + level.lessons, 0),
     visuals: PAID_LEVELS.reduce((sum, level) => sum + level.visuals, 0),

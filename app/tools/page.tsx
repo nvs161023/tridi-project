@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { Header } from "@/components/Header";
-import { defects } from "@/lib/defects";
-import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
+import { STATS_LABELS } from "@/lib/stats";
 import { createClient } from "@/lib/supabase/server";
 import { hasActiveSubscription } from "@/lib/subscription";
 
@@ -61,6 +60,8 @@ type ToolIconName =
 
 type Tool = {
   href: string;
+  /** Открытая витрина инструмента: гость видит возможности без входа. */
+  previewHref?: string;
   title: string;
   description: string;
   icon: ToolIconName;
@@ -262,11 +263,12 @@ function ToolIcon({
 const TOOLS: Tool[] = [
   {
     href: "/constructor",
+    previewHref: "/preview/constructor",
     title: "Конструктор 3D-моделей",
     description:
-      "10 моделей с параметрами: ваза, брелок с QR-визиткой и NFC-карманом, вывеска, коробки, литофан, кашпо, подставка под кружку, стойка для украшений, органайзер для ручек и термопринт логотипа. Параметры — слайдерами, результат — файлом STL.",
+      `${STATS_LABELS.models} с параметрами: ваза, брелок с QR-визиткой и NFC-карманом, вывеска, коробки, литофан, кашпо, подставка под кружку, стойка для украшений, органайзер для ручек и термопринт логотипа. Параметры — слайдерами, результат — файлом STL.`,
     icon: "constructor",
-    badges: ["10 моделей", "QR и NFC"],
+    badges: [STATS_LABELS.models, "QR и NFC"],
     bullets: [
       "Ваза, брелок, вывеска и коробки",
       "Брелок: девять пресетов, QR-визитка и карман под NFC-метку",
@@ -281,6 +283,7 @@ const TOOLS: Tool[] = [
   },
   {
     href: "/3d-generator",
+    previewHref: "/preview/generator",
     title: "Генератор 3D по фото",
     description:
       "Загрузите 1–4 фото предмета и получите 3D-модель для печати. Режимы «Стандарт» и «Ультра» — от быстрой формы до мелкой фактуры.",
@@ -304,7 +307,7 @@ const TOOLS: Tool[] = [
     description:
       "Проверенные настройки принтеров, материалов и процессов для Bambu Studio, OrcaSlicer и PrusaSlicer.",
     icon: "profiles",
-    badges: [`${profileCount} профилей`, "Слайсеры"],
+    badges: [STATS_LABELS.profiles, "Слайсеры"],
     bullets: [
       "Принтеры Anycubic, Elegoo, Bambu Lab, Prusa и другие",
       "Материалы PLA, PETG, ABS, ASA, TPU и PA",
@@ -323,7 +326,7 @@ const TOOLS: Tool[] = [
     description:
       "Справочник по типовым проблемам печати: отрыв от стола, расслоение, паутина, смещение слоёв и пропуски экструзии.",
     icon: "defects",
-    badges: [`${defects.length} дефектов`, "Бесплатно"],
+    badges: [STATS_LABELS.defects, "Бесплатно"],
     bullets: [
       "Причины от частых к редким",
       "Пошаговые решения для слайсера и принтера",
@@ -354,9 +357,6 @@ const WORKSHOP_TOOL = {
     "Выгрузка на Ozon, Wildberries и Яндекс Маркет",
   ],
 } as const;
-
-/** Карточки инструментов из TOOLS и мастерская: счётчик для плашки в hero. */
-const TOOL_COUNT = TOOLS.length + 1;
 
 export default async function ToolsPage() {
   // Доступ нужен карточке мастерской: гость уходит на вход с возвратом в
@@ -399,7 +399,7 @@ export default async function ToolsPage() {
             </h1>
 
             <p className="mt-6 max-w-3xl text-lg leading-relaxed text-slate-300 sm:text-xl">
-              Пять инструментов для практики: собрать модель в конструкторе или
+              {STATS_LABELS.tools} для практики: собрать модель в конструкторе или
               получить её из фото, скачать STL, подобрать профиль слайсера,
               разобраться, почему деталь не получилась, и вести заказы
               мастерской. Начните с задачи, а не с перебора настроек.
@@ -407,13 +407,13 @@ export default async function ToolsPage() {
 
             <div className="mt-7 flex flex-wrap gap-2.5 text-xs font-semibold sm:text-sm">
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                {TOOL_COUNT} инструментов
+                {STATS_LABELS.tools}
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                {profileCount} профилей печати
+                {STATS_LABELS.profiles} печати
               </span>
               <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-                {defects.length} дефектов в справочнике
+                {STATS_LABELS.defects} в справочнике
               </span>
             </div>
           </div>
@@ -442,7 +442,7 @@ export default async function ToolsPage() {
                 Pro — без лимита. Диагностика дефектов — бесплатно и без
                 регистрации. Генератор по фото: одна бесплатная генерация
                 Standard, дальше — токены или подписка Pro с тремя Standard и
-                одной Ultra в месяц. Пакет «Всё включено» — это только три курса,
+                одной Ultra в месяц. Пакет «Все три курса» — это только курсы,
                 инструменты в него не входят.
               </p>
             </div>
@@ -525,11 +525,14 @@ export default async function ToolsPage() {
               </article>
 
               {TOOLS.map((tool) => (
-                <Link
+                <article
                   key={tool.href}
-                  href={tool.href}
-                  className={`group flex h-full flex-col rounded-3xl border border-white/10 bg-white/[0.04] p-6 transition duration-200 hover:-translate-y-1 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:p-7 ${tool.accent.hover}`}
+                  className={`group flex h-full flex-col rounded-3xl border border-white/10 bg-white/[0.04] p-6 transition duration-200 hover:-translate-y-1 hover:bg-white/[0.07] sm:p-7 ${tool.accent.hover}`}
                 >
+                  <Link
+                    href={tool.href}
+                    className="flex flex-1 flex-col rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                  >
                   <span
                     className={`inline-flex h-14 w-14 items-center justify-center rounded-2xl border ${tool.accent.icon}`}
                   >
@@ -584,6 +587,15 @@ export default async function ToolsPage() {
                     </span>
                   </span>
                 </Link>
+                  {tool.previewHref ? (
+                    <Link
+                      href={tool.previewHref}
+                      className="mt-4 inline-flex text-sm font-medium text-slate-400 transition-colors hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                    >
+                      Что умеет — без входа
+                    </Link>
+                  ) : null}
+                </article>
               ))}
             </div>
           </div>

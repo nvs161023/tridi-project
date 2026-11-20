@@ -40,6 +40,12 @@ export type PrintProfile = {
   testedAt?: string;
   /** Принтер, материал, слайсер и что именно проверяли. */
   testedNote?: string;
+  /** Дата проверенного импорта в слайсер в ISO-формате (YYYY-MM-DD). */
+  importedAt?: string;
+  /** Слайсер и версия, в которых профиль открыт без ошибок. */
+  importedSlicer?: string;
+  /** Что именно проверяли при импорте: базовая модель, сопло, материал. */
+  importedNote?: string;
   /** Путь относительно корня profiles/. */
   file: string;
 };
@@ -69,6 +75,16 @@ export const allProfiles: PrintProfile[] = profileCategories.flatMap(
 
 /** Сколько всего файлов в библиотеке. */
 export const profileCount = allProfiles.length;
+
+/** Сколько профилей проверено реальной печатью (поле `testedAt`). */
+export const profileTestedCount = allProfiles.filter((profile) =>
+  Boolean(profile.testedAt),
+).length;
+
+/** Сколько профилей проверено импортом в слайсер (поле `importedAt`). */
+export const profileImportedCount = allProfiles.filter((profile) =>
+  Boolean(profile.importedAt),
+).length;
 
 /** Дата обновления каталога в ISO-формате. */
 export const profilesUpdatedAt = catalog.updated;

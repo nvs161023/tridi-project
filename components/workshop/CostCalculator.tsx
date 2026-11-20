@@ -50,13 +50,18 @@ const inputClassName =
   "mt-2 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 pr-10 text-base text-white outline-none transition-all duration-200 [appearance:textfield] placeholder:text-zinc-400 focus:border-blue-500/60 focus:ring-2 focus:ring-blue-500/30 focus:ring-inset [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 /**
- * Стартовые значения: цена пластика подставлена типичная, вес и время пустые —
- * их нужно взять из слайсера для конкретной модели.
+ * Стартовые значения: цена пластика подставлена типичная, вес и время печати
+ * пустые — их нужно взять из слайсера. Время мастера стартует с 15 минут: это
+ * типичная подготовка и обработка одной детали, а не время печати.
  */
 const INITIAL_VALUES = Object.fromEntries(
   CALCULATOR_FIELDS.map((field) => [
     field.key,
-    field.key === "plasticPricePerKg" ? field.placeholder : "",
+    field.key === "plasticPricePerKg"
+      ? field.placeholder
+      : field.key === "laborMinutes"
+        ? field.placeholder
+        : "",
   ]),
 ) as Record<CalculatorFieldKey, string>;
 
@@ -215,7 +220,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
       if (estimate.weightGrams !== null && estimate.timeHours !== null) {
         setGcodeMessage({
           tone: "success",
-          text: `Из файла: вес ${gcodeNumberFormatter.format(estimate.weightGrams)} г, время ${gcodeNumberFormatter.format(estimate.timeHours)} ч. Проверьте и нажмите «Рассчитать».`,
+          text: `Из файла: вес ${gcodeNumberFormatter.format(estimate.weightGrams)} г, время ${gcodeNumberFormatter.format(estimate.timeHours)} ч. Время мастера укажите отдельно и нажмите «Рассчитать».`,
         });
         return;
       }
@@ -361,7 +366,7 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
         autoComplete="off"
         className="mt-6"
       >
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {CALCULATOR_FIELDS.map((field) => {
             const fieldId = `calculator-${field.key}`;
             const error = errors[field.key];
@@ -507,22 +512,30 @@ export function CostCalculator({ settings }: CostCalculatorProps) {
                   value={formatMoney(breakdown.material)}
                 />
                 <ResultLine
-                  label="Работа"
+                  label="Печать: электричество + амортизация"
+                  value={formatMoney(breakdown.printingCost)}
+                />
+                <ResultLine
+                  label={`Работа мастера — ${markupNumberFormatter.format(input?.laborMinutes ?? 0)} мин`}
                   value={formatMoney(breakdown.labor)}
                 />
               </dl>
 
               <p className="mt-4 text-xs leading-relaxed text-zinc-400">
-                В себестоимость также входят электричество —{" "}
-                {formatMoney(breakdown.electricity)} и амортизация —{" "}
-                {formatMoney(breakdown.depreciation)}.
+                Электричество — {formatMoney(breakdown.electricity)},
+                амортизация — {formatMoney(breakdown.depreciation)}. Часы печати
+                идут в амортизацию, минуты мастера — в работу: это разные
+                затраты, и складывать их в одну строку нельзя.
               </p>
             </div>
           </div>
 
           <p className="mt-3 text-xs leading-relaxed text-zinc-400">
-            Материал — вес × цену за килограмм, электричество — мощность × часы ×
-            тариф. Рекомендуемая цена — себестоимость ×{" "}
+            Материал — вес × цену за килограмм, электричество — мощность × часы
+            печати × тариф, амортизация — часы печати × износ принтера. Работа
+            считается по минутам мастера и ставке за час — это подготовка,
+            снятие и обработка, а не время печати. Рекомендуемая цена —
+            себестоимость ×{" "}
             {markupNumberFormatter.format(markupFactor(markupPercent))}: наценка{" "}
             {markupNumberFormatter.format(markupPercent)} %, из которой ещё
             платятся комиссии и доставка. Наценку меняют в поле выше — цена и

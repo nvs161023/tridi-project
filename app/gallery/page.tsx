@@ -221,13 +221,19 @@ export default async function GalleryPage({ searchParams }: GalleryPageProps) {
                     <p className="mt-2 text-sm leading-relaxed text-zinc-400">
                       {recipe.description}
                     </p>
-                    <div className="mt-auto pt-4">
+                    <div className="mt-auto flex flex-wrap items-center gap-x-4 gap-y-2 pt-4">
                       <Link
                         className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-blue-300 transition-colors hover:text-blue-200 focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
                         href="/constructor"
                       >
                         Открыть в конструкторе
                         <span aria-hidden>→</span>
+                      </Link>
+                      <Link
+                        className="inline-flex min-h-10 items-center text-sm font-medium text-slate-400 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                        href="/preview/constructor"
+                      >
+                        Что умеет Конструктор
                       </Link>
                     </div>
                   </div>

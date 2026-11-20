@@ -10,11 +10,10 @@ import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/download
 import { MODEL_TYPES } from "@/lib/constructor/model-types";
 import { LESSON_FORMS, pluralize } from "@/lib/course-stats";
 import { LEVELS, TOTAL_LESSONS } from "@/lib/course-levels";
-import { defects } from "@/lib/defects";
 import { SUBSCRIPTION_PLAN } from "@/lib/generation-plans";
 import { getPaymentAmount } from "@/lib/payments";
-import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
+import { STATS_LABELS, formatPrice } from "@/lib/stats";
 
 /**
  * Главная собрана из восьми блоков вместо каталога разделов:
@@ -35,14 +34,7 @@ import { OG_IMAGE } from "@/lib/seo";
  *     модели Конструктора и скриншоты Мастерской из public, у каждого есть alt.
  */
 
-/** Формы склонения: 10 моделей, 193 профиля, 6 дефектов. */
-const MODEL_FORMS: [string, string, string] = ["модель", "модели", "моделей"];
-const PROFILE_FORMS: [string, string, string] = ["профиль", "профиля", "профилей"];
-const DEFECT_FORMS: [string, string, string] = ["дефект", "дефекта", "дефектов"];
-
-/** Цена в рублях с разделителями разрядов: 500 → «500», 1 486 → «1 486». */
-const formatPrice = (price: number) =>
-  new Intl.NumberFormat("ru-RU").format(price);
+/** Формы склонения и формат цены живут в lib/stats — здесь только страница. */
 
 /** Сумма подписки Pro: та же, что уходит в Robokassa, без копии цены. */
 const subscriptionPrice = getPaymentAmount(SUBSCRIPTION_PLAN.courseId);
@@ -88,7 +80,7 @@ const TONE_STYLES: Record<
 
 const PAGE_TITLE = "TriDi — 3D-модели для печати из фото и в конструкторе";
 
-const PAGE_DESCRIPTION = `Всё для 3D-печати: генератор по фото, Конструктор, Мастерская и обучение. ${MODEL_TYPES.length} ${pluralize(MODEL_TYPES.length, MODEL_FORMS)} и ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати, первая генерация — бесплатно.`;
+const PAGE_DESCRIPTION = `Всё для 3D-печати: генератор по фото, Конструктор, Мастерская и обучение. ${STATS_LABELS.models} и ${STATS_LABELS.profiles} печати, первая генерация — бесплатно.`;
 
 export const metadata: Metadata = {
   // Заголовок главной без шаблона: template из корневого layout действует
@@ -329,17 +321,17 @@ const CYCLE: CycleStep[] = [
   {
     icon: "cube",
     title: "Создай",
-    text: `1–4 фото в генераторе или ${MODEL_TYPES.length} ${pluralize(MODEL_TYPES.length, MODEL_FORMS)} Конструктора: форма, узор и подпись меняются слайдерами.`,
+    text: `1–4 фото в генераторе или ${STATS_LABELS.models} Конструктора: форма, узор и подпись меняются слайдерами.`,
   },
   {
     icon: "sliders",
     title: "Подготовь",
-    text: `STL и ${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} печати под принтер и пластик: импорт в Bambu Studio, OrcaSlicer и PrusaSlicer.`,
+    text: `STL и ${STATS_LABELS.profiles} печати под принтер и пластик: импорт в Bambu Studio, OrcaSlicer и PrusaSlicer.`,
   },
   {
     icon: "printer",
     title: "Напечатай",
-    text: `Печать идёт в вашем слайсере, а ${defects.length} ${pluralize(defects.length, DEFECT_FORMS)} в справочнике объясняют, что делать при браке.`,
+    text: `Печать идёт в вашем слайсере, а ${STATS_LABELS.defects} в справочнике объясняют, что делать при браке.`,
   },
   {
     icon: "wallet",
@@ -350,6 +342,8 @@ const CYCLE: CycleStep[] = [
 
 type ToolCard = {
   href: string;
+  /** Открытая витрина: гость видит возможности инструмента без входа. */
+  previewHref?: string;
   title: string;
   text: string;
   badge: string;
@@ -376,6 +370,7 @@ const TOOL_GROUPS: ToolGroup[] = [
     tools: [
       {
         href: "/3d-generator",
+        previewHref: "/preview/generator",
         title: "Генератор по фото",
         text: "1–4 снимка — сеть собирает форму, чистит сетку и отдаёт STL размером 120 мм.",
         badge: `${SUBSCRIPTION_PLAN.freeStandardGenerations} бесплатно`,
@@ -384,6 +379,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       },
       {
         href: "/constructor",
+        previewHref: "/preview/constructor",
         title: "Конструктор 3D",
         text: `${MODEL_TYPES.length} параметрических моделей: вазы, брелоки, вывески, литофаны, кашпо и органайзеры.`,
         badge: `${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL/мес`,
@@ -408,7 +404,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       {
         href: "/profiles",
         title: "Профили печати",
-        text: `${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} принтеров и материалов для трёх слайсеров.`,
+        text: `${STATS_LABELS.profiles} принтеров и материалов для трёх слайсеров.`,
         badge: "Pro",
         tone: "violet",
         icon: "printer",
@@ -416,7 +412,7 @@ const TOOL_GROUPS: ToolGroup[] = [
       {
         href: "/tools/defects",
         title: "Справочник дефектов",
-        text: `${defects.length} ${pluralize(defects.length, DEFECT_FORMS)} с причинами и пошаговыми решениями.`,
+        text: `${STATS_LABELS.defects} с причинами и пошаговыми решениями.`,
         badge: "Бесплатно",
         tone: "blue",
         icon: "alert",
@@ -497,7 +493,7 @@ const WORKSHOP_SHOTS: WorkshopShot[] = [
 
 /** Что входит в Pro: вся экосистема одним пакетом. */
 const PRO_FEATURES = [
-  `Все ${MODEL_TYPES.length} ${pluralize(MODEL_TYPES.length, MODEL_FORMS)} безлимитно`,
+  `Все ${STATS_LABELS.models} безлимитно`,
   `${SUBSCRIPTION_PLAN.standardPerMonth} Standard + ${SUBSCRIPTION_PLAN.ultraPerMonth} Ultra генерации в месяц`,
   "Профили печати для принтеров и пластика",
   "Мастерская: заказы, склад, принтеры и документы",
@@ -735,9 +731,8 @@ export default function Home() {
                       const tone = TONE_STYLES[tool.tone];
 
                       return (
-                        <Link
+                        <article
                           key={tool.title}
-                          href={tool.href}
                           className={cx(
                             "group relative flex h-full flex-col overflow-hidden rounded-2xl border bg-[#080808] transition-colors hover:border-white/20",
                             group.featured
@@ -745,6 +740,10 @@ export default function Home() {
                               : "border-white/[0.07] p-5",
                           )}
                         >
+                          <Link
+                            href={tool.href}
+                            className="flex flex-1 flex-col focus-visible:outline-none"
+                          >
                           <div
                             aria-hidden
                             className={cx(
@@ -796,6 +795,15 @@ export default function Home() {
                             </span>
                           </span>
                         </Link>
+                          {tool.previewHref ? (
+                            <Link
+                              href={tool.previewHref}
+                              className="relative mt-3 inline-flex text-xs font-medium text-white/40 transition-colors hover:text-white focus-visible:outline-none"
+                            >
+                              Что умеет — без входа
+                            </Link>
+                          ) : null}
+                        </article>
                       );
                     })}
                   </div>

@@ -5,12 +5,9 @@ import type { ReactNode } from "react";
 import { PlanButton } from "@/app/subscription/PlanButton";
 import { Header } from "@/components/Header";
 import { MODEL_TYPES } from "@/lib/constructor/model-types";
-import { pluralize } from "@/lib/course-stats";
-import { defects } from "@/lib/defects";
 import { SUBSCRIPTION_PLAN, TOKEN_PACKS } from "@/lib/generation-plans";
-import { getPaymentAmount } from "@/lib/payments";
-import { profileCount } from "@/lib/profiles";
 import { OG_IMAGE } from "@/lib/seo";
+import { PRICES, STATS_LABELS, formatPrice } from "@/lib/stats";
 
 /**
  * Тарифы платформы: подписка Pro на инструменты.
@@ -37,15 +34,8 @@ import { OG_IMAGE } from "@/lib/seo";
  * аккаунт (после входа человек вернётся сюда же — `loginHref`).
  */
 
-/** Цена в рублях с разделителями разрядов: 500 → «500», 1 500 → «1 500». */
-const formatPrice = (price: number) => price.toLocaleString("ru-RU");
-
-/** Формы склонения: 193 профиля, 6 дефектов — без них «профилей» выглядит ошибкой. */
-const PROFILE_FORMS: [string, string, string] = ["профиль", "профиля", "профилей"];
-const DEFECT_FORMS: [string, string, string] = ["дефект", "дефекта", "дефектов"];
-
 /** Цена подписки из каталога: одна и та же в метаданных, карточке и оплате. */
-const SUBSCRIPTION_PRICE = getPaymentAmount(SUBSCRIPTION_PLAN.courseId);
+const SUBSCRIPTION_PRICE = PRICES.subscription;
 
 const PAGE_TITLE = "Подписка Pro: мастерская и инструменты 3D-печати";
 const PAGE_DESCRIPTION = `Мастерская Pro за ${formatPrice(SUBSCRIPTION_PRICE)} ₽: заказы с Ozon, Wildberries и Яндекс Маркета, склад пластика, принтеры и документы. Плюс конструктор, профили печати и генератор по фото.`;
@@ -105,6 +95,7 @@ const TOOL_CARDS = [
   },
   {
     href: "/constructor",
+    previewHref: "/preview/constructor",
     tag: "Pro · Конструктор",
     title: "Конструктор 3D",
     description: `${MODEL_TYPES.length} параметрических моделей: вазы, брелоки, вывески, литофаны, кашпо и органайзеры. STL без месячного лимита.`,
@@ -114,11 +105,12 @@ const TOOL_CARDS = [
     href: "/profiles",
     tag: "Pro · Профили",
     title: "Профили печати",
-    description: `${profileCount} ${pluralize(profileCount, PROFILE_FORMS)} принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer.`,
+    description: `${STATS_LABELS.profiles} принтеров и материалов для Bambu Studio, OrcaSlicer и PrusaSlicer.`,
     cta: "Открыть библиотеку",
   },
   {
     href: "/3d-generator",
+    previewHref: "/preview/generator",
     tag: "Pro · Генератор",
     title: "Генератор по фото",
     description: `Модель из 1–4 снимков: ${SUBSCRIPTION_PLAN.standardPerMonth} Standard и ${SUBSCRIPTION_PLAN.ultraPerMonth} Ultra каждый месяц входят в подписку.`,
@@ -230,10 +222,10 @@ export default function PricingPage() {
               {MODEL_TYPES.length} моделей Конструктора
             </span>
             <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-              {profileCount} {pluralize(profileCount, PROFILE_FORMS)} печати
+              {STATS_LABELS.profiles} печати
             </span>
             <span className="rounded-full border border-white/15 bg-white/5 px-3.5 py-1.5 text-slate-300">
-              {defects.length} {pluralize(defects.length, DEFECT_FORMS)} бесплатно
+              {STATS_LABELS.defects} бесплатно
             </span>
           </div>
         </section>
@@ -314,7 +306,7 @@ export default function PricingPage() {
                   <strong className="font-semibold text-white">
                     Профили печати:
                   </strong>{" "}
-                  {profileCount} {pluralize(profileCount, PROFILE_FORMS)} для слайсеров
+                  {STATS_LABELS.profiles} для слайсеров
                 </PlanFeature>
                 <PlanFeature accent="text-amber-300">
                   <strong className="font-semibold text-white">
@@ -462,30 +454,42 @@ export default function PricingPage() {
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {TOOL_CARDS.map((tool) => (
-              <Link
+              <article
                 key={tool.href}
-                className="group flex h-full flex-col rounded-3xl border border-white/[0.07] bg-[#0a0a0a]/60 p-5 transition-colors hover:border-white/20 hover:bg-white/[0.04] focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
-                href={tool.href}
+                className="group flex h-full flex-col rounded-3xl border border-white/[0.07] bg-[#0a0a0a]/60 p-5 transition-colors hover:border-white/20 hover:bg-white/[0.04]"
               >
-                <span className="text-[11px] font-semibold tracking-wide text-amber-300 uppercase">
-                  {tool.tag}
-                </span>
-                <span className="mt-2 text-lg font-bold tracking-tight text-white">
-                  {tool.title}
-                </span>
-                <span className="mt-2 flex-1 text-sm leading-relaxed text-slate-300">
-                  {tool.description}
-                </span>
-                <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-200 transition-colors group-hover:text-white">
-                  {tool.cta}
-                  <span
-                    aria-hidden
-                    className="transition-transform duration-200 group-hover:translate-x-1"
-                  >
-                    →
+                <Link
+                  className="flex flex-1 flex-col rounded-2xl focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                  href={tool.href}
+                >
+                  <span className="text-[11px] font-semibold tracking-wide text-amber-300 uppercase">
+                    {tool.tag}
                   </span>
-                </span>
-              </Link>
+                  <span className="mt-2 text-lg font-bold tracking-tight text-white">
+                    {tool.title}
+                  </span>
+                  <span className="mt-2 flex-1 text-sm leading-relaxed text-slate-300">
+                    {tool.description}
+                  </span>
+                  <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-slate-200 transition-colors group-hover:text-white">
+                    {tool.cta}
+                    <span
+                      aria-hidden
+                      className="transition-transform duration-200 group-hover:translate-x-1"
+                    >
+                      →
+                    </span>
+                  </span>
+                </Link>
+                {"previewHref" in tool && tool.previewHref ? (
+                  <Link
+                    href={tool.previewHref}
+                    className="mt-3 inline-flex text-xs font-medium text-slate-400 transition-colors hover:text-white focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#030303] focus-visible:outline-none"
+                  >
+                    Что умеет — без входа
+                  </Link>
+                ) : null}
+              </article>
             ))}
           </div>
         </section>
@@ -546,9 +550,9 @@ export default function PricingPage() {
               </h3>
               <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-300">
                 Разовая докупка генераций: {TOKEN_PACKS.standard.quantity}{" "}
-                Standard за {formatPrice(TOKEN_PACKS.standard.price)} ₽ или{" "}
+                Standard за {formatPrice(PRICES.tokenPacks.standard.price)} ₽ или{" "}
                 {TOKEN_PACKS.ultra.quantity} Ultra за{" "}
-                {formatPrice(TOKEN_PACKS.ultra.price)} ₽. Токены не сгорают и не
+                {formatPrice(PRICES.tokenPacks.ultra.price)} ₽. Токены не сгорают и не
                 зависят от подписки.
               </p>
               <p className="mt-2 text-xs leading-relaxed text-slate-400">
