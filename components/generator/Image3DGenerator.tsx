@@ -583,7 +583,7 @@ export function Image3DGenerator({
               Фото предмета
             </h2>
             <p className="mt-0.5 text-xs leading-relaxed text-zinc-500">
-              1–4 кадра: для симметричного предмета хватит одного
+              1–4 кадра: чем больше ракурсов, тем точнее детали
             </p>
           </div>
         </div>
@@ -687,9 +687,26 @@ export function Image3DGenerator({
           id={hintId}
         >
           Браузер сам сжимает снимок до {GENERATOR_PHOTO_MAX_SIDE_PX} px по
-          длинной стороне. Порядок видов: {GENERATOR_PHOTO_VIEWS.join(", ")}.
-          Первого кадра хватит симметричному предмету.
+          длинной стороне. Снимайте по порядку:{" "}
+          {GENERATOR_PHOTO_VIEWS.join(", ")}. Один кадр задаёт только силуэт
+          спереди — каждый следующий ракурс убирает догадки о спине и боках.
         </p>
+
+        <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-500/[0.05] px-3 py-2.5">
+          <p className="text-xs font-semibold text-amber-100">
+            Один кадр — это догадка
+          </p>
+          <p className="mt-1 text-[11px] leading-relaxed text-amber-100/75">
+            С одного кадра сеть достраивает затылок и бока по догадке: они могут
+            выйти плоскими.{" "}
+            <Link
+              className="font-semibold text-amber-200 underline underline-offset-2 hover:text-white"
+              href="#generator-photo-example"
+            >
+              Посмотреть плохой пример
+            </Link>
+          </p>
+        </div>
 
         {/* Отдельное согласие на обработку фото: фотография уходит внешнему
             AI-сервису, поэтому одной регистрационной галочки недостаточно. */}
