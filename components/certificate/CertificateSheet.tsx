@@ -81,11 +81,10 @@ const CERTIFICATE_STYLES = `
 `;
 
 /**
- * Печатные правила подключаются только на странице сертификата.
+ * Печатные правила подключаются вместе с бланком на странице сертификата.
  *
- * На лендинге `/start` тот же бланк стоит превью: если положить `@page` в общий
- * компонент, печать лендинга тоже станет альбомной, а тёмный фон уйдёт на всю
- * страницу.
+ * На лендинге `/start` стоит растровый образец, поэтому `@page` не может
+ * перевести печать самого лендинга в альбомную ориентацию.
  */
 const CERTIFICATE_PRINT_STYLES = `
 @page {
@@ -628,11 +627,6 @@ type CertificateSheetProps = {
   level: CourseLevel;
   certificate: Certificate;
   verifyUrl: string;
-  /**
-   * Превью на лендинге: тот же бланк, но без `@page` и печатных правил, которые
-   * иначе перевели бы в альбомную ориентацию всю страницу `/start` при печати.
-   */
-  preview?: boolean;
 };
 
 /**
@@ -671,27 +665,18 @@ export function CertificateSheet({
   level,
   certificate,
   verifyUrl,
-  preview = false,
 }: CertificateSheetProps) {
   const program = getCertificateProgram(level, certificate.fullCourse);
 
   return (
     <>
       <style>{CERTIFICATE_STYLES}</style>
-      {preview ? null : <style>{CERTIFICATE_PRINT_STYLES}</style>}
+      <style>{CERTIFICATE_PRINT_STYLES}</style>
 
-      <div
-        className={
-          preview
-            ? "certificate-frame w-full overflow-hidden rounded-[clamp(8px,1.1cqw,16px)] shadow-[0_24px_70px_-30px_rgba(2,10,24,0.9)]"
-            : "certificate-frame mx-auto mt-8 w-full max-w-[1120px] overflow-hidden rounded-[2rem] shadow-[0_32px_110px_-28px_rgba(37,99,235,0.5)] print:mt-0 print:max-w-none print:rounded-none print:shadow-none"
-        }
-      >
+      <div className="certificate-frame mx-auto mt-8 w-full max-w-[1120px] overflow-hidden rounded-[2rem] shadow-[0_32px_110px_-28px_rgba(37,99,235,0.5)] print:mt-0 print:max-w-none print:rounded-none print:shadow-none">
         <article
           aria-label={`Сертификат TriDi: ${program.title}, ${certificate.name}`}
-          className={`certificate-sheet relative aspect-[297/210] w-full overflow-hidden bg-[#06101f] text-slate-100 [container-type:inline-size] ${
-            preview ? "rounded-[inherit]" : "rounded-[2rem] print:rounded-none"
-          }`}
+          className="certificate-sheet relative aspect-[297/210] w-full overflow-hidden rounded-[2rem] bg-[#06101f] text-slate-100 [container-type:inline-size] print:rounded-none"
           style={{
             backgroundImage:
               "radial-gradient(ellipse at 50% 4%, rgba(40,88,163,0.28), transparent 46%), radial-gradient(ellipse at 12% 96%, rgba(20,63,132,0.22), transparent 38%), linear-gradient(135deg, #081526 0%, #06101f 52%, #081a30 100%)",

@@ -1324,9 +1324,10 @@
   transform: rotateY(5deg) rotateX(2deg) scale(1.02);
 }
 
-.pageWrapper .certificateInner > .certificate-frame {
+.pageWrapper .certificateImage {
   display: block;
   width: 100%;
+  height: auto;
 }
 
 /* FAQ */

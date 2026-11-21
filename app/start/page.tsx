@@ -1,10 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import { CertificateSheet } from "@/components/certificate/CertificateSheet";
 import lessonsData from "@/data/lessons.json";
 import { authHref } from "@/lib/auth-redirect";
-import type { Certificate } from "@/lib/certificates";
 import {
   LEVELS,
   TOTAL_LESSONS,
@@ -47,26 +45,17 @@ const SIGN_UP_HREF = authHref("/auth/sign-up", "/course/lesson-1");
 const BASIC_LEVEL = LEVELS[0];
 
 /**
- * Демонстрационный сертификат для превью на лендинге.
+ * Утверждённый образец сертификата для превью на лендинге.
  *
- * Дата и номер повторяют образец бланка, а QR ведёт на публичную проверку: так
- * посетитель видит не картинку «где-то там», а тот же компонент, который
- * получит после курса. `preview` отключает печатные `@page`-правила, чтобы они
- * не влияли на печать самой страницы `/start`.
+ * Настоящий бланк по-прежнему собирает `CertificateSheet`: в нём меняются имя,
+ * курс, дата, номер и QR. Для витрины показываем согласованный макет целиком,
+ * чтобы демонстрация не зависела от настроек шрифтов и рендеринга браузера.
  */
-const SAMPLE_CERTIFICATE: Certificate = {
-  course: "basic",
-  fullCourse: false,
-  issuedAt: "2026-09-30",
-  name: "Вадим Накоряков",
-  number: "TRI-2026-E8032B88",
-  subject: "a1b2c3d4e5f60718",
-  token: "preview-certificate",
-};
-
-/** Публичная ссылка, которую кодирует QR на демонстрационном бланке. */
-const SAMPLE_CERTIFICATE_VERIFY_URL =
-  "https://tridi-print.ru/verify/TRI-2026-E8032B88";
+const SAMPLE_CERTIFICATE_IMAGE = {
+  height: 1264,
+  src: "/certifikat.png",
+  width: 1808,
+} as const;
 
 /** Урок бесплатного уровня в том виде, в каком он лежит в data/lessons.json. */
 type BasicLesson = {
@@ -699,10 +688,10 @@ export default function StartPage() {
       </section>
 
       {/*
-       * Сертификат — подтверждение навыков после бесплатного уровня. Превью
-       * рендерит тот же CertificateSheet, что и настоящую страницу выдачи:
-       * новая вёрстка не может разойтись с демонстрацией. `preview` убирает
-       * печатные правила бланка, чтобы они не влияли на печать лендинга.
+       * Сертификат — подтверждение навыков после бесплатного уровня. На витрине
+       * показываем утверждённый макет картинкой, чтобы он выглядел одинаково во
+       * всех браузерах. Сама выдача остаётся динамической: `CertificateSheet`
+       * подставляет имя, курс, дату, номер и QR конкретного ученика.
        */}
       <section className={styles.section} id="certificate">
         <div className={styles.container}>
@@ -714,11 +703,14 @@ export default function StartPage() {
           </p>
           <div className={`${styles.glassCard} ${styles.certificateWrapper}`}>
             <div className={styles.certificateInner}>
-              <CertificateSheet
-                certificate={SAMPLE_CERTIFICATE}
-                level={BASIC_LEVEL}
-                preview
-                verifyUrl={SAMPLE_CERTIFICATE_VERIFY_URL}
+              <Image
+                alt="Образец сертификата TriDi: уровень «Новичок», 8 уроков и 9 академических часов"
+                className={styles.certificateImage}
+                height={SAMPLE_CERTIFICATE_IMAGE.height}
+                quality={90}
+                sizes="(max-width: 768px) 100vw, 960px"
+                src={SAMPLE_CERTIFICATE_IMAGE.src}
+                width={SAMPLE_CERTIFICATE_IMAGE.width}
               />
             </div>
           </div>

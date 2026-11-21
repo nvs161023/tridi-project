@@ -17,6 +17,14 @@ const nextConfig: NextConfig = {
    */
   output: "standalone",
   /**
+   * Качество 90 нужно образцу сертификата: на бланке много мелкого текста, и
+   * стандартные 75 делают подписи заметно мягче. Список явный, иначе Next 16
+   * откажется принимать `quality={90}` у `next/image`.
+   */
+  images: {
+    qualities: [75, 90],
+  },
+  /**
    * Проверки типов и линт на сборке выключены.
    *
    * На Amvera `next build` падал с SIGTERM на шаге «Linting and checking validity
