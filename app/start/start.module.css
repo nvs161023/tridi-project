@@ -67,9 +67,14 @@
     );
 }
 
-.pageWrapper *,
-.pageWrapper *::before,
-.pageWrapper *::after {
+/*
+ * Сброс не заходит внутрь сертификата: CertificateSheet — общий компонент,
+ * он задаёт отступы Tailwind-утилитами в @layer, а этот сброс вне слоёв
+ * перебил бы их (см. превью на /start).
+ */
+.pageWrapper *:where(:not([class~="certificate-sheet"], [class~="certificate-sheet"] *)),
+.pageWrapper *:where(:not([class~="certificate-sheet"], [class~="certificate-sheet"] *))::before,
+.pageWrapper *:where(:not([class~="certificate-sheet"], [class~="certificate-sheet"] *))::after {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -1274,9 +1279,9 @@
 /* Сертификат: премиальная подача с 3D-наклоном внутренней рамки */
 .pageWrapper .certificateWrapper {
   position: relative;
-  max-width: 800px;
+  max-width: 960px;
   margin: 0 auto;
-  padding: 14px;
+  padding: 12px;
   perspective: 1000px;
   transition:
     box-shadow 0.5s ease,
@@ -1319,12 +1324,9 @@
   transform: rotateY(5deg) rotateX(2deg) scale(1.02);
 }
 
-.pageWrapper .certificateImage {
-  position: relative;
+.pageWrapper .certificateInner > .certificate-frame {
   display: block;
   width: 100%;
-  height: auto;
-  border-radius: 14px;
 }
 
 /* FAQ */

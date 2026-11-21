@@ -1,7 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 
+import { CertificateSheet } from "@/components/certificate/CertificateSheet";
 import lessonsData from "@/data/lessons.json";
+import type { Certificate } from "@/lib/certificates";
 import {
   LEVELS,
   TOTAL_LESSONS,
@@ -35,6 +37,28 @@ const SIGN_UP_HREF = "/auth/sign-up";
 
 /** Бесплатный уровень: его цифры повторяются в hero, программе и сравнении. */
 const BASIC_LEVEL = LEVELS[0];
+
+/**
+ * Демонстрационный сертификат для превью на лендинге.
+ *
+ * Дата и номер повторяют образец бланка, а QR ведёт на публичную проверку: так
+ * посетитель видит не картинку «где-то там», а тот же компонент, который
+ * получит после курса. `preview` отключает печатные `@page`-правила, чтобы они
+ * не влияли на печать самой страницы `/start`.
+ */
+const SAMPLE_CERTIFICATE: Certificate = {
+  course: "basic",
+  fullCourse: false,
+  issuedAt: "2026-09-30",
+  name: "Вадим Накоряков",
+  number: "TRI-2026-E8032B88",
+  subject: "a1b2c3d4e5f60718",
+  token: "preview-certificate",
+};
+
+/** Публичная ссылка, которую кодирует QR на демонстрационном бланке. */
+const SAMPLE_CERTIFICATE_VERIFY_URL =
+  "https://tridi-print.ru/verify/TRI-2026-E8032B88";
 
 /** Урок бесплатного уровня в том виде, в каком он лежит в data/lessons.json. */
 type BasicLesson = {
@@ -668,9 +692,9 @@ export default function StartPage() {
 
       {/*
        * Сертификат — подтверждение навыков после бесплатного уровня. Превью
-       * лежит в public/certificate-example.png (911×643), поэтому next/image
-       * получает реальные width/height: так браузер знает пропорции до загрузки
-       * и секция не «прыгает». sizes повторяет max-width обёртки, а не экрана.
+       * рендерит тот же CertificateSheet, что и настоящую страницу выдачи:
+       * новая вёрстка не может разойтись с демонстрацией. `preview` убирает
+       * печатные правила бланка, чтобы они не влияли на печать лендинга.
        */}
       <section className={styles.section} id="certificate">
         <div className={styles.container}>
@@ -682,13 +706,11 @@ export default function StartPage() {
           </p>
           <div className={`${styles.glassCard} ${styles.certificateWrapper}`}>
             <div className={styles.certificateInner}>
-              <Image
-                alt="Сертификат об окончании курса"
-                className={styles.certificateImage}
-                height={643}
-                sizes="(max-width: 768px) 100vw, 800px"
-                src="/certificate-example.png"
-                width={911}
+              <CertificateSheet
+                certificate={SAMPLE_CERTIFICATE}
+                level={BASIC_LEVEL}
+                preview
+                verifyUrl={SAMPLE_CERTIFICATE_VERIFY_URL}
               />
             </div>
           </div>
