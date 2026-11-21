@@ -3,7 +3,7 @@ import Image from "next/image";
 import { GENERATOR_PHOTO_VIEWS } from "@/lib/generator/photo-generator";
 
 /**
- * Плохой пример генерации по одному фото и объяснение, зачем нужны ракурсы.
+ * Хороший пример того, почему одного фото мало, и объяснение, зачем нужны ракурсы.
  *
  * Один блок на двух страницах: карточка на `/3d-generator` и секция на витрине
  * `/preview/generator` (проп `variant`). Главный тезис: сеть не «улучшает»
@@ -191,7 +191,7 @@ export function GeneratorPhotoExample({
       id="generator-photo-example"
     >
       <div className={styles.inner || undefined}>
-        <p className={styles.label}>Плохой пример</p>
+        <p className={styles.label}>Хороший пример</p>
         <h2 className={styles.title} id={titleId}>
           Почему одного фото мало
         </h2>

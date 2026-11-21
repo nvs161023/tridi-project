@@ -703,7 +703,7 @@ export function Image3DGenerator({
               className="font-semibold text-amber-200 underline underline-offset-2 hover:text-white"
               href="#generator-photo-example"
             >
-              Посмотреть плохой пример
+              Посмотреть хороший пример
             </Link>
           </p>
         </div>
