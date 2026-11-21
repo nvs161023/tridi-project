@@ -45,6 +45,15 @@ const CERTIFICATE_STYLES = `
     "Playfair Display", "Times New Roman", Georgia, serif;
   font-optical-sizing: auto;
 }
+.certificate-title {
+  /*
+   * Cormorant Garamond по умолчанию рисует старостильные цифры: у глифа
+   * «three» верх на уровне строчных и вынос ниже базовой линии. В заголовке
+   * из-за этого «3» в «3D-печать» выбивалась из строки рядом с прописной D.
+   * Фича lnum переключает цифры на lining-варианты (.lf) в рост прописных.
+   */
+  font-variant-numeric: lining-nums;
+}
 .certificate-ui {
   font-family: var(--font-geist-sans), "Geist", "Segoe UI", Arial, sans-serif;
 }
@@ -244,7 +253,7 @@ export function CertificateSheet({
 
           <div className="absolute top-[51.5%] left-1/2 z-10 w-[84%] -translate-x-1/2 -translate-y-1/2 text-center">
             <p
-              className={`certificate-serif certificate-gold-text inline-block leading-[1.06] font-semibold tracking-[0.01em] whitespace-nowrap ${courseSizeClass(
+              className={`certificate-serif certificate-title certificate-gold-text inline-block leading-[1.06] font-semibold tracking-[0.01em] whitespace-nowrap ${courseSizeClass(
                 program.title.length,
               )}`}
             >
