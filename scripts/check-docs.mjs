@@ -58,10 +58,15 @@ const DOCS_PATH = "PROJECT.md";
  * переехал на отдельную страницу `/3d-generator` с внутрянкой Tripo/Meshy, а
  * старый Gen API и его файлы удалены. История изменений по-прежнему называет
  * прежние пути, поэтому их отсутствие — правильное состояние.
+ *
+ * `public/certificate-blank.png` — с 21 ноября 2026: бланк выдачи перешёл на
+ * готовый шаблон `public/sert.png`, старый вырезанный фон удалён, а история
+ * изменений по-прежнему называет файл, из которого собирали сертификат.
  */
 const REMOVED_PATHS = new Set([
   "data/course.json",
   "app/favicon.ico",
+  "public/certificate-blank.png",
   "lib/constructor/lamp-geometry.ts",
   "lib/constructor/keychain-shapes.ts",
   "lib/constructor/cable-clips-geometry.ts",

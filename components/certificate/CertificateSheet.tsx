@@ -12,9 +12,11 @@ import { getCertificateProgram, type CourseLevel } from "@/lib/course-levels";
 /**
  * Антиква с кириллицей для имени, названия курса и даты.
  *
+ * Новый бланк `sert.png` нарисован в той же премиальной манере, что и
+ * утверждённый образец: золотая антиква, тёмно-синий фон и тонкая рамка.
  * Cormorant Garamond даёт высокую контрастность и широкие выносные элементы,
- * как в утверждённом образце `certifikat.png`. Шрифт подключается один раз и
- * передаётся в бланк CSS-переменной, чтобы не дублировать начертания.
+ * поэтому хорошо ложится на пустые зоны шаблона. Шрифт подключается один раз
+ * и передаётся в бланк CSS-переменной, чтобы не дублировать начертания.
  */
 const certificateSerif = Cormorant_Garamond({
   display: "swap",
@@ -43,40 +45,43 @@ const CERTIFICATE_STYLES = `
     "Playfair Display", "Times New Roman", Georgia, serif;
   font-optical-sizing: auto;
 }
-.certificate-gold-text {
-  background-image: linear-gradient(
-    180deg,
-    #fff9e9 0%,
-    #f5dfad 17%,
-    #d8af68 40%,
-    #a36f2e 55%,
-    #e4bf78 72%,
-    #fff0c6 100%
-  );
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 1px 0 rgba(65, 37, 11, 0.9))
-    drop-shadow(0 4px 3px rgba(0, 0, 0, 0.5))
-    drop-shadow(0 0 14px rgba(229, 186, 104, 0.18));
+.certificate-ui {
+  font-family: var(--font-geist-sans), "Geist", "Segoe UI", Arial, sans-serif;
 }
 .certificate-name {
   background-image: linear-gradient(
     180deg,
-    #fffdf5 0%,
-    #faefd7 34%,
-    #e8d1a4 56%,
-    #c39a5b 72%,
-    #f8e7c0 100%
+    #fffdf3 0%,
+    #fbecc4 18%,
+    #e5c283 42%,
+    #b27a36 58%,
+    #e8c88c 76%,
+    #fff6d9 100%
   );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 2px 0 rgba(55, 31, 12, 0.92))
-    drop-shadow(0 5px 7px rgba(0, 0, 0, 0.55))
-    drop-shadow(0 0 24px rgba(243, 215, 158, 0.2));
+  filter: drop-shadow(0 2px 0 rgba(48, 25, 7, 0.9))
+    drop-shadow(0 6px 9px rgba(0, 0, 0, 0.55))
+    drop-shadow(0 0 26px rgba(232, 195, 125, 0.2));
+}
+.certificate-gold-text {
+  background-image: linear-gradient(
+    180deg,
+    #fff8e6 0%,
+    #f3dcaa 26%,
+    #d6aa63 52%,
+    #b47f3e 64%,
+    #efd09b 82%,
+    #fff4d4 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 1px 0 rgba(55, 31, 10, 0.9))
+    drop-shadow(0 4px 7px rgba(0, 0, 0, 0.5));
 }
 .certificate-light-text {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65),
@@ -141,47 +146,57 @@ type CertificateSheetProps = {
 
 /**
  * Размер имени зависит от его длины: короткое имя остаётся крупным акцентом,
- * длинное уменьшается и не заезжает на подписи внизу. Иначе имя из 30–40
- * символов на телефоне занимает три строки и ломает композицию A4.
+ * длинное уменьшается и не заезжает на декоративный разделитель. В новом
+ * бланке под имя отведена одна широкая строка между «Настоящим подтверждается»
+ * и ромбом, поэтому даже имя с отчеством должно оставаться читаемым.
  */
 function nameSizeClass(length: number): string {
   if (length > 80) {
-    return "text-[2.6cqw]";
-  }
-  if (length > 44) {
-    return "text-[3.4cqw]";
-  }
-  if (length > 26) {
-    return "text-[4.6cqw]";
-  }
-  if (length > 20) {
-    return "text-[6.6cqw]";
-  }
-  return "text-[7.8cqw]";
-}
-
-/**
- * Название курса занимает почти всю ширину строки. Для длинного пакета
- * «Все 3 уровня» кегль уменьшается, чтобы текст остался в одну строку.
- */
-function courseSizeClass(length: number): string {
-  if (length > 70) {
     return "text-[2.7cqw]";
   }
-  if (length > 52) {
-    return "text-[3cqw]";
+  if (length > 56) {
+    return "text-[3.2cqw]";
   }
-  return "text-[3.5cqw]";
+  if (length > 40) {
+    return "text-[3.7cqw]";
+  }
+  if (length > 28) {
+    return "text-[4.4cqw]";
+  }
+  if (length > 20) {
+    return "text-[5cqw]";
+  }
+  return "text-[5.6cqw]";
 }
 
 /**
- * Премиальный бланк сертификата в пропорциях утверждённого образца.
+ * Название курса занимает почти всю ширину строки между «успешно завершил(а)»
+ * и нижней линией подвала. Для длинного пакета «Все 3 уровня» кегль
+ * уменьшается, чтобы текст остался в одну строку и не задел часы.
+ */
+function courseSizeClass(length: number): string {
+  if (length > 80) {
+    return "text-[2.2cqw]";
+  }
+  if (length > 60) {
+    return "text-[2.6cqw]";
+  }
+  if (length > 48) {
+    return "text-[3cqw]";
+  }
+  if (length > 38) {
+    return "text-[3.3cqw]";
+  }
+  return "text-[3.6cqw]";
+}
+
+/**
+ * Премиальный бланк сертификата на основе готового шаблона `sert.png`.
  *
- * Статическая часть — рамка, логотип, эмблема, печать, подпись и подписи
- * полей — берётся из `certificate-blank.png`. Это точная копия макета с
- * вырезанными персональными данными: так бланк совпадает с референсом без
- * рисования декоративной графики заново. Динамические поля (имя, курс,
- * объём, дата, QR и номер) накладываются поверх в тех же координатах.
+ * Шаблон 1358 × 950 уже содержит рамку, логотип, эмблему, печать и подпись.
+ * Компонент не перерисовывает декор, а заполняет только пустые зоны:
+ * имя получателя, название курса, объём, дату, QR и номер. Это сохраняет
+ * исходную графику пиксельно точной и исключает расхождения со шрифтами.
  *
  * Все позиции и кегли заданы в процентах и `cqw` от ширины листа. Поэтому
  * документ целиком масштабируется на телефоне, мониторе и в PDF.
@@ -192,32 +207,34 @@ export function CertificateSheet({
   verifyUrl,
 }: CertificateSheetProps) {
   const program = getCertificateProgram(level, certificate.fullCourse);
+  const hours = `${program.hours} ${pluralize(program.hours, ACADEMIC_HOUR_FORMS)}`;
+  const lessons = `${program.lessons} ${pluralize(program.lessons, LESSON_FORMS)}`;
 
   return (
     <>
       <style>{CERTIFICATE_STYLES}</style>
       <style>{CERTIFICATE_PRINT_STYLES}</style>
 
-      <div className="certificate-frame mx-auto mt-8 w-full max-w-[1120px] overflow-hidden rounded-[2rem] shadow-[0_32px_110px_-28px_rgba(37,99,235,0.5)] print:mt-0 print:max-w-none print:rounded-none print:shadow-none">
+      <div className="certificate-frame mx-auto mt-8 w-full max-w-[1120px] overflow-hidden rounded-xl shadow-[0_32px_110px_-28px_rgba(37,99,235,0.5)] print:mt-0 print:max-w-none print:rounded-none print:shadow-none">
         <article
           aria-label={`Сертификат TriDi: ${program.title}, ${certificate.name}`}
-          className={`certificate-sheet ${certificateSerif.variable} relative aspect-[1808/1264] w-full overflow-hidden rounded-[2rem] bg-[#061428] text-slate-100 [container-type:inline-size] print:rounded-none`}
+          className={`certificate-sheet ${certificateSerif.variable} relative aspect-[1358/950] w-full overflow-hidden rounded-xl bg-[#07162b] text-slate-100 [container-type:inline-size] print:rounded-none`}
         >
           <Image
             alt=""
             aria-hidden="true"
             className="pointer-events-none absolute inset-0 h-full w-full object-fill select-none"
-            height={1264}
+            height={950}
             priority
             quality={90}
             sizes="(max-width: 768px) 100vw, 1120px"
-            src="/certificate-blank.png"
-            width={1808}
+            src="/sert.png"
+            width={1358}
           />
 
-          <div className="absolute top-[35.4%] left-[50.2%] z-10 flex w-[66%] -translate-x-1/2 -translate-y-1/2 items-center justify-center text-center">
+          <div className="absolute top-[34.5%] left-1/2 z-10 w-[78%] -translate-x-1/2 -translate-y-1/2 text-center">
             <p
-              className={`certificate-serif certificate-name origin-center leading-[0.98] font-semibold tracking-[0.005em] break-words scale-x-[1.055] ${nameSizeClass(
+              className={`certificate-serif certificate-name leading-[0.95] font-semibold tracking-[0.01em] break-words ${nameSizeClass(
                 certificate.name.trim().length,
               )}`}
             >
@@ -225,9 +242,9 @@ export function CertificateSheet({
             </p>
           </div>
 
-          <div className="absolute top-[50.58%] left-[48.3%] z-10 w-[82%] -translate-x-1/2 -translate-y-1/2 text-center">
+          <div className="absolute top-[51.5%] left-1/2 z-10 w-[84%] -translate-x-1/2 -translate-y-1/2 text-center">
             <p
-              className={`certificate-serif certificate-gold-text inline-block origin-center leading-[1.05] font-semibold tracking-[0.01em] scale-x-[1.14] ${courseSizeClass(
+              className={`certificate-serif certificate-gold-text inline-block leading-[1.06] font-semibold tracking-[0.01em] whitespace-nowrap ${courseSizeClass(
                 program.title.length,
               )}`}
             >
@@ -235,20 +252,26 @@ export function CertificateSheet({
             </p>
           </div>
 
-          <p className="absolute top-[55.45%] left-1/2 z-10 w-[44%] -translate-x-1/2 -translate-y-1/2 text-center text-[1.13cqw] leading-[1.2] tracking-[0.07em] text-slate-300/95">
-            Объём: {program.lessons} {pluralize(program.lessons, LESSON_FORMS)}{" "}
-            / {program.hours} {pluralize(program.hours, ACADEMIC_HOUR_FORMS)}
+          <p className="certificate-ui absolute top-[56.8%] left-1/2 z-10 w-[66%] -translate-x-1/2 -translate-y-1/2 text-center text-[1.32cqw] leading-[1.4] tracking-[0.18em] text-[#c8d1e1]/90">
+            {hours}{" "}
+            <span className="mx-[0.55em] text-[#c9a46a]">·</span>{" "}
+            {lessons}
           </p>
 
-          <p className="certificate-serif certificate-light-text absolute top-[86.2%] left-[7.3%] z-10 w-[20%] text-[2.13cqw] leading-none font-semibold whitespace-nowrap text-slate-100">
-            {formatCertificateDate(certificate.issuedAt)}
-          </p>
+          <div className="absolute top-[64.2%] left-[87.8%] z-10 w-[14.4%] -translate-x-1/2">
+            <p className="certificate-ui text-center text-[0.88cqw] leading-none tracking-[0.18em] text-[#c9a46a]/90">
+              дата выдачи
+            </p>
+            <p className="certificate-serif certificate-light-text mt-[0.4cqw] text-center text-[1.55cqw] leading-none font-semibold tracking-[0.02em] whitespace-nowrap text-[#f2e8d6]">
+              {formatCertificateDate(certificate.issuedAt)}
+            </p>
 
-          <div className="absolute top-[70.7%] left-[83.8%] z-10 w-[10%]">
-            <div className="rounded-[0.35cqw] border-[0.1cqw] border-[#d8b46f] bg-white p-[0.08cqw] shadow-[0_0_1.2cqw_rgba(216,180,111,0.22)]">
+            <div className="mt-[1.1cqw] border-[0.11cqw] border-[#c9a46a]/80 bg-[#061326] p-[0.3cqw] shadow-[0_0_1.8cqw_rgba(201,164,106,0.18)]">
               <CertificateQr className="w-full" value={verifyUrl} />
             </div>
-            <p className="mx-auto mt-[1.65cqw] w-[88%] text-center text-[1.1cqw] leading-[1.05] font-semibold tracking-[0.02em] break-all text-slate-100">
+
+            <p className="certificate-ui mt-[0.9cqw] text-center text-[0.92cqw] leading-[1.15] font-medium tracking-[0.08em] break-all text-[#b9c3d4]">
+              <span className="text-[#c9a46a]">№ </span>
               {certificate.number}
             </p>
           </div>
