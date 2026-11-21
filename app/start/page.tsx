@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { CertificateSheet } from "@/components/certificate/CertificateSheet";
 import lessonsData from "@/data/lessons.json";
+import { authHref } from "@/lib/auth-redirect";
 import type { Certificate } from "@/lib/certificates";
 import {
   LEVELS,
@@ -32,8 +33,15 @@ import styles from "./start.module.css";
  * данные курсов.
  */
 
-/** Куда ведут все кнопки лендинга. */
-const SIGN_UP_HREF = "/auth/sign-up";
+/**
+ * Куда ведут все кнопки лендинга.
+ *
+ * Возврат в первый урок обязателен: иначе после регистрации человек оказывался
+ * в личном кабинете и должен был сам искать бесплатный уровень. `next` доводит
+ * его до урока — в том числе через подтверждение email (`lib/site-url.ts`
+ * сохраняет адрес в ссылке из письма).
+ */
+const SIGN_UP_HREF = authHref("/auth/sign-up", "/course/lesson-1");
 
 /** Бесплатный уровень: его цифры повторяются в hero, программе и сравнении. */
 const BASIC_LEVEL = LEVELS[0];

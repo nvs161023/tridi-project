@@ -126,7 +126,7 @@ export default async function VerifyEmailPage({
                 </ul>
               )}
 
-              <ResendForm />
+              <ResendForm next={next} />
 
               <p className="mt-6 text-sm leading-relaxed text-slate-300">
                 Письмо не приходит совсем? Напишите на{" "}

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 
 import { OG_IMAGE } from "@/lib/seo";
@@ -12,6 +12,18 @@ import { OG_IMAGE } from "@/lib/seo";
 const PAGE_TITLE = "Бесплатный курс по 3D-печати для новичков";
 const PAGE_DESCRIPTION =
   "8 бесплатных уроков по 3D-печати: технологии, устройство принтера, материалы, слайсер, первый слой, калибровка, 15 дефектов и первый проект. Практика с первого урока, без привязки карты.";
+
+/**
+ * Без `viewport-fit=cover` iOS считает safe-area inset'ы нулевыми, и
+ * `env(safe-area-inset-bottom)` в стилях липкой CTA ничего не меняет. Параметр
+ * задан только для лендинга: остальные страницы не начинают заезжать под
+ * системную полосу.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: PAGE_TITLE,

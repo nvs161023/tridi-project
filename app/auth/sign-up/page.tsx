@@ -39,6 +39,9 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
   // Путь из адреса проверяем: он приходит из браузера, и без проверки регистрация
   // могла бы выбрасывать человека на чужой сайт (см. lib/auth-redirect.ts).
   const next = safeNextPath((await searchParams).next);
+  // Человек пришёл из лендинга или с урока: после регистрации он вернётся
+  // именно туда, а не в кабинет. Подсказка снимает вопрос «что дальше?».
+  const returnsToCourse = next?.startsWith("/course/") ?? false;
   return (
     <div className="min-h-screen text-slate-100">
       <div className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-16 sm:px-8">
@@ -58,8 +61,9 @@ export default async function SignUpPage({ searchParams }: SignUpPageProps) {
             Создайте аккаунт для доступа к инструментам и обучению
           </p>
           <p className="mt-2 text-xs leading-relaxed text-slate-400">
-            Бесплатный уровень курса и диагностика дефектов доступны сразу после
-            регистрации.
+            {returnsToCourse
+              ? "После регистрации вы вернётесь к выбранному уроку — доступ откроется сразу."
+              : "Бесплатный уровень курса и диагностика дефектов доступны сразу после регистрации."}
           </p>
 
           <SignUpForm next={next} />

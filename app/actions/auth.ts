@@ -296,7 +296,12 @@ export async function resendVerificationAction(
   }
 
   const supabase = await createClient();
-  const emailRedirectTo = await buildEmailRedirectUrl("/dashboard");
+  // Повторное письмо должно вести туда же, куда вело первое: на странице
+  // «проверьте почту» в next лежит урок или другой адрес возврата. Без этого
+  // человек, запросивший письмо заново, после подтверждения попадал в кабинет
+  // и терял выбранный урок.
+  const afterAuth = resolveAfterAuthPath(String(formData.get("next") ?? ""));
+  const emailRedirectTo = await buildEmailRedirectUrl(afterAuth);
 
   try {
     const { error } = await supabase.auth.resend({

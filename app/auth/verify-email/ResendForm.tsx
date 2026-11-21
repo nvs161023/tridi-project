@@ -16,7 +16,12 @@ const inputClassName =
  * браузер не загружается. Ссылка в письме ведёт на страницу
  * app/auth/confirm/page.tsx, и подтверждение запускает кнопка на ней.
  */
-export function ResendForm() {
+type ResendFormProps = {
+  /** Куда вернуться после подтверждения; значение уже проверено на сервере. */
+  next?: string | null;
+};
+
+export function ResendForm({ next = null }: ResendFormProps) {
   const [state, formAction, isPending] = useActionState(
     resendVerificationAction,
     emptyAuthFormState,
@@ -24,6 +29,7 @@ export function ResendForm() {
 
   return (
     <form action={formAction} className="mt-6 space-y-4">
+      {next ? <input type="hidden" name="next" defaultValue={next} /> : null}
       <div>
         <label
           htmlFor="resend-email"
