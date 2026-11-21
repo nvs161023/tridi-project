@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useId, useMemo, useState, useEffect, type ChangeEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 
 import { NumberSlider } from "@/components/constructor/NumberSlider";
 import { ParameterSelect } from "@/components/constructor/ParameterSelect";
@@ -188,7 +195,6 @@ import {
   type LithophaneMount,
   type LithophaneRailSocket,
   type LithophaneShape,
-  type ModelType,
   type PatternLayer,
   type PenShape,
   type PlanterShape,
@@ -290,6 +296,8 @@ export type StlExportOption = {
 
 type ParameterPanelProps = {
   params: ConstructorParams;
+  /** Галереи рецептов и форм: прокручиваются вместе с настройками. */
+  children?: ReactNode;
   /** Есть ли действующий доступ Pro: у Pro лимита на STL нет. */
   hasPro: boolean;
   /** Остаток бесплатных скачиваний; у Pro не используется. */
@@ -308,7 +316,6 @@ type ParameterPanelProps = {
   /** Запрос к серверному экспорту STL для выбранного файла. */
   onExport: (option: StlExportOption) => void;
   onParamChange: (key: SizeParam, value: number) => void;
-  onModelChange: (model: ModelType) => void;
   onShapeChange: (shape: VaseShape) => void;
   /**
    * Случайная ваза: силуэт, один-два слоя узора, амплитуда, частота и сид.
@@ -628,41 +635,6 @@ function ExportButtons({
     </>
   );
 }
-
-/** Модель конструктора: идентификатор, иконка и подпись в списке. */
-type ModelCard = { id: ModelType; icon: string; title: string };
-
-const MODEL_CARDS: ModelCard[] = [
-  { id: "vase", icon: "🏺", title: MODEL_TYPE_LABELS.vase },
-  { id: "keychain", icon: "🔑", title: MODEL_TYPE_LABELS.keychain },
-  { id: "sign", icon: "🪧", title: MODEL_TYPE_LABELS.sign },
-  { id: "box", icon: "📦", title: MODEL_TYPE_LABELS.box },
-  { id: "lithophane", icon: "🖼️", title: MODEL_TYPE_LABELS.lithophane },
-  { id: "planter", icon: "🪴", title: MODEL_TYPE_LABELS.planter },
-  { id: "coaster", icon: "☕", title: MODEL_TYPE_LABELS.coaster },
-  {
-    id: "jewelry_stand",
-    icon: "💍",
-    title: MODEL_TYPE_LABELS.jewelry_stand,
-  },
-  { id: "pen_holder", icon: "🖊️", title: MODEL_TYPE_LABELS.pen_holder },
-  {
-    id: "heat_transfer",
-    icon: "🖨️",
-    title: MODEL_TYPE_LABELS.heat_transfer,
-  },
-];
-
-/**
- * Пункты выпадающего списка моделей.
- *
- * Иконка осталась от прежних карточек: по ней модель узнаётся быстрее, чем по
- * названию, а в списке она занимает те же несколько символов.
- */
-const MODEL_OPTIONS = MODEL_CARDS.map((card) => ({
-  label: `${card.icon} ${card.title}`,
-  value: card.id,
-}));
 
 /** Пояснение к выбранному силуэту: помогает выбрать форму без 3D-терминов. */
 const SHAPE_HINTS: Record<VaseShape, string> = {
@@ -1664,6 +1636,7 @@ function modelSummary(
 
 export function ParameterPanel({
   params,
+  children,
   hasPro,
   freeDownloadsLeft,
   exportingId,
@@ -1672,7 +1645,6 @@ export function ParameterPanel({
   exportNotice = null,
   onExport,
   onParamChange,
-  onModelChange,
   onShapeChange,
   onRandomizeVase,
   onPatternLayerChange,
@@ -2812,27 +2784,29 @@ export function ParameterPanel({
   return (
     <section
       aria-labelledby="parameters-heading"
-      className="min-w-0 rounded-3xl border border-white/10 bg-white/5 p-5 sm:p-6"
+      className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/5 lg:h-full"
     >
-      <h2
-        className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
-        id="parameters-heading"
-      >
-        Параметры модели
-      </h2>
-
-      <div className="mt-4">
-        <ParameterSelect
-          label="Тип модели"
-          onChange={onModelChange}
-          options={MODEL_OPTIONS}
-          value={params.model}
-        />
+      <div className="shrink-0 border-b border-white/10 px-5 py-4 sm:px-6">
+        <div className="flex items-center justify-between gap-3">
+          <h2
+            className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
+            id="parameters-heading"
+          >
+            Настройки
+          </h2>
+          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[0.65rem] font-semibold text-slate-300">
+            {MODEL_TYPE_LABELS[params.model]}
+          </span>
+        </div>
+        <p className="mt-1 text-xs leading-relaxed text-slate-400">
+          Меняйте параметры — сцена и STL обновятся сразу.
+        </p>
       </div>
 
-      {params.model === "vase" ? (
+      <div className="min-h-0 flex-1 space-y-0 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 lg:[scrollbar-color:#475569_transparent] lg:[scrollbar-width:thin]">
+        {params.model === "vase" ? (
         <>
-          <div className="mt-6 space-y-5 border-t border-white/10 pt-5">
+          <div className="space-y-5">
             <ParameterSelect
               hint={SHAPE_HINTS[params.shape]}
               label="Форма"
@@ -2850,7 +2824,7 @@ export function ParameterPanel({
               форму, узоры и сид — размеры и стенку оставляет как есть.
             */}
             <button
-              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-fuchsia-500 to-blue-500 px-4 text-sm font-semibold text-white shadow-lg shadow-fuchsia-500/25 transition-transform hover:scale-[1.01] hover:from-fuchsia-400 hover:to-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 active:scale-100"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full border border-fuchsia-400/40 bg-fuchsia-400/10 px-4 text-sm font-semibold text-fuchsia-100 transition-colors hover:border-fuchsia-300/70 hover:bg-fuchsia-400/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
               onClick={onRandomizeVase}
               title="Случайный силуэт, один-два узора, амплитуда и частота, новый сид"
               type="button"
@@ -3259,7 +3233,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "keychain" ? (
         <>
-          <div className="mt-6 border-t border-white/10 pt-5">
+          <div className="space-y-5">
             <ParameterSelect
               hint="Девять готовых форм со своей геометрией: у каждой свои пропорции, ушко с отверстием под кольцо и ширина под имя и логотип. Своего контура нет — форма всегда из этого списка."
               label="Форма брелока"
@@ -3662,7 +3636,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "planter" ? (
         <>
-          <div className="mt-6 border-t border-white/10 pt-5">
+          <div className="space-y-5">
             <ParameterSelect
               hint="Форма в плане: круглое кашпо печатается равномерно, квадратное даёт плоские стенки, шестигранное — гранёный силуэт. Габарит везде считается «под ключ»."
               label="Форма"
@@ -3773,7 +3747,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "coaster" ? (
         <>
-          <div className="mt-6 border-t border-white/10 pt-5">
+          <div className="space-y-5">
             <ParameterSelect
               hint="Форма в плане: круглая салфетка под чашку, квадратная под стакан, шестигранная — гранёный вариант. Габарит считается «под ключ»."
               label="Форма"
@@ -3916,7 +3890,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "jewelry_stand" ? (
         <>
-          <div className="mt-6 border-t border-white/10 pt-5">
+          <div className="space-y-5">
             <ParameterSelect
               hint="Лист — чаша-лоток для часов, колец и серёг: край поднят бортиком, внутри прожилки и ложа. «Рогатое дерево» — овальный лоток со стволом-раструбом и кроной из рогов: десять отверстий Ø1.2 мм держат серьги, а ветви — кольца и цепочки. «Плетёное древо» — живое дерево в чаше: ствол с раструбом, ярусы ветвей с развилками и штыри под кольца."
               label="Форма"
@@ -4110,7 +4084,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "pen_holder" ? (
         <>
-          <div className="mt-6 border-t border-white/10 pt-5">
+          <div className="space-y-5">
             <ParameterSelect
               hint="Круглый стоит на столе, квадратный и шестигранный можно поставить вплотную к монитору: грани не дают ему катиться. Скруглённый квадрат — мягкие углы и тень, но габарит остаётся ровно выбранным."
               label="Форма"
@@ -4192,7 +4166,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "heat_transfer" ? (
         <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
+          <fieldset>
             <legend className="text-sm font-medium text-slate-200">
               Логотип
             </legend>
@@ -4356,7 +4330,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "box" ? (
         <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
+          <fieldset>
             <legend className="text-sm font-medium text-slate-200">
               Корпус
             </legend>
@@ -4571,7 +4545,7 @@ export function ParameterPanel({
         </>
       ) : params.model === "lithophane" ? (
         <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
+          <fieldset>
             <legend className="text-sm font-medium text-slate-200">
               Фотография
             </legend>
@@ -4903,7 +4877,7 @@ export function ParameterPanel({
         </>
       ) : (
         <>
-          <fieldset className="mt-6 border-t border-white/10 pt-5">
+          <fieldset>
             <legend className="text-sm font-medium text-slate-200">
               Надпись на вывеске
             </legend>
@@ -5070,7 +5044,13 @@ export function ParameterPanel({
         Сбросить параметры
       </button>
 
-      <div className="mt-5 border-t border-white/10 pt-5">
+      {children ? <div className="mt-5 space-y-5">{children}</div> : null}
+      </div>
+
+      <div
+        className="hidden shrink-0 border-t border-white/10 bg-slate-950/60 px-5 py-4 sm:px-6 lg:block"
+        id="constructor-export"
+      >
         {hasPro ? (
           <>
             <ExportButtons
@@ -5090,31 +5070,29 @@ export function ParameterPanel({
           </>
         ) : freeDownloadsLeft > 0 ? (
           <>
-            <div
-              aria-live="polite"
-              className="rounded-2xl border border-amber-400/40 bg-amber-400/10 px-4 py-3"
-            >
-              <p className="text-sm font-semibold text-amber-100">
-                Осталось бесплатных скачиваний:{" "}
+            <div className="mb-3 flex items-center justify-between gap-3 text-xs">
+              <p
+                aria-live="polite"
+                className="font-semibold text-amber-100"
+              >
+                Осталось{" "}
                 <span className="tabular-nums text-white">
                   {freeDownloadsLeft} из {FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH}
                 </span>
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
-                Лимит обновляется 1-го числа каждого месяца по UTC.
+              <p className="shrink-0 text-right text-[0.65rem] leading-tight text-slate-400">
+                Обновится 1-го числа
               </p>
             </div>
 
-            <div className="mt-3">
-              <ExportButtons
-                blockedReason={exportBlockReason}
-                exportingId={exportingId}
-                notice={exportNotice}
-                onExport={onExport}
-                options={exportOptions}
-                partsHeading={partsHeading}
-              />
-            </div>
+            <ExportButtons
+              blockedReason={exportBlockReason}
+              exportingId={exportingId}
+              notice={exportNotice}
+              onExport={onExport}
+              options={exportOptions}
+              partsHeading={partsHeading}
+            />
             <p className="mt-2 text-xs leading-relaxed text-slate-300">
               {isExporting
                 ? "Собираем геометрию и упаковываем её в бинарный STL…"

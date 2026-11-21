@@ -6,6 +6,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 
 import { loadConstructorProject } from "@/app/actions/projects";
 import { FeedbackDialog } from "@/components/constructor/FeedbackDialog";
+import { ModelPicker } from "@/components/constructor/ModelPicker";
 import {
   ParameterPanel,
   type StlExportError,
@@ -22,6 +23,9 @@ import {
   registerConstructorDownload,
   shouldAskForConstructorFeedback,
 } from "@/lib/constructor/feedback";
+import { FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH } from "@/lib/constructor/downloads";
+import { constructorExportBlockReason } from "@/lib/constructor/export-guard";
+import { MODEL_TYPES } from "@/lib/constructor/model-types";
 import type { SavedProjectNotice } from "@/lib/constructor/projects";
 import type { KeychainBuildReport } from "@/lib/constructor/keychain-geometry";
 import {
@@ -583,7 +587,7 @@ function ViewportSkeleton() {
 }
 
 /**
- * Мобильное окно со сценой: «Показать 3D» на весь экран.
+ * Мобильное окно со сценой: кнопка «На весь экран».
  *
  * На телефоне сцена стоит в потоке страницы обычным блоком — иначе она съедала
  * пол-экрана и панель настроек начиналась ниже. Рассмотреть модель целиком
@@ -753,8 +757,9 @@ export function ConstructorClient({
    * Мобильное окно со сценой.
    *
    * На телефоне сцена стоит в потоке страницы, поэтому «покрутить» её удобнее в
-   * отдельном окне на весь экран. Состояние живёт здесь: кнопка «Показать 3D»
-   * плавающая и не знает о разметке сцены, а окну нужны текущие параметры.
+   * отдельном окне на весь экран. Состояние живёт здесь: кнопка «На весь экран»
+   * стоит в шапке сцены и не знает о разметке окна, а ему нужны текущие
+   * параметры.
    */
   const [sceneOpen, setSceneOpen] = useState(false);
   /** Один и тот же проект не загружаем дважды (StrictMode в dev). */
@@ -1586,41 +1591,51 @@ export function ConstructorClient({
     }
   }
 
+  const exportBlockReason = constructorExportBlockReason(params);
+  const primaryExport = exportOptions[0] ?? null;
+  const mobileExportBlocked =
+    exportBlockReason !== null ||
+    (!hasPro && freeDownloadsLeft <= 0) ||
+    exportingId !== null;
+
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col px-5 pt-10 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-8 sm:pt-14 lg:h-[calc(100dvh_-_var(--header-h))] lg:overflow-y-auto lg:pt-4 lg:pb-4 xl:max-w-[96rem]">
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-end sm:justify-between lg:items-center lg:gap-8">
+    <main className="mx-auto flex w-full max-w-7xl flex-col px-4 pt-5 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6 sm:pt-6 lg:h-[calc(100dvh_-_var(--header-h))] lg:overflow-hidden lg:pt-4 lg:pb-4 xl:max-w-[104rem] xl:px-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <Link
-            className="inline-flex items-center gap-2 text-sm font-medium text-slate-300 transition-colors hover:text-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            className="inline-flex items-center gap-2 text-xs font-medium text-slate-400 transition-colors hover:text-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 sm:text-sm"
             href="/dashboard"
           >
             <span aria-hidden>←</span>В кабинет
           </Link>
 
-          <h1 className="mt-4 text-3xl font-extrabold tracking-tight text-white sm:text-4xl lg:mt-3 lg:text-3xl">
-            Конструктор 3D
-          </h1>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">
+              Конструктор 3D
+            </h1>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[0.65rem] font-semibold tracking-wide text-slate-400 uppercase">
+              {MODEL_TYPES.length} моделей
+            </span>
+          </div>
 
-          <p className="mt-3 max-w-2xl text-base leading-relaxed text-slate-300 lg:mt-2 lg:max-w-3xl lg:text-sm">
-            Параметрические модели под ваш принтер: ваза с математическим узором,
-            брелок с именем, светодиодная вывеска с
-            надписью, коробка-органайзер с сеткой и крышкой, литофан из
-            фотографии, кашпо с поддоном, подставка под кружку, стойка для
-            украшений, органайзер для ручек и термопринт логотипа.
-            Настройте размеры, проверьте результат в 3D и скачайте STL.
+          <p className="mt-1.5 max-w-2xl text-sm leading-relaxed text-slate-400">
+            Выберите модель, настройте параметры и проверьте результат в 3D. STL
+            собирается по текущим настройкам.
           </p>
         </div>
 
-        <div className="flex shrink-0 flex-col items-start gap-3 sm:items-end">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
           <span
             className={
               hasPro
-                ? "inline-flex items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-sm font-semibold text-emerald-200"
-                : "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm font-semibold text-slate-300"
+                ? "inline-flex min-h-10 items-center gap-2 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3.5 text-sm font-semibold text-emerald-200"
+                : "inline-flex min-h-10 items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3.5 text-sm font-semibold text-slate-300"
             }
           >
-            <span aria-hidden>{hasPro ? "✓" : "👁"}</span>
-            {hasPro ? "Подписка Pro" : "Бесплатный предпросмотр"}
+            <span aria-hidden>{hasPro ? "✓" : "◷"}</span>
+            {hasPro
+              ? "Pro · STL без лимита"
+              : `Бесплатно · ${freeDownloadsLeft} из ${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH} STL`}
           </span>
 
           {/* Сохранение доступно всем: проект помнит настройки, а не файл. */}
@@ -1653,21 +1668,23 @@ export function ConstructorClient({
       ) : null}
 
       {/*
-        Рабочая область — две независимые колонки, как в 3D-редакторе.
-        Слева всё, что меняет модель: параметры, галерея рецептов и галерея
-        форм. Колонка прокручивается сама, поэтому длинная панель и новые слои
-        узора больше не утаскивают сцену из виду. Справа сцена: она занимает
-        высоту рабочей области и остаётся на месте, что бы ни происходило
-        слева.
-        Строка сетки задана как minmax(0, 1fr): без нулевого минимума grid
-        растянул бы строку по содержимому высокой панели, и внутренняя
-        прокрутка колонки перестала бы работать.
-        На мобильном порядок обратный (order): сцена стоит обычным блоком вверху,
-        параметры и галереи едут под ней — страница прокручивается целиком, а
-        сцену на весь экран открывает плавающая кнопка «Показать 3D».
+        Рабочая область — как в настольном редакторе. На широком экране три
+        колонки: слева библиотека моделей, в центре сцена, справа настройки с
+        закреплённым блоком скачивания. Меню модели больше не спрятано в
+        выпадающем списке, а скачивание не уезжает под тысячи пикселей
+        параметров.
+        На ноутбуке остаются две колонки: лента моделей идёт сверху на всю
+        ширину, настройки слева, сцена справа. На телефоне порядок такой:
+        сцена, лента моделей, настройки — страница прокручивается целиком.
       */}
-      <div className="mt-8 flex flex-col gap-5 lg:mt-5 lg:grid lg:min-h-[26rem] lg:flex-1 lg:grid-cols-[minmax(19rem,25rem)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)] lg:gap-5 xl:grid-cols-[minmax(21rem,28rem)_minmax(0,1fr)]">
-        <div className="order-2 flex min-w-0 flex-col gap-5 lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1 lg:[scrollbar-color:#475569_transparent] lg:[scrollbar-width:thin]">
+      <div className="mt-5 flex flex-1 flex-col gap-4 lg:min-h-0 lg:grid lg:grid-cols-[minmax(18rem,22rem)_minmax(0,1fr)] lg:grid-rows-[auto_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[minmax(13.5rem,15rem)_minmax(0,1fr)_minmax(21rem,26rem)] xl:grid-rows-[minmax(0,1fr)]">
+        <ModelPicker
+          className="order-2 lg:col-span-2 lg:row-start-1 xl:col-span-1 xl:col-start-1 xl:row-start-1 xl:min-h-0 xl:overflow-y-auto xl:overscroll-contain xl:[scrollbar-color:#475569_transparent] xl:[scrollbar-width:thin]"
+          model={params.model}
+          onChange={updateModel}
+        />
+
+        <aside className="order-3 min-w-0 lg:col-start-1 lg:row-start-2 lg:min-h-0 xl:col-start-3 xl:row-start-1">
           <ParameterPanel
             exportError={exportError}
             exportNotice={signPackageNotice}
@@ -1705,7 +1722,6 @@ export function ConstructorClient({
             onLithoShapeChange={updateLithoShape}
             onLithophaneBrightnessChange={updateLithophaneBrightness}
             onLithophaneSideBrightnessChange={updateLithophaneSideBrightness}
-            onModelChange={updateModel}
             onNfcChange={updateKeychainNfc}
             onParamChange={updateParam}
             onPatternLayerChange={updatePatternLayer}
@@ -1730,49 +1746,42 @@ export function ConstructorClient({
             onSignFontChange={updateSignFont}
             onSignTextChange={updateSignText}
             params={params}
-          />
+          >
+            {/* Галереи живут в прокрутке настроек: рецепт — готовая ваза
+                целиком, форма — тот же узор в другом силуэте. Блок скачивания
+                внизу панели остаётся на месте. */}
+            <VaseRecipeGallery
+              onApplyRecipe={applyVaseRecipe}
+              params={params}
+            />
 
-          {/* Галереи стоят под панелью, в той же прокручиваемой колонке:
-              сравнивать вазы удобно рядом со слайдерами, а сцена справа в это
-              время не сдвигается. Сначала рецепты — готовая ваза целиком,
-              потом формы — тот же узор в другом силуэте. */}
-          <VaseRecipeGallery
-            onApplyRecipe={applyVaseRecipe}
-            params={params}
-          />
-
-          <VaseShapeGallery onSelectShape={updateShape} params={params} />
-
-          <p className="text-xs leading-relaxed text-slate-300">
-            Вращение — левая кнопка мыши или один палец, зум — колесо или два
-            пальца. Модель стоит на виртуальном столе: заглянуть под пол камера
-            не даст.
-          </p>
-        </div>
+            <VaseShapeGallery onSelectShape={updateShape} params={params} />
+          </ParameterPanel>
+        </aside>
 
         <section
           aria-labelledby="preview-heading"
-          className="order-1 flex min-w-0 flex-col lg:order-2 lg:min-h-0"
+          className="order-1 flex min-w-0 flex-col lg:col-start-2 lg:row-start-2 lg:min-h-0 xl:col-start-2 xl:row-start-1"
         >
           {/*
-            На десктопе сцена — правая колонка сетки: она тянется на всю высоту
-            рабочей области, поэтому прокрутка панели слева её не касается и
-            галереи под неё не заезжают.
-            На мобильном сцена — обычный блок в самом верху страницы, без sticky:
-            липкая сцена занимала под шапкой всё окно, и панель настроек
-            начиналась ниже, а прокрутка шла мимо неё. Теперь страница
-            прокручивается целиком, а покрутить модель можно в окне «Показать
-            3D» — плавающая кнопка внизу справа открывает сцену во весь экран.
+            Сцена — центральная колонка: на широком экране она самая большая,
+            на ноутбуке справа от настроек. На телефоне это первый блок после
+            заголовка; покрутить модель во весь экран можно кнопкой «Показать
+            3D» внизу справа.
           */}
           <div className="flex min-w-0 flex-col lg:min-h-0 lg:flex-1">
-            <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 px-1">
               <h2
-                className="text-xs font-semibold tracking-wide text-slate-300 uppercase"
+                className="flex items-center gap-2 text-xs font-semibold tracking-wide text-slate-300 uppercase"
                 id="preview-heading"
               >
-                Предпросмотр
+                <span
+                  aria-hidden
+                  className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"
+                />
+                3D-сцена
               </h2>
-              <span className="text-xs tabular-nums text-slate-300">
+              <span className="hidden text-xs tabular-nums text-slate-300 sm:inline">
                 {params.model === "vase" ? (
                   <>
                     {VASE_SHAPE_LABELS[params.shape]} ·{" "}
@@ -1878,6 +1887,15 @@ export function ConstructorClient({
                   </>
                 )}
               </span>
+              <button
+                className="inline-flex min-h-9 items-center gap-1.5 rounded-full border border-blue-400/50 bg-blue-500/15 px-3 text-xs font-semibold text-blue-100 transition-colors hover:bg-blue-500/25 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:hidden"
+                onClick={() => setSceneOpen(true)}
+                type="button"
+              >
+                <span aria-hidden>⛶</span>
+                На весь экран
+              </button>
+
             </div>
 
             <div className="mt-3 flex min-h-0 flex-col lg:mt-2 lg:flex-1">
@@ -1894,21 +1912,61 @@ export function ConstructorClient({
       </div>
 
       {/*
-        Плавающая кнопка «Показать 3D»: только на мобильном, где сцена ушла в
-        поток страницы. Стоит над панелью справа снизу, отступ учитывает
-        safe-area — иначе на iPhone её срезала бы домашняя полоса. Когда окно
-        открыто, кнопка не нужна: его закрывает своя кнопка и Escape.
+        Мобильная панель экспорта: на телефоне настройки длинные, поэтому
+        кнопка в конце панели скрыта. Здесь всегда виден главный файл — с тем
+        же ограничением, что и в панели, чтобы нельзя было скачать заведомо
+        непригодную модель. Когда бесплатные скачивания кончились, кнопка
+        уступает место переходу на Pro.
       */}
-      {sceneOpen ? null : (
-        <button
-          className="fixed right-4 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-40 inline-flex min-h-12 items-center gap-2 rounded-full border border-blue-400/60 bg-blue-500/90 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-950/50 backdrop-blur transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 lg:hidden"
-          onClick={() => setSceneOpen(true)}
-          type="button"
-        >
-          <span aria-hidden>🧊</span>
-          Показать 3D
-        </button>
-      )}
+      {primaryExport ? (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-slate-950/95 px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur lg:hidden">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-white">
+                {hasPro || freeDownloadsLeft > 0
+                  ? "STL по настройкам"
+                  : "Лимит скачиваний исчерпан"}
+              </p>
+              <p
+                className={
+                  exportBlockReason || exportError
+                    ? "mt-0.5 line-clamp-2 text-[0.65rem] leading-snug text-amber-200"
+                    : "mt-0.5 text-[0.65rem] leading-snug text-slate-400"
+                }
+              >
+                {exportBlockReason ??
+                  exportError?.message ??
+                  (hasPro
+                    ? "Подписка Pro: без лимита"
+                    : freeDownloadsLeft > 0
+                      ? `Осталось ${freeDownloadsLeft} из ${FREE_CONSTRUCTOR_DOWNLOADS_PER_MONTH}`
+                      : "Подписка Pro открывает безлимитную генерацию STL")}
+              </p>
+            </div>
+            {hasPro || freeDownloadsLeft > 0 ? (
+              <button
+                aria-busy={exportingId === primaryExport.id}
+                className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-full bg-blue-600 px-5 text-sm font-semibold text-white shadow-lg shadow-blue-600/25 transition-colors hover:bg-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 disabled:cursor-not-allowed disabled:bg-blue-600/50 disabled:text-white/70 disabled:shadow-none"
+                disabled={mobileExportBlocked}
+                onClick={() => exportStl(primaryExport)}
+                title={exportBlockReason ?? undefined}
+                type="button"
+              >
+                {exportingId === primaryExport.id ? "Генерация…" : "Скачать"}
+              </button>
+            ) : (
+              <Link
+                aria-label="Оформить подписку Pro"
+                className="inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-full bg-amber-400 px-5 text-sm font-extrabold text-slate-950 shadow-lg shadow-amber-500/25 transition-colors hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+                href="/pricing"
+              >
+                <span aria-hidden>⚡</span>
+                Pro
+              </Link>
+            )}
+          </div>
+        </div>
+      ) : null}
 
       {/* Окно со сценой живёт вне сетки: оно открывается поверх страницы. */}
       {sceneOpen ? (
